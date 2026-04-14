@@ -72,6 +72,8 @@ public:
 	virtual RID convex_polygon_shape_create() = 0;
 	virtual RID concave_polygon_shape_create() = 0;
 	virtual RID heightmap_shape_create() = 0;
+	virtual RID tapered_capsule_shape_create() = 0;
+	virtual RID tapered_cylinder_shape_create() = 0;
 	virtual RID custom_shape_create() = 0;
 
 	virtual void shape_set_data(RID p_shape, const Variant &p_data) = 0;
