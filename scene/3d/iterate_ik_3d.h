@@ -147,28 +147,6 @@ public:
 			return p_offset.xform(constrained_dir * length);
 		}
 
-		// Get the constraint correction as a quaternion rotation.
-		// The IK solver applies this to ALL downstream chain positions
-		// to avoid twist accumulation.
-		Quaternion get_limited_rotation_quat(const Quaternion &p_offset, const Vector3 &p_vector, const Vector3 &p_forward) const {
-			if (limitation.is_null()) {
-				return Quaternion();
-			}
-			Vector3 local_vector = p_offset.xform_inv(p_vector);
-			if (local_vector.is_zero_approx()) {
-				return Quaternion();
-			}
-			Vector3 input_dir = local_vector.normalized();
-			Vector3 constrained_dir = limitation->solve(p_forward, get_limitation_right_axis_vector(), limitation_rotation_offset, input_dir);
-			if (input_dir.is_equal_approx(constrained_dir)) {
-				return Quaternion();
-			}
-			// Shortest-arc rotation from input to constrained in local space,
-			// then conjugate by p_offset to get world-space rotation.
-			Quaternion local_rot = Quaternion(input_dir, constrained_dir);
-			return p_offset * local_rot * p_offset.inverse();
-		}
-
 		~IterateIK3DJointSetting() {
 			limitation.unref();
 		}
