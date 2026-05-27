@@ -128,6 +128,7 @@
 /modules/multiplayer/doc_classes/             @godotengine/network @godotengine/documentation
 /modules/multiplayer/editor/                  @godotengine/network @godotengine/editor
 /modules/multiplayer/tests/                   @godotengine/network @godotengine/tests
+/modules/http3/                               @godotengine/network
 /modules/upnp/                                @godotengine/network
 /modules/upnp/doc_classes/                    @godotengine/network @godotengine/documentation
 /modules/webrtc/                              @godotengine/network
@@ -211,6 +212,7 @@
 /modules/tilemap/                             @godotengine/2d-nodes
 /modules/tilemap/doc_classes/                 @godotengine/2d-nodes @godotengine/documentation
 /modules/tilemap/editor/                      @godotengine/2d-nodes @godotengine/editor
+/modules/open_telemetry/                      @V-Sekai/vsekai
 /modules/zip/                                 @godotengine/core
 /modules/zip/doc_classes/                     @godotengine/core @godotengine/documentation
 /modules/zip/tests/                           @godotengine/core @godotengine/tests
@@ -263,6 +265,7 @@
 /scene/resources/shader*                      @godotengine/shaders
 /scene/resources/skeleton*                    @godotengine/animation
 /scene/resources/text_*                       @godotengine/gui-nodes
+/scene/resources/visual_shader*               @godotengine/shaders
 /scene/theme/                                 @godotengine/gui-nodes
 
 # Servers
