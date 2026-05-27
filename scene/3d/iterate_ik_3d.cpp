@@ -60,8 +60,6 @@ bool IterateIK3D::_set(const StringName &p_path, const Variant &p_value) {
 					set_joint_limitation_right_axis_vector(which, idx, p_value);
 				} else if (opt == "rotation_offset") {
 					set_joint_limitation_rotation_offset(which, idx, p_value);
-				} else if (opt == "rotate_downstream_chain") {
-					set_joint_limitation_rotate_downstream_chain(which, idx, p_value);
 				} else {
 					return false;
 				}
@@ -104,8 +102,6 @@ bool IterateIK3D::_get(const StringName &p_path, Variant &r_ret) const {
 					r_ret = get_joint_limitation_right_axis_vector(which, idx);
 				} else if (opt == "rotation_offset") {
 					r_ret = get_joint_limitation_rotation_offset(which, idx);
-				} else if (opt == "rotate_downstream_chain") {
-					r_ret = get_joint_limitation_rotate_downstream_chain(which, idx);
 				} else {
 					return false;
 				}
