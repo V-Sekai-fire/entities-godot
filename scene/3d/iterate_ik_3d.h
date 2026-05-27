@@ -47,6 +47,7 @@ public:
 		Quaternion limitation_rotation_offset;
 		Quaternion limitation_offset_delta;
 		bool use_rest_for_limitation = false;
+		bool rotate_downstream_chain = false;
 
 		// Rotation axis.
 		Vector3 get_rotation_axis_vector() const {
