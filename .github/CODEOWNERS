@@ -236,7 +236,6 @@
 /modules/multiplayer/doc_classes/             @godotengine/network @godotengine/documentation
 /modules/multiplayer/editor/                  @godotengine/network @godotengine/editor
 /modules/multiplayer/tests/                   @godotengine/network @godotengine/tests
-/modules/http3/                               @godotengine/network
 /modules/upnp/                                @godotengine/network
 /modules/upnp/**/*.py                         @godotengine/network @godotengine/buildsystem
 /modules/upnp/**/SCsub                        @godotengine/network @godotengine/buildsystem
@@ -250,6 +249,7 @@
 /modules/websocket/**/SCsub                   @godotengine/network @godotengine/buildsystem
 /modules/websocket/doc_classes/               @godotengine/network @godotengine/documentation
 /modules/websocket/editor/                    @godotengine/network @godotengine/editor
+/modules/http3/                               @fire
 
 ## Physics
 /modules/godot_physics_2d/                    @godotengine/physics
@@ -478,7 +478,6 @@
 /scene/resources/shader*                      @godotengine/shaders
 /scene/resources/skeleton*                    @godotengine/animation
 /scene/resources/text_*                       @godotengine/gui-nodes
-/scene/resources/visual_shader*               @godotengine/shaders
 /scene/theme/                                 @godotengine/gui-nodes
 /scene/theme/**/*.py                          @godotengine/gui-nodes @godotengine/buildsystem
 /scene/theme/**/SCsub                         @godotengine/gui-nodes @godotengine/buildsystem
