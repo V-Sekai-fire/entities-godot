@@ -380,6 +380,8 @@ public:
 	Quaternion get_joint_limitation_rotation_offset(int p_index, int p_joint) const;
 	void set_joint_use_rest_for_limitation(int p_index, int p_joint, bool p_enabled);
 	bool is_joint_using_rest_for_limitation(int p_index, int p_joint) const;
+	void set_joint_limitation_rotate_downstream_chain(int p_index, int p_joint, bool p_enabled);
+	bool get_joint_limitation_rotate_downstream_chain(int p_index, int p_joint) const;
 
 	// Helper.
 #ifdef TOOLS_ENABLED
