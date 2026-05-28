@@ -524,6 +524,12 @@ Patches:
 - `0001-backport-upstream-commit-63f2f57.patch` (GH-121974)
 
 
+## jitter_buffer
+
+- Upstream: V-Sekai speech module (Lean 4 verified jitter buffer)
+- License: MIT
+
+
 ## libbacktrace
 
 - Upstream: https://github.com/ianlancetaylor/libbacktrace
@@ -598,6 +604,16 @@ Files extracted from upstream source:
 - `src/*.{c,h}`
 - `include/ogg/*.h` in `ogg/` (run `configure` to generate `config_types.h`)
 - `COPYING`
+
+
+## libsamplerate
+
+- Upstream: https://github.com/libsndfile/libsamplerate
+- Version: 0.2.2
+- License: BSD-2-Clause
+
+Sample rate converter used by the speech module for resampling between
+audio capture rate and Opus codec rate (48 kHz).
 
 
 ## libpng
@@ -932,6 +948,18 @@ Patches:
 
 - `0001-remove-try-catch.patch` ([GH-123123](https://github.com/godotengine/godot/pull/123123))
 
+## opus_speech
+
+- Upstream: https://github.com/xiph/opus
+- Version: 1.6.1
+- License: BSD-3-Clause
+
+Opus codec with OSCE (Opus Speech Coding Enhancement), DRED (Deep Redundancy),
+and Deep PLC (Packet Loss Concealment) via DNN. Used by the speech module for
+VoIP encoding/decoding. Named `opus_speech` to avoid conflict with any future
+engine-level Opus integration.
+
+
 ## pcre2
 
 - Upstream: https://pcre2project.github.io/pcre2/
@@ -959,6 +987,16 @@ Files extracted from upstream source:
 
 - `Recast/` folder without `CMakeLists.txt`
 - `License.txt`
+
+
+## rnnoise
+
+- Upstream: https://github.com/xiph/rnnoise
+- Version: 0.2
+- License: BSD-3-Clause
+
+Recurrent neural network-based noise suppression. Provides VAD (voice
+activity detection) and real-time noise reduction for the speech module.
 
 
 ## re-spirv
