@@ -132,6 +132,7 @@ void IterateIK3D::_get_property_list(List<PropertyInfo> *p_list) const {
 			props.push_back(PropertyInfo(Variant::QUATERNION, joint_path + "limitation/rotation_offset"));
 			props.push_back(PropertyInfo(Variant::BOOL, joint_path + "use_rest_for_limitation"));
 			props.push_back(PropertyInfo(Variant::BOOL, joint_path + "limitation/rotate_downstream_chain"));
+			_get_joint_extra_properties(i, j, joint_path, props); // subclass per-joint props, interleaved
 		}
 	}
 
