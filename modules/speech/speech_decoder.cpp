@@ -32,11 +32,11 @@
 #include "speech_processor.h"
 
 int32_t SpeechDecoder::process(const PackedByteArray *p_compressed_buffer,
-		PackedByteArray *p_pcm_output_buffer,
-		const int p_compressed_buffer_size,
-		const int p_pcm_output_buffer_size,
-		const int p_buffer_frame_count,
-		const int p_decode_fec) {
+							   PackedByteArray *p_pcm_output_buffer,
+							   const int p_compressed_buffer_size,
+							   const int p_pcm_output_buffer_size,
+							   const int p_buffer_frame_count,
+							   const int p_decode_fec) {
 	*p_pcm_output_buffer->ptrw() = 0;
 	if (!decoder) {
 		return OPUS_INVALID_STATE;
@@ -48,7 +48,7 @@ int32_t SpeechDecoder::process(const PackedByteArray *p_compressed_buffer,
 
 	opus_int32 ret_value =
 			opus_decode(decoder, opus_buffer_pointer, p_compressed_buffer_size,
-					output_buffer_pointer, p_buffer_frame_count, p_decode_fec);
+						output_buffer_pointer, p_buffer_frame_count, p_decode_fec);
 	return ret_value;
 }
 

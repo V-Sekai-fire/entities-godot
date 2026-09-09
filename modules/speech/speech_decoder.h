@@ -47,9 +47,9 @@ public:
 	SpeechDecoder();
 	~SpeechDecoder();
 	virtual int32_t process(const PackedByteArray *p_compressed_buffer,
-			PackedByteArray *p_pcm_output_buffer,
-			const int p_compressed_buffer_size,
-			const int p_pcm_output_buffer_size,
-			const int p_buffer_frame_count,
-			const int p_decode_fec = 0);
+							PackedByteArray *p_pcm_output_buffer,
+							const int p_compressed_buffer_size,
+							const int p_pcm_output_buffer_size,
+							const int p_buffer_frame_count,
+							const int p_decode_fec = 0);
 };
