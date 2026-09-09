@@ -131,6 +131,8 @@ void IterateIK3D::_get_property_list(List<PropertyInfo> *p_list) const {
 			props.push_back(PropertyInfo(Variant::VECTOR3, joint_path + "limitation/right_axis_vector"));
 			props.push_back(PropertyInfo(Variant::QUATERNION, joint_path + "limitation/rotation_offset"));
 			props.push_back(PropertyInfo(Variant::BOOL, joint_path + "use_rest_for_limitation"));
+			props.push_back(PropertyInfo(Variant::BOOL, joint_path + "limitation/rotate_downstream_chain"));
+			_get_joint_extra_properties(i, j, joint_path, props); // subclass per-joint props, interleaved
 		}
 	}
 
@@ -352,343 +354,357 @@ bool IterateIK3D::is_joint_using_rest_for_limitation(int p_index, int p_joint) c
 	const LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
 	ERR_FAIL_INDEX_V(p_joint, (int)joint_settings.size(), false);
 	return joint_settings[p_joint]->use_rest_for_limitation;
-}
+	void IterateIK3D::set_joint_limitation_rotate_downstream_chain(int p_index, int p_joint, bool p_enabled) {
+		ERR_FAIL_INDEX(p_index, (int)settings.size());
+		LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
+		ERR_FAIL_INDEX(p_joint, (int)joint_settings.size());
+		joint_settings[p_joint]->rotate_downstream_chain = p_enabled;
+	}
 
-void IterateIK3D::_set_joint_count(int p_index, int p_count) {
-	_unbind_joint_limitations(p_index);
-	LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
-	int delta = p_count - joint_settings.size();
-	if (delta < 0) {
-		for (int i = delta; i < 0; i++) {
-			memdelete(joint_settings[joint_settings.size() + i]);
-			joint_settings[joint_settings.size() + i] = nullptr;
+	bool IterateIK3D::get_joint_limitation_rotate_downstream_chain(int p_index, int p_joint) const {
+		ERR_FAIL_INDEX_V(p_index, (int)settings.size(), false);
+		const LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
+		ERR_FAIL_INDEX_V(p_joint, (int)joint_settings.size(), false);
+		return joint_settings[p_joint]->rotate_downstream_chain;
+	}
+
+	void IterateIK3D::_set_joint_count(int p_index, int p_count) {
+		_unbind_joint_limitations(p_index);
+		LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
+		int delta = p_count - joint_settings.size();
+		if (delta < 0) {
+			for (int i = delta; i < 0; i++) {
+				memdelete(joint_settings[joint_settings.size() + i]);
+				joint_settings[joint_settings.size() + i] = nullptr;
+			}
+		}
+		joint_settings.resize(p_count);
+		delta++;
+		if (delta > 1) {
+			for (int i = 1; i < delta; i++) {
+				joint_settings[p_count - i] = memnew(IterateIK3DJointSetting);
+			}
 		}
 	}
-	joint_settings.resize(p_count);
-	delta++;
-	if (delta > 1) {
-		for (int i = 1; i < delta; i++) {
-			joint_settings[p_count - i] = memnew(IterateIK3DJointSetting);
-		}
-	}
-}
 
-void IterateIK3D::_validate_axis(Skeleton3D *p_skeleton, int p_index, int p_joint) const {
-	RotationAxis axis = iterate_settings[p_index]->joint_settings[p_joint]->rotation_axis;
-	if (axis == ROTATION_AXIS_ALL) {
-		return;
-	}
-	Vector3 rot = get_joint_rotation_axis_vector(p_index, p_joint).normalized();
-	Vector3 fwd;
-	if (p_joint < (int)iterate_settings[p_index]->joints.size() - 1) {
-		fwd = p_skeleton->get_bone_rest(iterate_settings[p_index]->joints[p_joint + 1].bone).origin;
-	} else if (iterate_settings[p_index]->extend_end_bone) {
-		fwd = IKModifier3D::get_bone_axis(p_skeleton, iterate_settings[p_index]->end_bone.bone, iterate_settings[p_index]->end_bone_direction, mutable_bone_axes);
-		if (fwd.is_zero_approx()) {
+	void IterateIK3D::_validate_axis(Skeleton3D * p_skeleton, int p_index, int p_joint) const {
+		RotationAxis axis = iterate_settings[p_index]->joint_settings[p_joint]->rotation_axis;
+		if (axis == ROTATION_AXIS_ALL) {
 			return;
 		}
-	}
-	fwd.normalize();
-	if (Math::is_equal_approx(Math::abs(rot.dot(fwd)), 1)) {
-		WARN_PRINT_ED("Setting: " + itos(p_index) + " Joint: " + itos(p_joint) + ": Rotation axis and forward vector are colinear. This is not advised as it may cause unwanted rotation.");
-	}
-}
-
-void IterateIK3D::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("set_max_iterations", "max_iterations"), &IterateIK3D::set_max_iterations);
-	ClassDB::bind_method(D_METHOD("get_max_iterations"), &IterateIK3D::get_max_iterations);
-	ClassDB::bind_method(D_METHOD("set_min_distance", "min_distance"), &IterateIK3D::set_min_distance);
-	ClassDB::bind_method(D_METHOD("get_min_distance"), &IterateIK3D::get_min_distance);
-	ClassDB::bind_method(D_METHOD("set_angular_delta_limit", "angular_delta_limit"), &IterateIK3D::set_angular_delta_limit);
-	ClassDB::bind_method(D_METHOD("get_angular_delta_limit"), &IterateIK3D::get_angular_delta_limit);
-	ClassDB::bind_method(D_METHOD("set_deterministic", "deterministic"), &IterateIK3D::set_deterministic);
-	ClassDB::bind_method(D_METHOD("is_deterministic"), &IterateIK3D::is_deterministic);
-
-	// Setting.
-	ClassDB::bind_method(D_METHOD("set_target_node", "index", "target_node"), &IterateIK3D::set_target_node);
-	ClassDB::bind_method(D_METHOD("get_target_node", "index"), &IterateIK3D::get_target_node);
-
-	// Individual joints.
-	ClassDB::bind_method(D_METHOD("set_joint_rotation_axis", "index", "joint", "axis"), &IterateIK3D::set_joint_rotation_axis);
-	ClassDB::bind_method(D_METHOD("get_joint_rotation_axis", "index", "joint"), &IterateIK3D::get_joint_rotation_axis);
-	ClassDB::bind_method(D_METHOD("set_joint_rotation_axis_vector", "index", "joint", "axis_vector"), &IterateIK3D::set_joint_rotation_axis_vector);
-	ClassDB::bind_method(D_METHOD("get_joint_rotation_axis_vector", "index", "joint"), &IterateIK3D::get_joint_rotation_axis_vector);
-	ClassDB::bind_method(D_METHOD("set_joint_limitation", "index", "joint", "limitation"), &IterateIK3D::set_joint_limitation);
-	ClassDB::bind_method(D_METHOD("get_joint_limitation", "index", "joint"), &IterateIK3D::get_joint_limitation);
-	ClassDB::bind_method(D_METHOD("set_joint_limitation_right_axis", "index", "joint", "direction"), &IterateIK3D::set_joint_limitation_right_axis);
-	ClassDB::bind_method(D_METHOD("get_joint_limitation_right_axis", "index", "joint"), &IterateIK3D::get_joint_limitation_right_axis);
-	ClassDB::bind_method(D_METHOD("set_joint_limitation_right_axis_vector", "index", "joint", "vector"), &IterateIK3D::set_joint_limitation_right_axis_vector);
-	ClassDB::bind_method(D_METHOD("get_joint_limitation_right_axis_vector", "index", "joint"), &IterateIK3D::get_joint_limitation_right_axis_vector);
-	ClassDB::bind_method(D_METHOD("set_joint_limitation_rotation_offset", "index", "joint", "offset"), &IterateIK3D::set_joint_limitation_rotation_offset);
-	ClassDB::bind_method(D_METHOD("get_joint_limitation_rotation_offset", "index", "joint"), &IterateIK3D::get_joint_limitation_rotation_offset);
-	ClassDB::bind_method(D_METHOD("set_joint_use_rest_for_limitation", "index", "joint", "enabled"), &IterateIK3D::set_joint_use_rest_for_limitation);
-	ClassDB::bind_method(D_METHOD("is_joint_using_rest_for_limitation", "index", "joint"), &IterateIK3D::is_joint_using_rest_for_limitation);
-
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "max_iterations", PROPERTY_HINT_RANGE, "0,100,or_greater"), "set_max_iterations", "get_max_iterations");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "min_distance", PROPERTY_HINT_RANGE, "0,1,0.001,or_greater"), "set_min_distance", "get_min_distance");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "angular_delta_limit", PROPERTY_HINT_RANGE, "0,180,0.001,radians_as_degrees"), "set_angular_delta_limit", "get_angular_delta_limit");
-	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "deterministic"), "set_deterministic", "is_deterministic");
-	ADD_ARRAY_COUNT("Settings", "setting_count", "set_setting_count", "get_setting_count", "settings/");
-}
-
-void IterateIK3D::_clear_joints(int p_index) {
-	IterateIK3DSetting *setting = iterate_settings[p_index];
-	if (!setting) {
-		return;
-	}
-	_unbind_joint_limitations(p_index);
-	for (uint32_t i = 0; i < setting->solver_info_list.size(); i++) {
-		if (setting->solver_info_list[i]) {
-			memdelete(setting->solver_info_list[i]);
-			setting->solver_info_list[i] = nullptr;
+		Vector3 rot = get_joint_rotation_axis_vector(p_index, p_joint).normalized();
+		Vector3 fwd;
+		if (p_joint < (int)iterate_settings[p_index]->joints.size() - 1) {
+			fwd = p_skeleton->get_bone_rest(iterate_settings[p_index]->joints[p_joint + 1].bone).origin;
+		} else if (iterate_settings[p_index]->extend_end_bone) {
+			fwd = IKModifier3D::get_bone_axis(p_skeleton, iterate_settings[p_index]->end_bone.bone, iterate_settings[p_index]->end_bone_direction, mutable_bone_axes);
+			if (fwd.is_zero_approx()) {
+				return;
+			}
+		}
+		fwd.normalize();
+		if (Math::is_equal_approx(Math::abs(rot.dot(fwd)), 1)) {
+			WARN_PRINT_ED("Setting: " + itos(p_index) + " Joint: " + itos(p_joint) + ": Rotation axis and forward vector are colinear. This is not advised as it may cause unwanted rotation.");
 		}
 	}
-	setting->solver_info_list.clear();
-	setting->solver_info_list.resize_initialized(setting->joints.size());
-	_bind_joint_limitations(p_index);
-}
 
-void IterateIK3D::_init_joints(Skeleton3D *p_skeleton, int p_index) {
-	IterateIK3DSetting *setting = iterate_settings[p_index];
-	if (!setting) {
-		return;
-	}
-	cached_space = p_skeleton->get_global_transform_interpolated();
-	if (setting->simulation_dirty) {
-		_clear_joints(p_index);
-		setting->init_joints(p_skeleton, mutable_bone_axes);
-		setting->simulation_dirty = false;
-	} else if (deterministic) {
-		setting->init_joints(p_skeleton, mutable_bone_axes);
+	void IterateIK3D::_bind_methods() {
+		ClassDB::bind_method(D_METHOD("set_max_iterations", "max_iterations"), &IterateIK3D::set_max_iterations);
+		ClassDB::bind_method(D_METHOD("get_max_iterations"), &IterateIK3D::get_max_iterations);
+		ClassDB::bind_method(D_METHOD("set_min_distance", "min_distance"), &IterateIK3D::set_min_distance);
+		ClassDB::bind_method(D_METHOD("get_min_distance"), &IterateIK3D::get_min_distance);
+		ClassDB::bind_method(D_METHOD("set_angular_delta_limit", "angular_delta_limit"), &IterateIK3D::set_angular_delta_limit);
+		ClassDB::bind_method(D_METHOD("get_angular_delta_limit"), &IterateIK3D::get_angular_delta_limit);
+		ClassDB::bind_method(D_METHOD("set_deterministic", "deterministic"), &IterateIK3D::set_deterministic);
+		ClassDB::bind_method(D_METHOD("is_deterministic"), &IterateIK3D::is_deterministic);
+
+		// Setting.
+		ClassDB::bind_method(D_METHOD("set_target_node", "index", "target_node"), &IterateIK3D::set_target_node);
+		ClassDB::bind_method(D_METHOD("get_target_node", "index"), &IterateIK3D::get_target_node);
+
+		// Individual joints.
+		ClassDB::bind_method(D_METHOD("set_joint_rotation_axis", "index", "joint", "axis"), &IterateIK3D::set_joint_rotation_axis);
+		ClassDB::bind_method(D_METHOD("get_joint_rotation_axis", "index", "joint"), &IterateIK3D::get_joint_rotation_axis);
+		ClassDB::bind_method(D_METHOD("set_joint_rotation_axis_vector", "index", "joint", "axis_vector"), &IterateIK3D::set_joint_rotation_axis_vector);
+		ClassDB::bind_method(D_METHOD("get_joint_rotation_axis_vector", "index", "joint"), &IterateIK3D::get_joint_rotation_axis_vector);
+		ClassDB::bind_method(D_METHOD("set_joint_limitation", "index", "joint", "limitation"), &IterateIK3D::set_joint_limitation);
+		ClassDB::bind_method(D_METHOD("get_joint_limitation", "index", "joint"), &IterateIK3D::get_joint_limitation);
+		ClassDB::bind_method(D_METHOD("set_joint_limitation_right_axis", "index", "joint", "direction"), &IterateIK3D::set_joint_limitation_right_axis);
+		ClassDB::bind_method(D_METHOD("get_joint_limitation_right_axis", "index", "joint"), &IterateIK3D::get_joint_limitation_right_axis);
+		ClassDB::bind_method(D_METHOD("set_joint_limitation_right_axis_vector", "index", "joint", "vector"), &IterateIK3D::set_joint_limitation_right_axis_vector);
+		ClassDB::bind_method(D_METHOD("get_joint_limitation_right_axis_vector", "index", "joint"), &IterateIK3D::get_joint_limitation_right_axis_vector);
+		ClassDB::bind_method(D_METHOD("set_joint_limitation_rotation_offset", "index", "joint", "offset"), &IterateIK3D::set_joint_limitation_rotation_offset);
+		ClassDB::bind_method(D_METHOD("get_joint_limitation_rotation_offset", "index", "joint"), &IterateIK3D::get_joint_limitation_rotation_offset);
+		ClassDB::bind_method(D_METHOD("set_joint_use_rest_for_limitation", "index", "joint", "enabled"), &IterateIK3D::set_joint_use_rest_for_limitation);
+		ClassDB::bind_method(D_METHOD("is_joint_using_rest_for_limitation", "index", "joint"), &IterateIK3D::is_joint_using_rest_for_limitation);
+		ClassDB::bind_method(D_METHOD("set_joint_limitation_rotate_downstream_chain", "index", "joint", "enabled"), &IterateIK3D::set_joint_limitation_rotate_downstream_chain);
+		ClassDB::bind_method(D_METHOD("get_joint_limitation_rotate_downstream_chain", "index", "joint"), &IterateIK3D::get_joint_limitation_rotate_downstream_chain);
+
+		ADD_PROPERTY(PropertyInfo(Variant::INT, "max_iterations", PROPERTY_HINT_RANGE, "0,100,or_greater"), "set_max_iterations", "get_max_iterations");
+		ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "min_distance", PROPERTY_HINT_RANGE, "0,1,0.001,or_greater"), "set_min_distance", "get_min_distance");
+		ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "angular_delta_limit", PROPERTY_HINT_RANGE, "0,180,0.001,radians_as_degrees"), "set_angular_delta_limit", "get_angular_delta_limit");
+		ADD_PROPERTY(PropertyInfo(Variant::BOOL, "deterministic"), "set_deterministic", "is_deterministic");
+		ADD_ARRAY_COUNT("Settings", "setting_count", "set_setting_count", "get_setting_count", "settings/");
 	}
 
-	if (mutable_bone_axes) {
+	void IterateIK3D::_clear_joints(int p_index) {
+		IterateIK3DSetting *setting = iterate_settings[p_index];
+		if (!setting) {
+			return;
+		}
+		_unbind_joint_limitations(p_index);
+		for (uint32_t i = 0; i < setting->solver_info_list.size(); i++) {
+			if (setting->solver_info_list[i]) {
+				memdelete(setting->solver_info_list[i]);
+				setting->solver_info_list[i] = nullptr;
+			}
+		}
+		setting->solver_info_list.clear();
+		setting->solver_info_list.resize_initialized(setting->joints.size());
+		_bind_joint_limitations(p_index);
+	}
+
+	void IterateIK3D::_init_joints(Skeleton3D * p_skeleton, int p_index) {
+		IterateIK3DSetting *setting = iterate_settings[p_index];
+		if (!setting) {
+			return;
+		}
+		cached_space = p_skeleton->get_global_transform_interpolated();
+		if (setting->simulation_dirty) {
+			_clear_joints(p_index);
+			setting->init_joints(p_skeleton, mutable_bone_axes);
+			setting->simulation_dirty = false;
+		} else if (deterministic) {
+			setting->init_joints(p_skeleton, mutable_bone_axes);
+		}
+
+		if (mutable_bone_axes) {
 #ifdef TOOLS_ENABLED
-		_update_mutable_info();
+			_update_mutable_info();
 #endif // TOOLS_ENABLED
-		_update_bone_axis(p_skeleton, p_index);
+			_update_bone_axis(p_skeleton, p_index);
+		}
+		setting->simulated = false;
 	}
-	setting->simulated = false;
-}
 
-void IterateIK3D::_make_simulation_dirty(int p_index) {
-	IterateIK3DSetting *setting = iterate_settings[p_index];
-	if (!setting) {
-		return;
-	}
-	setting->simulation_dirty = true;
+	void IterateIK3D::_make_simulation_dirty(int p_index) {
+		IterateIK3DSetting *setting = iterate_settings[p_index];
+		if (!setting) {
+			return;
+		}
+		setting->simulation_dirty = true;
 #ifdef TOOLS_ENABLED
-	if (!mutable_bone_axes) {
-		_make_gizmo_dirty();
-	}
+		if (!mutable_bone_axes) {
+			_make_gizmo_dirty();
+		}
 #endif // TOOLS_ENABLED
-}
+	}
 
-void IterateIK3D::_update_bone_axis(Skeleton3D *p_skeleton, int p_index) {
+	void IterateIK3D::_update_bone_axis(Skeleton3D * p_skeleton, int p_index) {
 #ifdef TOOLS_ENABLED
-	bool changed = false;
+		bool changed = false;
 #endif // TOOLS_ENABLED
-	IterateIK3DSetting *setting = iterate_settings[p_index];
-	const LocalVector<BoneJoint> &joints = setting->joints;
-	const LocalVector<IKModifier3DSolverInfo *> &solver_info_list = setting->solver_info_list;
-	int len = (int)solver_info_list.size() - 1;
-	for (int j = 0; j < len; j++) {
-		IterateIK3DJointSetting *joint_setting = setting->joint_settings[j];
-		if (!joint_setting || !solver_info_list[j]) {
-			continue;
-		}
-		Vector3 axis = p_skeleton->get_bone_pose(joints[j + 1].bone).origin;
-		if (axis.is_zero_approx()) {
-			continue;
-		}
-		// Less computing.
+		IterateIK3DSetting *setting = iterate_settings[p_index];
+		const LocalVector<BoneJoint> &joints = setting->joints;
+		const LocalVector<IKModifier3DSolverInfo *> &solver_info_list = setting->solver_info_list;
+		int len = (int)solver_info_list.size() - 1;
+		for (int j = 0; j < len; j++) {
+			IterateIK3DJointSetting *joint_setting = setting->joint_settings[j];
+			if (!joint_setting || !solver_info_list[j]) {
+				continue;
+			}
+			Vector3 axis = p_skeleton->get_bone_pose(joints[j + 1].bone).origin;
+			if (axis.is_zero_approx()) {
+				continue;
+			}
+			// Less computing.
 #ifdef TOOLS_ENABLED
-		if (!changed) {
-			Vector3 old_v = solver_info_list[j]->forward_vector;
-			solver_info_list[j]->forward_vector = snap_vector_to_plane(joint_setting->get_rotation_axis_vector(), axis.normalized());
-			changed = changed || !old_v.is_equal_approx(solver_info_list[j]->forward_vector);
-			float old_l = solver_info_list[j]->length;
-			solver_info_list[j]->length = axis.length();
-			changed = changed || !Math::is_equal_approx(old_l, solver_info_list[j]->length);
-		} else {
-			solver_info_list[j]->forward_vector = snap_vector_to_plane(joint_setting->get_rotation_axis_vector(), axis.normalized());
-			solver_info_list[j]->length = axis.length();
-		}
+			if (!changed) {
+				Vector3 old_v = solver_info_list[j]->forward_vector;
+				solver_info_list[j]->forward_vector = snap_vector_to_plane(joint_setting->get_rotation_axis_vector(), axis.normalized());
+				changed = changed || !old_v.is_equal_approx(solver_info_list[j]->forward_vector);
+				float old_l = solver_info_list[j]->length;
+				solver_info_list[j]->length = axis.length();
+				changed = changed || !Math::is_equal_approx(old_l, solver_info_list[j]->length);
+			} else {
+				solver_info_list[j]->forward_vector = snap_vector_to_plane(joint_setting->get_rotation_axis_vector(), axis.normalized());
+				solver_info_list[j]->length = axis.length();
+			}
 #else
-		solver_info_list[j]->forward_vector = snap_vector_to_plane(joint_setting->get_rotation_axis_vector(), axis.normalized());
-		solver_info_list[j]->length = axis.length();
+			solver_info_list[j]->forward_vector = snap_vector_to_plane(joint_setting->get_rotation_axis_vector(), axis.normalized());
+			solver_info_list[j]->length = axis.length();
+#endif // TOOLS_ENABLED
+		}
+		if (setting->extend_end_bone && len >= 0) {
+			IterateIK3DJointSetting *joint_setting = setting->joint_settings[len];
+			if (joint_setting && solver_info_list[len]) {
+				Vector3 axis = IKModifier3D::get_bone_axis(p_skeleton, setting->end_bone.bone, setting->end_bone_direction, mutable_bone_axes);
+				if (!axis.is_zero_approx()) {
+					solver_info_list[len]->forward_vector = snap_vector_to_plane(joint_setting->get_rotation_axis_vector(), axis.normalized());
+					solver_info_list[len]->length = setting->end_bone_length;
+				}
+			}
+		}
+#ifdef TOOLS_ENABLED
+		if (changed) {
+			_make_gizmo_dirty();
+		}
 #endif // TOOLS_ENABLED
 	}
-	if (setting->extend_end_bone && len >= 0) {
-		IterateIK3DJointSetting *joint_setting = setting->joint_settings[len];
-		if (joint_setting && solver_info_list[len]) {
-			Vector3 axis = IKModifier3D::get_bone_axis(p_skeleton, setting->end_bone.bone, setting->end_bone_direction, mutable_bone_axes);
-			if (!axis.is_zero_approx()) {
-				solver_info_list[len]->forward_vector = snap_vector_to_plane(joint_setting->get_rotation_axis_vector(), axis.normalized());
-				solver_info_list[len]->length = setting->end_bone_length;
+
+#ifdef TOOLS_ENABLED
+	void IterateIK3D::_update_limitation_gizmo(Skeleton3D * p_skeleton, int p_index) {
+		IterateIK3DSetting *setting = iterate_settings[p_index];
+		bool changed = false;
+		for (uint32_t j = 0; j < setting->joints.size(); j++) {
+			IterateIK3DJointSetting *joint_setting = setting->joint_settings[j];
+			IKModifier3DSolverInfo *solver_info = setting->solver_info_list[j];
+			if (!joint_setting || joint_setting->limitation.is_null() || !solver_info) {
+				continue;
+			}
+			Quaternion offset;
+			if (!joint_setting->use_rest_for_limitation) {
+				int bone = setting->joints[j].bone;
+				if (bone >= 0 && bone < p_skeleton->get_bone_count()) {
+					offset = p_skeleton->get_bone_rest(bone).basis.get_rotation_quaternion().inverse() * solver_info->current_lrest;
+				}
+			}
+			if (!joint_setting->limitation_gizmo_offset.is_equal_approx(offset)) {
+				joint_setting->limitation_gizmo_offset = offset;
+				changed = true;
+			}
+		}
+		if (changed) {
+			_make_gizmo_dirty();
+		}
+	}
+#endif // TOOLS_ENABLED
+
+	void IterateIK3D::_process_ik(Skeleton3D * p_skeleton, double p_delta) {
+		min_distance_squared = min_distance * min_distance;
+		for (uint32_t i = 0; i < settings.size(); i++) {
+			_init_joints(p_skeleton, i);
+			Node3D *target = Object::cast_to<Node3D>(get_node_or_null(iterate_settings[i]->target_node));
+			if (!target || iterate_settings[i]->chain.is_empty()) {
+				continue; // Abort.
+			}
+			iterate_settings[i]->cache_current_joint_rotations(p_skeleton); // Iterate over first to detect parent (outside of the chain) bone pose changes.
+
+#ifdef TOOLS_ENABLED
+			_update_limitation_gizmo(p_skeleton, i);
+#endif // TOOLS_ENABLED
+
+			Vector3 destination = cached_space.affine_inverse().xform(target->get_global_transform_interpolated().origin);
+			_process_joints(p_delta, p_skeleton, iterate_settings[i], destination);
+		}
+	}
+
+	void IterateIK3D::_process_joints(double p_delta, Skeleton3D *p_skeleton, IterateIK3DSetting *p_setting, const Vector3 &p_destination) {
+		double distance_to_target_sq = INFINITY;
+		int iteration_count = 0;
+
+		// To prevent oscillation, if it has been processed at least once and target was reached, abort iterating.
+		if (p_setting->simulated) {
+			distance_to_target_sq = p_setting->chain[p_setting->chain.size() - 1].distance_squared_to(p_destination);
+		}
+
+		while (distance_to_target_sq > min_distance_squared && iteration_count < max_iterations) {
+			// Solve the IK for this iteration.
+			_solve_iteration(p_delta, p_skeleton, p_setting, p_destination);
+
+			// Update virtual bone rest/poses.
+			p_setting->cache_current_joint_rotations(p_skeleton, angular_delta_limit);
+			distance_to_target_sq = p_setting->chain[p_setting->chain.size() - 1].distance_squared_to(p_destination);
+			iteration_count++;
+		}
+
+		// Apply the virtual bone rest/poses to the actual bones.
+		for (uint32_t i = 0; i < p_setting->solver_info_list.size(); i++) {
+			IKModifier3DSolverInfo *solver_info = p_setting->solver_info_list[i];
+			if (!solver_info || Math::is_zero_approx(solver_info->length)) {
+				continue;
+			}
+			p_skeleton->set_bone_pose_rotation(p_setting->joints[i].bone, solver_info->current_lpose);
+		}
+
+		p_setting->simulated = true;
+	}
+
+	void IterateIK3D::_solve_iteration(double p_delta, Skeleton3D *p_skeleton, IterateIK3DSetting *p_setting, const Vector3 &p_destination) {
+		//
+	}
+
+	void IterateIK3D::_update_joint_limitation(int p_index, int p_joint) {
+		ERR_FAIL_INDEX(p_index, (int)iterate_settings.size());
+		iterate_settings[p_index]->simulated = false;
+		const LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
+		ERR_FAIL_INDEX(p_joint, (int)joint_settings.size()); // p_joint is unused directly, but need to identify bound index.
+#ifdef TOOLS_ENABLED
+		update_gizmos();
+#endif // TOOLS_ENABLED
+	}
+
+	void IterateIK3D::_bind_joint_limitation(int p_index, int p_joint) {
+		ERR_FAIL_INDEX(p_index, (int)iterate_settings.size());
+		const LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
+		ERR_FAIL_INDEX(p_joint, (int)joint_settings.size());
+		if (joint_settings[p_joint]->limitation.is_valid()) {
+			joint_settings[p_joint]->limitation->connect_changed(callable_mp(this, &IterateIK3D::_update_joint_limitation).bind(p_index, p_joint));
+		}
+	}
+
+	void IterateIK3D::_unbind_joint_limitation(int p_index, int p_joint) {
+		ERR_FAIL_INDEX(p_index, (int)iterate_settings.size());
+		const LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
+		ERR_FAIL_INDEX(p_joint, (int)joint_settings.size());
+		if (joint_settings[p_joint]->limitation.is_valid()) {
+			joint_settings[p_joint]->limitation->disconnect_changed(callable_mp(this, &IterateIK3D::_update_joint_limitation).bind(p_index, p_joint));
+		}
+	}
+
+	void IterateIK3D::_bind_joint_limitations(int p_index) {
+		for (uint32_t i = 0; i < iterate_settings[p_index]->joints.size(); i++) {
+			if (iterate_settings[p_index]->joint_settings[i]->limitation.is_valid()) {
+				iterate_settings[p_index]->joint_settings[i]->limitation->connect_changed(callable_mp(this, &IterateIK3D::_update_joint_limitation).bind(p_index, i));
 			}
 		}
 	}
-#ifdef TOOLS_ENABLED
-	if (changed) {
-		_make_gizmo_dirty();
-	}
-#endif // TOOLS_ENABLED
-}
 
-#ifdef TOOLS_ENABLED
-void IterateIK3D::_update_limitation_gizmo(Skeleton3D *p_skeleton, int p_index) {
-	IterateIK3DSetting *setting = iterate_settings[p_index];
-	bool changed = false;
-	for (uint32_t j = 0; j < setting->joints.size(); j++) {
-		IterateIK3DJointSetting *joint_setting = setting->joint_settings[j];
-		IKModifier3DSolverInfo *solver_info = setting->solver_info_list[j];
-		if (!joint_setting || joint_setting->limitation.is_null() || !solver_info) {
-			continue;
-		}
-		Quaternion offset;
-		if (!joint_setting->use_rest_for_limitation) {
-			int bone = setting->joints[j].bone;
-			if (bone >= 0 && bone < p_skeleton->get_bone_count()) {
-				offset = p_skeleton->get_bone_rest(bone).basis.get_rotation_quaternion().inverse() * solver_info->current_lrest;
+	void IterateIK3D::_unbind_joint_limitations(int p_index) {
+		for (uint32_t i = 0; i < iterate_settings[p_index]->joint_settings.size(); i++) {
+			if (iterate_settings[p_index]->joint_settings[i]->limitation.is_valid()) {
+				iterate_settings[p_index]->joint_settings[i]->limitation->disconnect_changed(callable_mp(this, &IterateIK3D::_update_joint_limitation).bind(p_index, i));
 			}
 		}
-		if (!joint_setting->limitation_gizmo_offset.is_equal_approx(offset)) {
-			joint_setting->limitation_gizmo_offset = offset;
-			changed = true;
-		}
 	}
-	if (changed) {
-		_make_gizmo_dirty();
-	}
-}
-#endif // TOOLS_ENABLED
-
-void IterateIK3D::_process_ik(Skeleton3D *p_skeleton, double p_delta) {
-	min_distance_squared = min_distance * min_distance;
-	for (uint32_t i = 0; i < settings.size(); i++) {
-		_init_joints(p_skeleton, i);
-		Node3D *target = Object::cast_to<Node3D>(get_node_or_null(iterate_settings[i]->target_node));
-		if (!target || iterate_settings[i]->chain.is_empty()) {
-			continue; // Abort.
-		}
-		iterate_settings[i]->cache_current_joint_rotations(p_skeleton); // Iterate over first to detect parent (outside of the chain) bone pose changes.
 
 #ifdef TOOLS_ENABLED
-		_update_limitation_gizmo(p_skeleton, i);
+	Vector3 IterateIK3D::get_bone_vector(int p_index, int p_joint) const {
+		Skeleton3D *skeleton = get_skeleton();
+		if (!skeleton) {
+			return Vector3();
+		}
+		ERR_FAIL_INDEX_V(p_index, (int)settings.size(), Vector3());
+		IterateIK3DSetting *setting = iterate_settings[p_index];
+		if (!setting) {
+			return Vector3();
+		}
+		const LocalVector<BoneJoint> &joints = setting->joints;
+		ERR_FAIL_INDEX_V(p_joint, (int)joints.size(), Vector3());
+		const LocalVector<IKModifier3DSolverInfo *> &solver_info_list = setting->solver_info_list;
+		if (p_joint >= (int)solver_info_list.size() || !solver_info_list[p_joint]) {
+			if (p_joint == (int)joints.size() - 1) {
+				return IKModifier3D::get_bone_axis(skeleton, setting->end_bone.bone, setting->end_bone_direction, mutable_bone_axes) * setting->end_bone_length;
+			}
+			return mutable_bone_axes ? skeleton->get_bone_pose(joints[p_joint + 1].bone).origin : skeleton->get_bone_rest(joints[p_joint + 1].bone).origin;
+		}
+		return solver_info_list[p_joint]->forward_vector * solver_info_list[p_joint]->length;
+	}
 #endif // TOOLS_ENABLED
 
-		Vector3 destination = cached_space.affine_inverse().xform(target->get_global_transform_interpolated().origin);
-		_process_joints(p_delta, p_skeleton, iterate_settings[i], destination);
-	}
-}
-
-void IterateIK3D::_process_joints(double p_delta, Skeleton3D *p_skeleton, IterateIK3DSetting *p_setting, const Vector3 &p_destination) {
-	double distance_to_target_sq = INFINITY;
-	int iteration_count = 0;
-
-	// To prevent oscillation, if it has been processed at least once and target was reached, abort iterating.
-	if (p_setting->simulated) {
-		distance_to_target_sq = p_setting->chain[p_setting->chain.size() - 1].distance_squared_to(p_destination);
-	}
-
-	while (distance_to_target_sq > min_distance_squared && iteration_count < max_iterations) {
-		// Solve the IK for this iteration.
-		_solve_iteration(p_delta, p_skeleton, p_setting, p_destination);
-
-		// Update virtual bone rest/poses.
-		p_setting->cache_current_joint_rotations(p_skeleton, angular_delta_limit);
-		distance_to_target_sq = p_setting->chain[p_setting->chain.size() - 1].distance_squared_to(p_destination);
-		iteration_count++;
-	}
-
-	// Apply the virtual bone rest/poses to the actual bones.
-	for (uint32_t i = 0; i < p_setting->solver_info_list.size(); i++) {
-		IKModifier3DSolverInfo *solver_info = p_setting->solver_info_list[i];
-		if (!solver_info || Math::is_zero_approx(solver_info->length)) {
-			continue;
+	IterateIK3D::~IterateIK3D() {
+		for (uint32_t i = 0; i < iterate_settings.size(); i++) {
+			_unbind_joint_limitations(i);
 		}
-		p_skeleton->set_bone_pose_rotation(p_setting->joints[i].bone, solver_info->current_lpose);
+		clear_settings();
 	}
-
-	p_setting->simulated = true;
-}
-
-void IterateIK3D::_solve_iteration(double p_delta, Skeleton3D *p_skeleton, IterateIK3DSetting *p_setting, const Vector3 &p_destination) {
-	//
-}
-
-void IterateIK3D::_update_joint_limitation(int p_index, int p_joint) {
-	ERR_FAIL_INDEX(p_index, (int)iterate_settings.size());
-	iterate_settings[p_index]->simulated = false;
-	const LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
-	ERR_FAIL_INDEX(p_joint, (int)joint_settings.size()); // p_joint is unused directly, but need to identify bound index.
-#ifdef TOOLS_ENABLED
-	update_gizmos();
-#endif // TOOLS_ENABLED
-}
-
-void IterateIK3D::_bind_joint_limitation(int p_index, int p_joint) {
-	ERR_FAIL_INDEX(p_index, (int)iterate_settings.size());
-	const LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
-	ERR_FAIL_INDEX(p_joint, (int)joint_settings.size());
-	if (joint_settings[p_joint]->limitation.is_valid()) {
-		joint_settings[p_joint]->limitation->connect_changed(callable_mp(this, &IterateIK3D::_update_joint_limitation).bind(p_index, p_joint));
-	}
-}
-
-void IterateIK3D::_unbind_joint_limitation(int p_index, int p_joint) {
-	ERR_FAIL_INDEX(p_index, (int)iterate_settings.size());
-	const LocalVector<IterateIK3DJointSetting *> &joint_settings = iterate_settings[p_index]->joint_settings;
-	ERR_FAIL_INDEX(p_joint, (int)joint_settings.size());
-	if (joint_settings[p_joint]->limitation.is_valid()) {
-		joint_settings[p_joint]->limitation->disconnect_changed(callable_mp(this, &IterateIK3D::_update_joint_limitation).bind(p_index, p_joint));
-	}
-}
-
-void IterateIK3D::_bind_joint_limitations(int p_index) {
-	for (uint32_t i = 0; i < iterate_settings[p_index]->joints.size(); i++) {
-		if (iterate_settings[p_index]->joint_settings[i]->limitation.is_valid()) {
-			iterate_settings[p_index]->joint_settings[i]->limitation->connect_changed(callable_mp(this, &IterateIK3D::_update_joint_limitation).bind(p_index, i));
-		}
-	}
-}
-
-void IterateIK3D::_unbind_joint_limitations(int p_index) {
-	for (uint32_t i = 0; i < iterate_settings[p_index]->joint_settings.size(); i++) {
-		if (iterate_settings[p_index]->joint_settings[i]->limitation.is_valid()) {
-			iterate_settings[p_index]->joint_settings[i]->limitation->disconnect_changed(callable_mp(this, &IterateIK3D::_update_joint_limitation).bind(p_index, i));
-		}
-	}
-}
-
-#ifdef TOOLS_ENABLED
-Vector3 IterateIK3D::get_bone_vector(int p_index, int p_joint) const {
-	Skeleton3D *skeleton = get_skeleton();
-	if (!skeleton) {
-		return Vector3();
-	}
-	ERR_FAIL_INDEX_V(p_index, (int)settings.size(), Vector3());
-	IterateIK3DSetting *setting = iterate_settings[p_index];
-	if (!setting) {
-		return Vector3();
-	}
-	const LocalVector<BoneJoint> &joints = setting->joints;
-	ERR_FAIL_INDEX_V(p_joint, (int)joints.size(), Vector3());
-	const LocalVector<IKModifier3DSolverInfo *> &solver_info_list = setting->solver_info_list;
-	if (p_joint >= (int)solver_info_list.size() || !solver_info_list[p_joint]) {
-		if (p_joint == (int)joints.size() - 1) {
-			return IKModifier3D::get_bone_axis(skeleton, setting->end_bone.bone, setting->end_bone_direction, mutable_bone_axes) * setting->end_bone_length;
-		}
-		return mutable_bone_axes ? skeleton->get_bone_pose(joints[p_joint + 1].bone).origin : skeleton->get_bone_rest(joints[p_joint + 1].bone).origin;
-	}
-	return solver_info_list[p_joint]->forward_vector * solver_info_list[p_joint]->length;
-}
-#endif // TOOLS_ENABLED
-
-IterateIK3D::~IterateIK3D() {
-	for (uint32_t i = 0; i < iterate_settings.size(); i++) {
-		_unbind_joint_limitations(i);
-	}
-	clear_settings();
-}
