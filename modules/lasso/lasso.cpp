@@ -41,25 +41,25 @@ LassoPoint::~LassoPoint() {
 
 void LassoPoint::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("enable_snapping", "on"),
-			&LassoPoint::enable_snapping);
+						 &LassoPoint::enable_snapping);
 	ClassDB::bind_method(D_METHOD("get_snapping_enabled"),
-			&LassoPoint::get_snapping_enabled);
+						 &LassoPoint::get_snapping_enabled);
 	ClassDB::bind_method(D_METHOD("set_snap_locked", "p_enable"),
-			&LassoPoint::set_snap_locked);
+						 &LassoPoint::set_snap_locked);
 	ClassDB::bind_method(D_METHOD("get_snap_locked"),
-			&LassoPoint::get_snap_locked);
+						 &LassoPoint::get_snap_locked);
 	ClassDB::bind_method(D_METHOD("set_size", "p_size"), &LassoPoint::set_size);
 	ClassDB::bind_method(D_METHOD("get_size"), &LassoPoint::get_size);
 	ClassDB::bind_method(D_METHOD("set_snapping_power", "p_snapping_power"),
-			&LassoPoint::set_snapping_power);
+						 &LassoPoint::set_snapping_power);
 	ClassDB::bind_method(D_METHOD("get_snapping_power"),
-			&LassoPoint::get_snapping_power);
+						 &LassoPoint::get_snapping_power);
 	ClassDB::bind_method(D_METHOD("get_snap_score"), &LassoPoint::get_snap_score);
 	ClassDB::bind_method(D_METHOD("get_origin"), &LassoPoint::get_origin);
 	ClassDB::bind_method(D_METHOD("register_point", "p_database", "p_origin"),
-			&LassoPoint::register_point);
+						 &LassoPoint::register_point);
 	ClassDB::bind_method(D_METHOD("unregister_point"),
-			&LassoPoint::unregister_point);
+						 &LassoPoint::unregister_point);
 }
 
 void LassoPoint::set_snap_locked(bool p_enable) {
@@ -137,15 +137,15 @@ LassoDB::~LassoDB() {}
 void LassoDB::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("add_point", "point"), &LassoDB::add_point);
 	ClassDB::bind_method(D_METHOD("remove_point", "point"),
-			&LassoDB::remove_point);
+						 &LassoDB::remove_point);
 	ClassDB::bind_method(D_METHOD("calc_top_two_snapping_power", "source",
-								 "current_snap",
-								 "snap_max_power_increase",
-								 "snap_increase_amount", "snap_lock"),
-			&LassoDB::calc_top_two_snapping_power);
+								  "current_snap",
+								  "snap_max_power_increase",
+								  "snap_increase_amount", "snap_lock"),
+						 &LassoDB::calc_top_two_snapping_power);
 	ClassDB::bind_method(D_METHOD("calc_top_redirecting_power", "snapped_point",
-								 "viewpoint", "redirection_direction"),
-			&LassoDB::calc_top_redirecting_power);
+								  "viewpoint", "redirection_direction"),
+						 &LassoDB::calc_top_redirecting_power);
 }
 void LassoDB::add_point(Ref<LassoPoint> point) {
 	if (point.is_valid() && !points.has(point)) {
@@ -161,9 +161,9 @@ void LassoDB::remove_point(Ref<LassoPoint> point) {
 }
 
 Array LassoDB::calc_top_two_snapping_power(Transform3D source, Node *current_snap,
-		float snap_max_power_increase,
-		float snap_increase_amount,
-		bool snap_lock) {
+										   float snap_max_power_increase,
+										   float snap_increase_amount,
+										   bool snap_lock) {
 	Array output;
 	Ref<LassoPoint> first;
 	Ref<LassoPoint> second;
@@ -212,8 +212,8 @@ Array LassoDB::calc_top_two_snapping_power(Transform3D source, Node *current_sna
 }
 
 Node *LassoDB::calc_top_redirecting_power(Node *snapped_origin,
-		Transform3D viewpoint,
-		Vector2 redirection_direction) {
+										  Transform3D viewpoint,
+										  Vector2 redirection_direction) {
 	Node3D *snapped_origin_Node3D = cast_to<Node3D>(snapped_origin);
 	ERR_FAIL_NULL_V(snapped_origin_Node3D, nullptr);
 
@@ -230,21 +230,21 @@ Node *LassoDB::calc_top_redirecting_power(Node *snapped_origin,
 		Vector3 y_vector = x_vector.cross(z_vector).normalized();
 		Basis local_basis =
 				Basis(x_vector, y_vector,
-						z_vector); // ITS FUCKING TRANSPOSED BY DEFAULT. WHY!?
+					  z_vector); // ITS FUCKING TRANSPOSED BY DEFAULT. WHY!?
 		Ref<LassoPoint> first;
 		float redirect_power = INFINITY; // The lower is better.
 		for (int i = 0; i < points.size(); i++) {
 			Ref<LassoPoint> next = points[i];
 			float next_power = 0;
 			if (next.is_valid() && next->valid_origin() &&
-					!next->matching_origin(snapped_origin_Node3D)) {
+				!next->matching_origin(snapped_origin_Node3D)) {
 				Vector3 point_vector = viewpoint.origin - next->get_origin_pos();
 				if (point_vector.angle_to(snapped_vector) < Math::PI / 4.0) {
 					Vector3 point_xyz = local_basis.xform(point_vector);
 					Vector2 point_xy = Vector2(point_xyz[0], -point_xyz[1]);
 
 					if (Math::abs(redirection_direction.angle_to(point_xy)) >=
-							Math::PI / 2) {
+						Math::PI / 2) {
 						continue;
 						// Keep the redirect power at infinity if the joystick is more than
 						// 90 degrees away from the point.
