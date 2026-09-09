@@ -33,6 +33,7 @@
 #include "spmemvfs/spmemvfs.h"
 #include "sqlite/sqlite3.h"
 
+#include "core/core_bind.h"
 #include "core/object/ref_counted.h"
 #include "core/templates/local_vector.h"
 
@@ -73,7 +74,7 @@ private:
 	spmemvfs_db_t spmemvfs_db{};
 	bool memory_read = false;
 
-	::LocalVector<Ref<WeakRef>> queries;
+	::LocalVector<Ref<CoreBind::WeakRef>> queries;
 
 	sqlite3_stmt *prepare(const char *statement);
 	Array fetch_rows(const String &query, const Array &args, int result_type = RESULT_BOTH);
