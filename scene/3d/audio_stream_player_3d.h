@@ -129,6 +129,8 @@ private:
 	/// This hash map is stored as member for efficiency reasons.
 	HashMap<StringName, Vector<AudioFrame>> bus_volumes;
 
+	AudioSourceId audio_source_id;
+
 protected:
 	void _notification(int p_what);
 	static void _bind_methods();
