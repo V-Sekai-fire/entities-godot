@@ -32,6 +32,7 @@
 #include "core/config/project_settings.h"
 #include "core/object/class_db.h"
 #include "core/typedefs.h"
+#include "servers/audio/audio_driver.h"
 
 #define STEREO_CHANNEL_COUNT 2
 
