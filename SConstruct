@@ -998,6 +998,9 @@ else:  # GCC, Clang
         # for putting them in `Set` or `Map`. We don't mind about unreliable ordering.
         common_warnings += ["-Wno-ordered-compare-function-pointers"]
         common_warnings += ["-Wenum-conversion"]
+        # Clang 23 reports -Wunused-template under -Wall, and the engine defines function
+        # templates that only macro expansions instantiate.
+        common_warnings += ["-Wno-unused-template"]
 
     # clang-cl will interpret `-Wall` as `-Weverything`, workaround with compatibility cast.
     env["WARNLEVEL"] = "-Wall" if not env.msvc else "-W3"
