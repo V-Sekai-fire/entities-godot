@@ -120,7 +120,7 @@ jobs:
         run: |
           # Pinned to the release the desk carries, so a local build and this job
           # see the same compiler and the same warnings.
-          ver=20260826
+          ver=20260505
           curl -fsSL -o llvm-mingw.zip             "https://github.com/mstorsjo/llvm-mingw/releases/download/$ver/llvm-mingw-$ver-ucrt-x86_64.zip"
           7z x -y llvm-mingw.zip > /dev/null
           echo "MINGW_PREFIX=$PWD/llvm-mingw-$ver-ucrt-x86_64" >> "$GITHUB_ENV"
