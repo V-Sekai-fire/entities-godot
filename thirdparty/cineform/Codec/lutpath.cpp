@@ -29,9 +29,9 @@
 // Must include the following file for Visual Studio 2005 (not required for Visual Studio 2003)
 //#include <atlbase.h>
 #include <tchar.h>
-#else
-#include <errno.h>
 #endif
+// Standard C, and not reached through tchar.h outside MSVC.
+#include <errno.h>
 
 #include "../Common/AVIExtendedHeader.h"
 
