@@ -475,7 +475,7 @@ Ref<SQLiteQuery> SQLite::create_query(String p_query) {
 	query.instantiate();
 	query->init(this, p_query);
 
-	Ref<WeakRef> weak_ref = memnew(WeakRef);
+	Ref<CoreBind::WeakRef> weak_ref = memnew(CoreBind::WeakRef);
 	weak_ref->set_obj(query.ptr());
 	queries.push_back(weak_ref);
 
