@@ -119,11 +119,10 @@ if picoquic_present and picotls_present and env["platform"] != "web":
         env_thirdparty.Append(CPPDEFINES=["_WINDOWS"])
         env_quic.Append(CPPDEFINES=["_WINDOWS"])
         if not env_thirdparty.msvc:
-            # MinGW 14's ws2tcpip.h / ws2ipdef.h define IN6_* helpers with
-            # __CRT_INLINE (extern inline) which emits duplicate external
-            # definitions across translation units. This is a known MinGW
-            # header bug; --allow-multiple-definition merges them at link time.
-            env.Append(LINKFLAGS=["-Wl,--allow-multiple-definition"])
+            # MinGW's headers define imaxabs and the IN6_* helpers as extern inline,
+            # which under C99 semantics emits one external definition per translation
+            # unit. -fgnu89-inline gives them the semantics they were written for.
+            env_thirdparty.Append(CFLAGS=["-fgnu89-inline"])
     env_thirdparty.add_source_files(thirdparty_obj, thirdparty_sources)
     env.modules_sources += thirdparty_obj
 
