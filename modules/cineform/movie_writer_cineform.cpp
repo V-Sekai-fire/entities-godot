@@ -69,7 +69,7 @@ uint32_t MovieWriterCineForm::get_audio_mix_rate() const {
 	return mix_rate;
 }
 
-AudioServer::SpeakerMode MovieWriterCineForm::get_audio_speaker_mode() const {
+AuSE::SpeakerMode MovieWriterCineForm::get_audio_speaker_mode() const {
 	return speaker_mode;
 }
 
@@ -304,7 +304,7 @@ void MovieWriterCineForm::write_end() {
 
 MovieWriterCineForm::MovieWriterCineForm() {
 	mix_rate = GLOBAL_GET("editor/movie_writer/mix_rate");
-	speaker_mode = AudioServer::SpeakerMode(int(GLOBAL_GET("editor/movie_writer/speaker_mode")));
+	speaker_mode = AuSE::SpeakerMode(int(GLOBAL_GET("editor/movie_writer/speaker_mode")));
 	audio_bit_depth = GLOBAL_GET("editor/movie_writer/audio_bit_depth");
 	quality_index = CLAMP(int(GLOBAL_GET("editor/movie_writer/cineform/quality")), 0, 5);
 	keep_alpha = GLOBAL_GET("editor/movie_writer/cineform/keep_alpha");
