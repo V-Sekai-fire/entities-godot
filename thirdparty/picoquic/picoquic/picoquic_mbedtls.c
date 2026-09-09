@@ -54,9 +54,8 @@ void picoquic_mbedtls_load(int UNUSED(unload))
 #include "picoquic_crypto_provider_api.h"
 #include "picoquic_utils.h"
 #ifndef ESP_PLATFORM
-#include "mbedtls/chacha20.h"
+#include "mbedtls/private/chacha20.h"
 #endif
-#include "mbedtls/ecdh.h"
 
 #include "picoquic_crypto_provider_api.h"
 #ifdef MBEDTLS_VERSION_NUMBER

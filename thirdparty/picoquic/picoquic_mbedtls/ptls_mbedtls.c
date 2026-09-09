@@ -34,9 +34,8 @@
 #include "psa/crypto_struct.h"
 #include "psa/crypto_values.h"
 
-#include "mbedtls/chacha20.h"
+#include "mbedtls/private/chacha20.h"
 
-#include "mbedtls/ecdh.h"
 
 
 /* Init and free functions. Init should be used before starting using

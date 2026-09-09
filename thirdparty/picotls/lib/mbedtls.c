@@ -28,8 +28,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <psa/crypto.h>
-#include <mbedtls/chacha20.h>
-#include <mbedtls/ecdh.h>
+#include <mbedtls/private/chacha20.h>
 #include "picotls.h"
 
 #define PSA_FUNC_FAILED(fn, ret)                                                                                                   \
