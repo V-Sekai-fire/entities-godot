@@ -758,11 +758,6 @@ void Speech::attempt_to_feed_stream(int p_skip_count, Ref<SpeechDecoder> p_decod
 		required_packets += 1;
 	}
 
-	Dictionary last_packet;
-	if (p_jitter_buffer.size() > 0) {
-		Dictionary jitter_buffer = p_jitter_buffer.back();
-		last_packet = jitter_buffer["packet"];
-	}
 	while (p_jitter_buffer.size() < required_packets) {
 		Variant fill_packets;
 		Dictionary dict;
