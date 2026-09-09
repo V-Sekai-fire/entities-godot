@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  audio_server_enums.h                                                  */
+/*  resonance_audio_material_map.h                                        */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,33 +30,39 @@
 
 #pragma once
 
-namespace AudioServerEnums {
+#include "core/io/resource.h"
+#include "servers/resonanceaudio/reverb_probe_gi.h"
 
-//re-expose this here, as AudioDriver is not exposed to script
-enum SpeakerMode {
-	SPEAKER_MODE_STEREO,
-	SPEAKER_SURROUND_31,
-	SPEAKER_SURROUND_51,
-	SPEAKER_SURROUND_71,
+class ResonanceAudioMaterialMap : public Resource {
+	GDCLASS(ResonanceAudioMaterialMap, Resource);
+
+	// Maps visual material resource path → acoustic WallMaterial enum.
+	Dictionary material_mappings;
+	ReverbProbeGI::WallMaterial default_material = ReverbProbeGI::MATERIAL_PLASTER_SMOOTH;
+
+protected:
+	bool _set(const StringName &p_name, const Variant &p_value);
+	bool _get(const StringName &p_name, Variant &r_ret) const;
+	void _get_property_list(List<PropertyInfo> *p_list) const;
+	static void _bind_methods();
+
+public:
+	void set_material_mapping(const String &p_material_path, ReverbProbeGI::WallMaterial p_acoustic);
+	ReverbProbeGI::WallMaterial get_material_mapping(const String &p_material_path) const;
+	bool has_material_mapping(const String &p_material_path) const;
+	void remove_material_mapping(const String &p_material_path);
+
+	void set_default_material(ReverbProbeGI::WallMaterial p_material);
+	ReverbProbeGI::WallMaterial get_default_material() const { return default_material; }
+
+	void set_material_mappings(const Dictionary &p_mappings);
+	Dictionary get_material_mappings() const { return material_mappings; }
+
+	// Scan a scene tree and populate mappings for all visual materials found.
+	// Materials not already in the map get assigned the default.
+	void scan_scene(Node *p_root);
+	void clear_mappings();
+	void _scan_from_editor();
+
+	ResonanceAudioMaterialMap() {}
 };
-
-enum PlaybackType {
-	PLAYBACK_TYPE_DEFAULT,
-	PLAYBACK_TYPE_STREAM,
-	PLAYBACK_TYPE_SAMPLE,
-	PLAYBACK_TYPE_MAX
-};
-
-enum BusType {
-	BUS_TYPE_CONVENTIONAL = 0,
-	BUS_TYPE_SPATIAL_3D = 1,
-};
-
-#ifndef DISABLE_DEPRECATED
-// Graveyard.
-#endif
-
-} // namespace AudioServerEnums
-
-// Alias to make it easier to use.
-#define AuSE AudioServerEnums
