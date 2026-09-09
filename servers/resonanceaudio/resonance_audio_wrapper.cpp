@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  audio_server_enums.h                                                  */
+/*  resonance_audio_wrapper.cpp                                           */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,35 +28,24 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#include "resonance_audio_wrapper.h"
 
-namespace AudioServerEnums {
+#include "servers/audio/audio_server.h"
 
-//re-expose this here, as AudioDriver is not exposed to script
-enum SpeakerMode {
-	SPEAKER_MODE_STEREO,
-	SPEAKER_SURROUND_31,
-	SPEAKER_SURROUND_51,
-	SPEAKER_SURROUND_71,
-};
+ResonanceAudioServer *ResonanceAudioServer::singleton = nullptr;
 
-enum PlaybackType {
-	PLAYBACK_TYPE_DEFAULT,
-	PLAYBACK_TYPE_STREAM,
-	PLAYBACK_TYPE_SAMPLE,
-	PLAYBACK_TYPE_MAX
-};
-
-enum BusType {
-	BUS_TYPE_CONVENTIONAL = 0,
-	BUS_TYPE_SPATIAL_3D = 1,
-};
-
-#ifndef DISABLE_DEPRECATED
-// Graveyard.
-#endif
-
-} // namespace AudioServerEnums
-
-// Alias to make it easier to use.
-#define AuSE AudioServerEnums
+ResonanceAudioBus::ResonanceAudioBus() {
+	size_t frames = 512;
+	int sample_rate = 48000;
+	if (AudioServer::get_singleton()) {
+		size_t buf_size = AudioServer::get_singleton()->thread_get_mix_buffer_size();
+		if (buf_size > 0) {
+			frames = buf_size;
+		}
+		int rate = AudioServer::get_singleton()->get_mix_rate();
+		if (rate > 0) {
+			sample_rate = rate;
+		}
+	}
+	resonance_api = vraudio::CreateResonanceAudioApi(2, frames, sample_rate);
+}
