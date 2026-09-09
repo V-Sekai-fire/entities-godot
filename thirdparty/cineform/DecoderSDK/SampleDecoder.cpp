@@ -357,7 +357,9 @@ pixelSize = 3;
 break;
 
 default:
-throw CFHD_ERROR_BADFORMAT;
+// 0 is not a valid pixel size, and is how an unknown format is reported
+// now that this cannot throw across the call.
+pixelSize = 0;
 break;
 }
 
@@ -879,7 +881,6 @@ CSampleDecoder::PrepareDecoder(int outputWidth,
 	DECODED_FORMAT decodedFormat = DECODED_FORMAT_UNSUPPORTED;
 
 	// Catch any errors in the decoder
-	try
 	{
 		// special case for thumbnail decodes...
 		if(decodedResolution == CFHD_DECODED_RESOLUTION_THUMBNAIL)
@@ -1244,15 +1245,7 @@ CSampleDecoder::PrepareDecoder(int outputWidth,
 		}
 #endif
 	}
-	catch (...)
-	{
-#if _WIN32
-		char message[256];
-		sprintf_s(message, sizeof(message), "CSampleDecoder::PrepareDecoder caught internal codec error\n");
-		OutputDebugString(message);
-#endif
-		return CFHD_ERROR_INTERNAL;
-	}
+	return CFHD_ERROR_INTERNAL;
 
 finish:
 	if(errorCode) // return which we can
@@ -1319,7 +1312,6 @@ CSampleDecoder::ParseSampleHeader(void *samplePtr,
 	CFHD_Error errorCode = CFHD_ERROR_OKAY;
 
 	// Catch any errors in the decoder
-	try
 	{
 		CFHD_EncodedFormat encodedFormat = CFHD_ENCODED_FORMAT_YUV_422;
 		CFHD_FieldType fieldType = CFHD_FIELD_TYPE_UNKNOWN;
@@ -1364,15 +1356,7 @@ CSampleDecoder::ParseSampleHeader(void *samplePtr,
 
 		sampleHeader->SetFrameSize(header.width, header.height);
 	}
-	catch (...)
-	{
-#if _WIN32
-		char message[256];
-		sprintf_s(message, sizeof(message), "CSampleDecoder::PrepareDecoder caught internal codec error\n");
-		OutputDebugString(message);
-#endif
-		return CFHD_ERROR_INTERNAL;
-	}
+	return CFHD_ERROR_INTERNAL;
 
 finish:
 
@@ -1387,7 +1371,6 @@ CSampleDecoder::DecodeSample(void *samplePtr,
 							 int outputPitch)
 {
 	// Catch any errors in the decoder
-	try
 	{
 		// short circuit this if this decoder was prepared for thumbnails
 		if(m_preparedForThumbnails)
@@ -1551,38 +1534,12 @@ CSampleDecoder::DecodeSample(void *samplePtr,
 			return CFHD_ERROR_INTERNAL;
 		}
 
-		try
 		{
 			// Decode the sample
 			//result = ::DecodeSample(m_decoder, &bitstream, (BYTE *)outputBuffer, outputPitch, NULL, NULL);
 			result = ::DecodeSample(m_decoder, &bitstream, decodedFrameBuffer, decodedFramePitch, NULL, NULL);
 		}
-		catch (...)
-		{
-#if _WIN32
-// #if DEBUG
-			OutputDebugString("::DecodeSample: Unexpected error");
-			char tt[100];
-			int err = 0;
-			FILE *fp;
-
-			sprintf_s(tt, sizeof(tt), "C:/Cedoc/Logfiles/%04d.cfhd", fileexnum++);
-
-#ifdef _WIN32
-			err = fopen_s(&fp, tt, "wb");
-#else
-			fp = fopen(tt,"wb");
-#endif
-			if(err == 0 && fp)
-			{
-				fwrite(bitstream.lpCurrentBuffer, 1, bitstream.dwBlockLength, fp);
-				fclose(fp);
-			}
-// #endif
-#endif
-
-			return CFHD_ERROR_CODEC_ERROR;
-		}
+		return CFHD_ERROR_CODEC_ERROR;
 
 		if (!result) {
 			//assert(0);
@@ -1609,15 +1566,7 @@ CSampleDecoder::DecodeSample(void *samplePtr,
 		// Indicate that the frame has been decoded
 		return CFHD_ERROR_OKAY;
 	}
-	catch (...)
-	{
-#if _WIN32
-		char message[256];
-		sprintf_s(message, sizeof(message), "CSampleDecoder::PrepareDecoder caught internal codec error\n");
-		OutputDebugString(message);
-#endif
-		return CFHD_ERROR_INTERNAL;
-	}
+	return CFHD_ERROR_INTERNAL;
 }
 
 ENCODED_FORMAT CSampleDecoder::GetEncodedFormat(void *samplePtr,
@@ -1795,14 +1744,9 @@ CFHD_Error CSampleDecoder::ReleaseDecoder()
 {
 	// Release the decoder
 	if (m_decoder) {
-		try
 		{
 			DecodeRelease(m_decoder, NULL, 0);
 			Free(m_decoder);
-		}
-		catch(...)
-		{
-		//	OutputDebugString("DecodeRelease Exception");
 		}
 		m_decoder = NULL;
 	}

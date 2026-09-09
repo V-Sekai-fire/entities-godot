@@ -562,7 +562,6 @@ CSampleEncoder::EncodeSample(void *frameBuffer,
 		return CFHD_ERROR_BADFORMAT;
 	}
 
-	try
 	{
 
 		//fprintf(stderr, "Call EncodeSample inw: %d inh: %d framePitch: %d colorFmt: %d channels: %d inFormat %08X:\n",
@@ -573,13 +572,7 @@ CSampleEncoder::EncodeSample(void *frameBuffer,
 								(PIXEL *)m_scratchBuffer, m_scratchBufferSize, fixedQuality, fixedBitrate,
 								NULL, m_frameRate, NULL);
 	}
-	catch (...)
-	{
-#if _WIN32
-		OutputDebugString("::EncodeSample: Unexpected error");
-#endif
-		return CFHD_ERROR_UNEXPECTED;
-	}
+	return CFHD_ERROR_UNEXPECTED;
 
 	//fprintf(stderr, "Back from encode, result: %d error %d size %d\n",result,m_encoder->error,bitstream.nWordsUsed);
 	if (!result) {

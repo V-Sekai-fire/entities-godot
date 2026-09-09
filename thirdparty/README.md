@@ -112,6 +112,13 @@ Files extracted from upstream source:
 - Version: git (11574d0295771edccadd17af14af74a539f924c7, 2024)
 - License: Apache-2.0 OR MIT
 
+Patches:
+
+- `0001-build-without-exceptions.patch`: the SDK signalled errors by throwing across
+  its C API and catching at each entry point, which Godot cannot compile because it
+  builds with exceptions disabled. The helpers return NULL and the callers check;
+  `GetPixelSize` returns 0, which is not a valid size, where it threw.
+
 The GoPro CineForm codec, used by `modules/cineform` to record Movie Maker output as a
 12-bit wavelet intermediate and to play it back.
 

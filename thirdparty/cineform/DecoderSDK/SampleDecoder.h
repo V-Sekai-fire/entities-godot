@@ -177,15 +177,7 @@ protected:
 	{
 		if (m_decodedFrameBuffer)
 		{
-			try
-			{
-				//_mm_free(m_decodedFrameBuffer);
-				AlignFree(m_decodedFrameBuffer);
-			}
-			catch(...)
-			{
-			//	OutputDebugString("ReleaseFrameBuffer Exception");
-			}
+			AlignFree(m_decodedFrameBuffer);
 			m_decodedFrameBuffer = NULL;
 			m_decodedFrameSize = 0;
 		}
