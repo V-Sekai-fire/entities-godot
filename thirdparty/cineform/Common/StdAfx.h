@@ -31,6 +31,8 @@
 // Includes required for Visual Studio 2005 (not required for Visual Studio 2003)
 //#include <atlbase.h>
 #include <tchar.h>
+#include <stdio.h>   // fprintf: reached through windows.h on MSVC, not on mingw
+#include <objbase.h>  // CoCreateGuid, likewise
 
 #include <stdlib.h>
 #include <memory.h>

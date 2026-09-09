@@ -39,6 +39,14 @@
 #include <memory.h>
 #include <assert.h>
 #include <limits.h>
+
+// MSVC defines these in stdlib.h for C; other toolchains do not.
+#ifndef min
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#endif
+#ifndef max
+#define max(a, b) (((a) > (b)) ? (a) : (b))
+#endif
 #include <emmintrin.h>
 
 #include "image.h"
