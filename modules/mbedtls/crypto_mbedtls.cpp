@@ -39,11 +39,9 @@
 #include "core/os/os.h"
 
 #include <mbedtls/debug.h>
-#include <mbedtls/ecp.h>
 #include <mbedtls/md.h>
 #include <mbedtls/pem.h>
 #include <mbedtls/psa_util.h>
-#include <mbedtls/sha256.h>
 
 #define PEM_BEGIN_CRT "-----BEGIN CERTIFICATE-----\n"
 #define PEM_END_CRT "-----END CERTIFICATE-----\n"
@@ -481,14 +479,21 @@ Ref<CryptoKey> CryptoMbedTLS::generate_rsa(int p_bits) {
 }
 
 PackedByteArray CryptoKeyMbedTLS::get_der(bool p_public_only) const {
+	mbedtls_pk_context ctx;
+	mbedtls_pk_init(&ctx);
+	if (mbedtls_pk_copy_from_psa(pk_slot, &ctx) != 0) {
+		mbedtls_pk_free(&ctx);
+		return PackedByteArray();
+	}
 	// mbedtls writes DER from the tail of the buffer; copy the result to a PackedByteArray.
 	unsigned char buf[4096];
 	int ret;
 	if (p_public_only) {
-		ret = mbedtls_pk_write_pubkey_der(const_cast<mbedtls_pk_context *>(&pkey), buf, sizeof(buf));
+		ret = mbedtls_pk_write_pubkey_der(&ctx, buf, sizeof(buf));
 	} else {
-		ret = mbedtls_pk_write_key_der(const_cast<mbedtls_pk_context *>(&pkey), buf, sizeof(buf));
+		ret = mbedtls_pk_write_key_der(&ctx, buf, sizeof(buf));
 	}
+	mbedtls_pk_free(&ctx);
 	if (ret < 0) {
 		return PackedByteArray();
 	}
@@ -499,15 +504,7 @@ PackedByteArray CryptoKeyMbedTLS::get_der(bool p_public_only) const {
 }
 
 Ref<CryptoKey> CryptoMbedTLS::generate_ecdsa() {
-	Ref<CryptoKeyMbedTLS> out;
-	out.instantiate();
-	int ret = mbedtls_pk_setup(&(out->pkey), mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
-	ERR_FAIL_COND_V(ret != 0, nullptr);
-	ret = mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(out->pkey),
-			mbedtls_ctr_drbg_random, &ctr_drbg);
-	ERR_FAIL_COND_V(ret != 0, nullptr);
-	out->public_only = false;
-	return out;
+	return CryptoKeyMbedTLS::generate(PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1), 256);
 }
 
 Ref<X509Certificate> CryptoMbedTLS::generate_self_signed_certificate(Ref<CryptoKey> p_key, const String &p_issuer_name, const String &p_not_before, const String &p_not_after) {
@@ -556,18 +553,27 @@ Ref<X509Certificate> CryptoMbedTLS::generate_self_signed_certificate(Ref<CryptoK
 Ref<X509Certificate> CryptoMbedTLS::generate_self_signed_certificate_san(Ref<CryptoKey> p_key, const String &p_issuer_name, const String &p_not_before, const String &p_not_after, const PackedStringArray &p_san) {
 	Ref<CryptoKeyMbedTLS> key = static_cast<Ref<CryptoKeyMbedTLS>>(p_key);
 	ERR_FAIL_COND_V_MSG(key.is_null(), nullptr, "Invalid private key argument.");
+
+	mbedtls_pk_context pk;
+	mbedtls_pk_init(&pk);
+	int pk_ret = mbedtls_pk_copy_from_psa(key->get_key_id(), &pk);
+	if (pk_ret) {
+		mbedtls_pk_free(&pk);
+		ERR_FAIL_V_MSG(nullptr, "Failed to import private key: " + itos(pk_ret));
+	}
+
 	mbedtls_x509write_cert crt;
 	mbedtls_x509write_crt_init(&crt);
 
-	mbedtls_x509write_crt_set_subject_key(&crt, &(key->pkey));
-	mbedtls_x509write_crt_set_issuer_key(&crt, &(key->pkey));
+	mbedtls_x509write_crt_set_subject_key(&crt, &pk);
+	mbedtls_x509write_crt_set_issuer_key(&crt, &pk);
 	mbedtls_x509write_crt_set_subject_name(&crt, p_issuer_name.utf8().get_data());
 	mbedtls_x509write_crt_set_issuer_name(&crt, p_issuer_name.utf8().get_data());
 	mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
 	mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
 
-	uint8_t rand_serial[20];
-	mbedtls_ctr_drbg_random(&ctr_drbg, rand_serial, sizeof(rand_serial));
+	uint8_t rand_serial[20] = {};
+	psa_generate_random(rand_serial, sizeof(rand_serial));
 	mbedtls_x509write_crt_set_serial_raw(&crt, rand_serial, sizeof(rand_serial));
 	mbedtls_x509write_crt_set_validity(&crt, p_not_before.utf8().get_data(), p_not_after.utf8().get_data());
 	mbedtls_x509write_crt_set_basic_constraints(&crt, 0, -1);
@@ -629,8 +635,9 @@ Ref<X509Certificate> CryptoMbedTLS::generate_self_signed_certificate_san(Ref<Cry
 
 	unsigned char buf[4096];
 	memset(buf, 0, 4096);
-	int ret = mbedtls_x509write_crt_pem(&crt, buf, 4096, mbedtls_ctr_drbg_random, &ctr_drbg);
+	int ret = mbedtls_x509write_crt_pem(&crt, buf, GODOT_MBEDTLS_COMPAT_ARGS(4096));
 	mbedtls_x509write_crt_free(&crt);
+	mbedtls_pk_free(&pk);
 	ERR_FAIL_COND_V_MSG(ret != 0, nullptr, "Failed to generate SAN certificate: " + itos(ret));
 	buf[4095] = '\0';
 
