@@ -33,7 +33,6 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/string/regex.h"
-#include "editor/import/3d/post_import_plugin_skeleton_renamer.h"
 #include "editor/import/3d/post_import_plugin_humanoid_rom.h"
 #include "editor/import/3d/post_import_plugin_skeleton_renamer.h"
 #include "editor/import/3d/post_import_plugin_skeleton_rest_fixer.h"
