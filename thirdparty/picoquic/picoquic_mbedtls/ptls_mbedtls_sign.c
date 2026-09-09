@@ -39,6 +39,13 @@
 #include <psa/crypto_values.h>
 #include "ptls_mbedtls.h"
 
+/* mbedtls 4 moved the key-type tag into mbedtls/private/pk_private.h. The file
+   loader moved into tf-psa-crypto/extras/pk_internal.h, which also needs
+   MBEDTLS_ALLOW_PRIVATE_ACCESS and would rename the private_ members this file
+   reads, so the symbol is declared here instead; extras/pk.c defines it. */
+#include <mbedtls/private/pk_private.h>
+int mbedtls_pk_load_file(const char *path, unsigned char **buf, size_t *n);
+
 static const unsigned char ptls_mbedtls_oid_ec_key[] = {0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01};
 static const unsigned char ptls_mbedtls_oid_rsa_key[] = {0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01};
 #if 0
