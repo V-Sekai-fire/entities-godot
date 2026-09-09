@@ -447,7 +447,6 @@ CFHD_ParseSampleHeader(void *samplePtr,
 	CFHD_Error errorCode = CFHD_ERROR_OKAY;
 
 	// Catch any errors in the decoder
-	try
 	{
 		CFHD_EncodedFormat encodedFormat = CFHD_ENCODED_FORMAT_YUV_422;
 		CFHD_FieldType fieldType = CFHD_FIELD_TYPE_UNKNOWN;
@@ -492,15 +491,7 @@ CFHD_ParseSampleHeader(void *samplePtr,
 
 		sampleHeader->SetFrameSize(header.width, header.height);
 	}
-	catch (...)
-	{
-#if _WIN32
-		char message[256];
-		sprintf_s(message, sizeof(message), "CSampleDecoder::PrepareDecoder caught internal codec error\n");
-		OutputDebugString(message);
-#endif
-		return CFHD_ERROR_INTERNAL;
-	}
+	return CFHD_ERROR_INTERNAL;
 
 finish:
 
@@ -536,14 +527,11 @@ CFHD_GetPixelSize(CFHD_PixelFormat pixelFormat, uint32_t *pixelSizeOut)
 	}
 	
 	// Catch any errors in the decoder
-	try
 	{
 		*pixelSizeOut = (uint32_t)GetPixelSize(pixelFormat);
-	}
-	catch (...)
-	{
-		*pixelSizeOut = 0;
-		ret = CFHD_ERROR_BADFORMAT;
+		if (*pixelSizeOut == 0) {
+			ret = CFHD_ERROR_BADFORMAT;
+		}
 	}
 
 	return ret;
@@ -729,7 +717,6 @@ CFHD_DecodeSample(CFHD_DecoderRef decoderRef,
 	CSampleDecoder *decoder = (CSampleDecoder *)decoderRef;
 
 	// Test the memory buffer provided for the required size
-	try
 	{
 		uint32_t length = 0;
 		uint8_t *test_mem = (uint8_t *)outputBuffer;
@@ -746,13 +733,7 @@ CFHD_DecodeSample(CFHD_DecoderRef decoderRef,
 				test_mem[-(len + outputPitch)] = 0;
 		}
 	}
-	catch (...)
-	{
-#ifdef _WIN32
-		OutputDebugString("Target memory buffer is an invalid size");
-#endif
-		return CFHD_ERROR_DECODE_BUFFER_SIZE;
-	}
+	return CFHD_ERROR_DECODE_BUFFER_SIZE;
 
 	errorCode = decoder->DecodeSample(samplePtr, sampleSize, outputBuffer, outputPitch);
 	if (errorCode != CFHD_ERROR_OKAY) {
