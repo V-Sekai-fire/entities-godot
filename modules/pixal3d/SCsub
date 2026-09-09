@@ -1,0 +1,32 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+Import("env_modules")
+
+# RFD 2242. Stacks on modules/ggml/ at the C++ #include level.
+# wraps pixal3d.cpp (trellis2_capi.h C ABI). Generates a textured mesh from a single reference image.
+# The `#thirdparty/pixal3d/` tree vendors the upstream source via
+# scripts/import_module_source.py and lands in a follow-up PR.
+
+env_pixal3d = env_modules.Clone()
+
+tp = "#thirdparty/pixal3d/"
+env_pixal3d.Prepend(CPPPATH=[
+    tp + "include",
+    "#modules/ggml",
+])
+
+pixal3d_thirdparty_sources = []
+
+module_obj = []
+env_pixal3d.add_source_files(module_obj, "*.cpp")
+env.modules_sources += module_obj
+
+if pixal3d_thirdparty_sources:
+    env_thirdparty = env_pixal3d.Clone()
+    env_thirdparty.disable_warnings()
+    thirdparty_obj = []
+    env_thirdparty.add_source_files(thirdparty_obj, pixal3d_thirdparty_sources)
+    env.modules_sources += thirdparty_obj
+    env.Depends(module_obj, thirdparty_obj)

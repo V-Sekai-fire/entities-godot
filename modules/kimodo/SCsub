@@ -1,0 +1,32 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+Import("env_modules")
+
+# RFD 2242. Stacks on modules/ggml/ at the C++ #include level.
+# wraps kimodo.cpp (kimodo_capi.h C ABI). Generates an animation from a text prompt.
+# The `#thirdparty/kimodo/` tree vendors the upstream source via
+# scripts/import_module_source.py and lands in a follow-up PR.
+
+env_kimodo = env_modules.Clone()
+
+tp = "#thirdparty/kimodo/"
+env_kimodo.Prepend(CPPPATH=[
+    tp + "include",
+    "#modules/ggml",
+])
+
+kimodo_thirdparty_sources = []
+
+module_obj = []
+env_kimodo.add_source_files(module_obj, "*.cpp")
+env.modules_sources += module_obj
+
+if kimodo_thirdparty_sources:
+    env_thirdparty = env_kimodo.Clone()
+    env_thirdparty.disable_warnings()
+    thirdparty_obj = []
+    env_thirdparty.add_source_files(thirdparty_obj, kimodo_thirdparty_sources)
+    env.modules_sources += thirdparty_obj
+    env.Depends(module_obj, thirdparty_obj)
