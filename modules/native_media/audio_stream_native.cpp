@@ -219,10 +219,6 @@ Ref<AudioStreamPlayback> AudioStreamNative::instantiate_playback() {
 	return playback;
 }
 
-String AudioStreamNative::get_stream_name() const {
-	return "Native";
-}
-
 double AudioStreamNative::get_length() const {
 	const_cast<AudioStreamNative *>(this)->_probe_info();
 	return cached_info.duration_seconds;
