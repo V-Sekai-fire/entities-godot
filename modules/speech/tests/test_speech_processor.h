@@ -175,7 +175,7 @@ TEST_CASE("[SpeechProcessor] Test Direct Audio Processing via test_process_mono_
 
 	bool is_packet_count_acceptable = Math::abs((int)received_packets.size() - expected_num_packets) <= 1;
 	CHECK_MESSAGE(is_packet_count_acceptable,
-			vformat("Expected around %d packets (+/-1), but received %d.", expected_num_packets, received_packets.size()));
+				  vformat("Expected around %d packets (+/-1), but received %d.", expected_num_packets, received_packets.size()));
 
 	if (!received_packets.is_empty()) {
 		for (const PackedByteArray &packet : received_packets) {

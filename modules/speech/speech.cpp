@@ -70,8 +70,8 @@ Speech::InputPacket *Speech::get_next_valid_input_packet() {
 	} else {
 		for (int i = MAX_AUDIO_BUFFER_ARRAY_SIZE - 1; i > 0; i--) {
 			memcpy(input_audio_buffer_array[i - 1].compressed_byte_array.ptrw(),
-					input_audio_buffer_array[i].compressed_byte_array.ptr(),
-					SpeechProcessor::SPEECH_SETTING_PCM_BUFFER_SIZE);
+				   input_audio_buffer_array[i].compressed_byte_array.ptr(),
+				   SpeechProcessor::SPEECH_SETTING_PCM_BUFFER_SIZE);
 
 			input_audio_buffer_array[i - 1].buffer_size =
 					input_audio_buffer_array[i].buffer_size;
@@ -85,7 +85,7 @@ void Speech::speech_processed(SpeechProcessor::SpeechInput *p_mic_input) {
 	// Copy the raw PCM data from the SpeechInput packet to the input byte array
 	PackedByteArray *mic_input_byte_array = p_mic_input->pcm_byte_array;
 	memcpy(input_byte_array.ptrw(), mic_input_byte_array->ptr(),
-			SpeechProcessor::SPEECH_SETTING_PCM_BUFFER_SIZE);
+		   SpeechProcessor::SPEECH_SETTING_PCM_BUFFER_SIZE);
 
 	// Create a new SpeechProcessor::CompressedBufferInput to be passed into the
 	// compressor and assign it the compressed_byte_array from the input packet
@@ -95,7 +95,7 @@ void Speech::speech_processed(SpeechProcessor::SpeechInput *p_mic_input) {
 
 	// Compress the packet
 	if (!speech_processor->compress_buffer_internal(&input_byte_array,
-				&compressed_buffer_input)) {
+													&compressed_buffer_input)) {
 		return;
 	}
 	{
@@ -109,7 +109,7 @@ void Speech::speech_processed(SpeechProcessor::SpeechInput *p_mic_input) {
 		// Copy the buffer size from the compressed_buffer_input back into the
 		// input packet
 		memcpy(input_packet->compressed_byte_array.ptrw(),
-				compressed_buffer_input.compressed_byte_array->ptr(), size);
+			   compressed_buffer_input.compressed_byte_array->ptr(), size);
 
 		input_packet->buffer_size = size;
 	}
@@ -227,114 +227,114 @@ int Speech::calc_playback_ring_buffer_length(Ref<AudioStreamGenerator> audio_str
 
 void Speech::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_skipped_audio_packets"),
-			&Speech::get_skipped_audio_packets);
+						 &Speech::get_skipped_audio_packets);
 	ClassDB::bind_method(D_METHOD("clear_skipped_audio_packets"),
-			&Speech::clear_skipped_audio_packets);
+						 &Speech::clear_skipped_audio_packets);
 
 	ClassDB::bind_method(D_METHOD("decompress_buffer", "decoder", "read_array",
-								 "read_size", "write_array"),
-			&Speech::decompress_buffer);
+								  "read_size", "write_array"),
+						 &Speech::decompress_buffer);
 
 	ClassDB::bind_method(D_METHOD("copy_and_clear_buffers"),
-			&Speech::copy_and_clear_buffers);
+						 &Speech::copy_and_clear_buffers);
 	ClassDB::bind_method(D_METHOD("get_speech_decoder"),
-			&Speech::get_speech_decoder);
+						 &Speech::get_speech_decoder);
 	ClassDB::bind_method(D_METHOD("get_stats"), &Speech::get_stats);
 
 	ClassDB::bind_method(D_METHOD("start_recording"), &Speech::start_recording);
 	ClassDB::bind_method(D_METHOD("end_recording"), &Speech::end_recording);
 
 	ClassDB::bind_method(D_METHOD("set_streaming_bus", "bus"),
-			&Speech::set_streaming_bus);
+						 &Speech::set_streaming_bus);
 	ClassDB::bind_method(D_METHOD("set_audio_input_stream_player", "player"),
-			&Speech::set_audio_input_stream_player);
+						 &Speech::set_audio_input_stream_player);
 	ClassDB::bind_method(D_METHOD("set_buffer_delay_threshold", "buffer_delay_threshold"),
-			&Speech::set_buffer_delay_threshold);
+						 &Speech::set_buffer_delay_threshold);
 	ClassDB::bind_method(D_METHOD("get_buffer_delay_threshold"),
-			&Speech::get_buffer_delay_threshold);
+						 &Speech::get_buffer_delay_threshold);
 	ClassDB::bind_method(D_METHOD("get_stream_standard_pitch"),
-			&Speech::get_stream_standard_pitch);
+						 &Speech::get_stream_standard_pitch);
 	ClassDB::bind_method(D_METHOD("set_stream_standard_pitch", "stream_standard_pitch"),
-			&Speech::set_stream_standard_pitch);
+						 &Speech::set_stream_standard_pitch);
 	ClassDB::bind_method(D_METHOD("get_stream_speedup_pitch"),
-			&Speech::get_stream_speedup_pitch);
+						 &Speech::get_stream_speedup_pitch);
 	ClassDB::bind_method(D_METHOD("set_stream_speedup_pitch", "stream_speedup_pitch"),
-			&Speech::set_stream_speedup_pitch);
+						 &Speech::set_stream_speedup_pitch);
 	ClassDB::bind_method(D_METHOD("get_max_jitter_buffer_size"),
-			&Speech::get_max_jitter_buffer_size);
+						 &Speech::get_max_jitter_buffer_size);
 	ClassDB::bind_method(D_METHOD("set_max_jitter_buffer_size", "max_jitter_buffer_size"),
-			&Speech::set_max_jitter_buffer_size);
+						 &Speech::set_max_jitter_buffer_size);
 	ClassDB::bind_method(D_METHOD("get_jitter_buffer_speedup"),
-			&Speech::get_jitter_buffer_speedup);
+						 &Speech::get_jitter_buffer_speedup);
 	ClassDB::bind_method(D_METHOD("set_jitter_buffer_speedup", "jitter_buffer_speedup"),
-			&Speech::set_jitter_buffer_speedup);
+						 &Speech::set_jitter_buffer_speedup);
 	ClassDB::bind_method(D_METHOD("get_jitter_buffer_slowdown"),
-			&Speech::get_jitter_buffer_slowdown);
+						 &Speech::get_jitter_buffer_slowdown);
 	ClassDB::bind_method(D_METHOD("set_jitter_buffer_slowdown", "jitter_buffer_slowdown"),
-			&Speech::set_jitter_buffer_slowdown);
+						 &Speech::set_jitter_buffer_slowdown);
 	ClassDB::bind_method(D_METHOD("get_debug"),
-			&Speech::get_debug);
+						 &Speech::get_debug);
 	ClassDB::bind_method(D_METHOD("set_debug", "debug"),
-			&Speech::set_debug);
+						 &Speech::set_debug);
 	ClassDB::bind_method(D_METHOD("get_uncompressed_audio"),
-			&Speech::get_uncompressed_audio);
+						 &Speech::get_uncompressed_audio);
 	ClassDB::bind_method(D_METHOD("set_uncompressed_audio", "uncompressed_audio"),
-			&Speech::set_uncompressed_audio);
+						 &Speech::set_uncompressed_audio);
 	ClassDB::bind_method(D_METHOD("get_packets_received_this_frame"),
-			&Speech::get_packets_received_this_frame);
+						 &Speech::get_packets_received_this_frame);
 	ClassDB::bind_method(D_METHOD("set_packets_received_this_frame", "packets_received_this_frame"),
-			&Speech::set_packets_received_this_frame);
+						 &Speech::set_packets_received_this_frame);
 	ClassDB::bind_method(D_METHOD("get_playback_ring_buffer_length"),
-			&Speech::get_playback_ring_buffer_length);
+						 &Speech::get_playback_ring_buffer_length);
 	ClassDB::bind_method(D_METHOD("set_playback_ring_buffer_length", "playback_ring_buffer_length"),
-			&Speech::set_playback_ring_buffer_length);
+						 &Speech::set_playback_ring_buffer_length);
 	ClassDB::bind_method(D_METHOD("get_blank_packet"),
-			&Speech::get_blank_packet);
+						 &Speech::get_blank_packet);
 	ClassDB::bind_method(D_METHOD("set_blank_packet", "blank_packet"),
-			&Speech::set_blank_packet);
+						 &Speech::set_blank_packet);
 	ClassDB::bind_method(D_METHOD("get_player_audio"),
-			&Speech::get_player_audio);
+						 &Speech::get_player_audio);
 	ClassDB::bind_method(D_METHOD("set_player_audio", "player_audio"),
-			&Speech::set_player_audio);
+						 &Speech::set_player_audio);
 	ClassDB::bind_method(D_METHOD("calc_playback_ring_buffer_length", "generator"),
-			&Speech::calc_playback_ring_buffer_length);
+						 &Speech::calc_playback_ring_buffer_length);
 	ClassDB::bind_method(D_METHOD("add_player_audio", "player_id", "audio_stream_player"),
-			&Speech::add_player_audio);
+						 &Speech::add_player_audio);
 	ClassDB::bind_method(D_METHOD("on_received_audio_packet", "peer_id", "sequence_id", "packet"),
-			&Speech::on_received_audio_packet);
+						 &Speech::on_received_audio_packet);
 	ClassDB::bind_method(D_METHOD("get_playback_stats", "speech_stat"),
-			&Speech::get_playback_stats);
+						 &Speech::get_playback_stats);
 	ClassDB::bind_method(D_METHOD("remove_player_audio", "player_id"),
-			&Speech::remove_player_audio);
+						 &Speech::remove_player_audio);
 	ClassDB::bind_method(D_METHOD("clear_all_player_audio"),
-			&Speech::clear_all_player_audio);
+						 &Speech::clear_all_player_audio);
 	ClassDB::bind_method(D_METHOD("attempt_to_feed_stream", "skip_count", "decoder", "audio_stream_player", "jitter_buffer", "playback_stats", "player_dict", "process_delta_time"),
-			&Speech::attempt_to_feed_stream);
+						 &Speech::attempt_to_feed_stream);
 
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "BUFFER_DELAY_THRESHOLD"), "set_buffer_delay_threshold",
-			"get_buffer_delay_threshold");
+				 "get_buffer_delay_threshold");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "STREAM_STANDARD_PITCH"), "set_stream_standard_pitch",
-			"get_stream_standard_pitch");
+				 "get_stream_standard_pitch");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "MAX_JITTER_BUFFER_SIZE"), "set_max_jitter_buffer_size",
-			"get_max_jitter_buffer_size");
+				 "get_max_jitter_buffer_size");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "STREAM_SPEEDUP_PITCH"), "set_stream_speedup_pitch",
-			"get_stream_speedup_pitch");
+				 "get_stream_speedup_pitch");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "JITTER_BUFFER_SLOWDOWN"), "set_jitter_buffer_slowdown",
-			"get_jitter_buffer_slowdown");
+				 "get_jitter_buffer_slowdown");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "JITTER_BUFFER_SPEEDUP"), "set_jitter_buffer_speedup",
-			"get_jitter_buffer_speedup");
+				 "get_jitter_buffer_speedup");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "DEBUG"), "set_debug",
-			"get_debug");
+				 "get_debug");
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_VECTOR2_ARRAY, "uncompressed_audio", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "set_uncompressed_audio",
-			"get_uncompressed_audio");
+				 "get_uncompressed_audio");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "packets_received_this_frame"), "set_packets_received_this_frame",
-			"get_packets_received_this_frame");
+				 "get_packets_received_this_frame");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "playback_ring_buffer_length"), "set_playback_ring_buffer_length",
-			"get_playback_ring_buffer_length");
+				 "get_playback_ring_buffer_length");
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_VECTOR2_ARRAY, "blank_packet", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "set_blank_packet",
-			"get_blank_packet");
+				 "get_blank_packet");
 	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "player_audio", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "set_player_audio",
-			"get_player_audio");
+				 "get_player_audio");
 }
 
 int Speech::get_skipped_audio_packets() {
@@ -862,5 +862,5 @@ Dictionary PlaybackStats::get_playback_stats() {
 
 void PlaybackStats::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_playback_stats"),
-			&PlaybackStats::get_playback_stats);
+						 &PlaybackStats::get_playback_stats);
 }

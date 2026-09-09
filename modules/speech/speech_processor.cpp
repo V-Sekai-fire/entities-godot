@@ -47,21 +47,21 @@ void SpeechProcessor::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("start"), &SpeechProcessor::start);
 	ClassDB::bind_method(D_METHOD("stop"), &SpeechProcessor::stop);
 	ClassDB::bind_method(D_METHOD("compress_buffer", "pcm_byte_array", "output_buffer"),
-			&SpeechProcessor::compress_buffer);
+						 &SpeechProcessor::compress_buffer);
 	ClassDB::bind_method(D_METHOD("decompress_buffer", "speech_decoder", "read_byte_buffer", "read_size", "write_vec2_array"),
-			&SpeechProcessor::decompress_buffer);
+						 &SpeechProcessor::decompress_buffer);
 	ClassDB::bind_method(D_METHOD("set_streaming_bus", "name"),
-			&SpeechProcessor::set_streaming_bus);
+						 &SpeechProcessor::set_streaming_bus);
 	ClassDB::bind_method(D_METHOD("set_audio_input_stream_player", "stream_player"),
-			&SpeechProcessor::set_audio_input_stream_player);
+						 &SpeechProcessor::set_audio_input_stream_player);
 	ClassDB::bind_method(D_METHOD("test_process_mono_audio_frames", "mono_frames", "input_sample_rate"),
-			&SpeechProcessor::test_process_mono_audio_frames);
+						 &SpeechProcessor::test_process_mono_audio_frames);
 	ClassDB::bind_method(D_METHOD("encode_buffer", "pcm_buffer", "output_buffer"),
-			&SpeechProcessor::_encode_buffer_gdscript);
+						 &SpeechProcessor::_encode_buffer_gdscript);
 	ClassDB::bind_method(D_METHOD("get_stats"), &SpeechProcessor::get_stats);
 	ClassDB::bind_method(D_METHOD("get_speech_decoder"), &SpeechProcessor::get_speech_decoder);
 	ADD_SIGNAL(MethodInfo("speech_processed",
-			PropertyInfo(Variant::DICTIONARY, "packet")));
+						  PropertyInfo(Variant::DICTIONARY, "packet")));
 
 	BIND_CONSTANT(SPEECH_SETTING_CHANNEL_COUNT);
 	BIND_CONSTANT(SPEECH_SETTING_MILLISECONDS_PER_PACKET);
@@ -102,15 +102,15 @@ uint32_t SpeechProcessor::_resample_audio_buffer(
 		return src_data.output_frames_gen;
 	} else {
 		memcpy(p_dst, p_src,
-				static_cast<size_t>(p_src_frame_count) * sizeof(float));
+			   static_cast<size_t>(p_src_frame_count) * sizeof(float));
 		return p_src_frame_count;
 	}
 }
 
 void SpeechProcessor::_get_capture_block(AudioServer *p_audio_server,
-		const uint32_t &p_mix_frame_count,
-		const Vector2 *p_process_buffer_in,
-		float *p_process_buffer_out) {
+										 const uint32_t &p_mix_frame_count,
+										 const Vector2 *p_process_buffer_in,
+										 float *p_process_buffer_out) {
 	for (size_t i = 0; i < p_mix_frame_count; i++) {
 		float mono =
 				p_process_buffer_in[i].x * 0.5f + p_process_buffer_in[i].y * 0.5f;
@@ -311,7 +311,7 @@ bool SpeechProcessor::_16_pcm_mono_to_real_stereo(
 
 Dictionary
 SpeechProcessor::compress_buffer(const PackedByteArray &p_pcm_byte_array,
-		Dictionary p_output_buffer) {
+								 Dictionary p_output_buffer) {
 	if (p_pcm_byte_array.size() != SPEECH_SETTING_PCM_BUFFER_SIZE) {
 		ERR_PRINT("SpeechProcessor: PCM buffer is incorrect size!");
 		return p_output_buffer;
@@ -344,16 +344,16 @@ SpeechProcessor::compress_buffer(const PackedByteArray &p_pcm_byte_array,
 
 PackedVector2Array
 SpeechProcessor::decompress_buffer(Ref<SpeechDecoder> p_speech_decoder,
-		const PackedByteArray &p_read_byte_array,
-		const int p_read_size,
-		PackedVector2Array p_write_vec2_array) {
+								   const PackedByteArray &p_read_byte_array,
+								   const int p_read_size,
+								   PackedVector2Array p_write_vec2_array) {
 	if (p_read_byte_array.size() < p_read_size) {
 		ERR_PRINT("SpeechProcessor: read byte_array size!");
 		return PackedVector2Array();
 	}
 
 	if (decompress_buffer_internal(p_speech_decoder.ptr(), &p_read_byte_array,
-				p_read_size, &p_write_vec2_array)) {
+								   p_read_size, &p_write_vec2_array)) {
 		return p_write_vec2_array;
 	}
 
@@ -405,7 +405,7 @@ void SpeechProcessor::_notification(int p_what) {
 			break;
 		case NOTIFICATION_ENTER_TREE:
 			mix_byte_array.resize(SPEECH_SETTING_BUFFER_FRAME_COUNT *
-					SPEECH_SETTING_BUFFER_BYTE_COUNT);
+								  SPEECH_SETTING_BUFFER_BYTE_COUNT);
 			mix_byte_array.fill(0);
 			break;
 		case NOTIFICATION_EXIT_TREE:
@@ -416,7 +416,7 @@ void SpeechProcessor::_notification(int p_what) {
 			break;
 		case NOTIFICATION_PROCESS:
 			if (audio_effect_capture.is_valid() && audio_input_stream_player &&
-					audio_input_stream_player->is_playing()) {
+				audio_input_stream_player->is_playing()) {
 				_update_stats();
 				// This is pretty ugly, but needed to keep the audio from going out of
 				// sync
@@ -551,8 +551,8 @@ Ref<SpeechDecoder> SpeechProcessor::get_speech_decoder() {
 SpeechProcessor::SpeechProcessor() {
 	int error = 0;
 	encoder = opus_encoder_create(SPEECH_SETTING_SAMPLE_RATE,
-			SPEECH_SETTING_CHANNEL_COUNT,
-			SPEECH_SETTING_APPLICATION, &error);
+								  SPEECH_SETTING_CHANNEL_COUNT,
+								  SPEECH_SETTING_APPLICATION, &error);
 	if (error != OPUS_OK) {
 		ERR_PRINT("OpusCodec: could not create Opus encoder!");
 		print_opus_error(error);
@@ -579,7 +579,7 @@ SpeechProcessor::SpeechProcessor() {
 	pcm_byte_array_cache.resize(SPEECH_SETTING_PCM_BUFFER_SIZE);
 	pcm_byte_array_cache.fill(0);
 	libresample_state = src_new(SRC_SINC_MEDIUM_QUALITY,
-			SPEECH_SETTING_CHANNEL_COUNT, &libresample_error);
+								SPEECH_SETTING_CHANNEL_COUNT, &libresample_error);
 	rnnoise_state = rnnoise_create(nullptr);
 
 	// AEC3 buffer pre-allocated; full init deferred to start() so headless tests

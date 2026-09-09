@@ -125,7 +125,7 @@ public:
 	Ref<SpeechDecoder> get_speech_decoder();
 
 	int encode_buffer(const PackedByteArray *p_pcm_buffer,
-			PackedByteArray *p_output_buffer) {
+					  PackedByteArray *p_output_buffer) {
 		int number_of_bytes = -1;
 		if (encoder) {
 			const opus_int16 *pcm_buffer_pointer =
@@ -151,10 +151,10 @@ public:
 	}
 
 	bool decode_buffer(SpeechDecoder *p_speech_decoder,
-			const PackedByteArray *p_compressed_buffer,
-			PackedByteArray *p_pcm_output_buffer,
-			const int p_compressed_buffer_size,
-			const int p_pcm_output_buffer_size) {
+					   const PackedByteArray *p_compressed_buffer,
+					   PackedByteArray *p_pcm_output_buffer,
+					   const int p_compressed_buffer_size,
+					   const int p_pcm_output_buffer_size) {
 		if (p_pcm_output_buffer->size() != p_pcm_output_buffer_size) {
 			ERR_PRINT("OpusCodec: decode_buffer output_buffer_size mismatch!");
 			return false;
@@ -235,28 +235,28 @@ public:
 	Dictionary _encode_buffer_gdscript(const PackedByteArray &p_pcm_buffer, PackedByteArray p_output_buffer);
 
 	uint32_t _resample_audio_buffer(const float *p_src,
-			const uint32_t p_src_frame_count,
-			const uint32_t p_src_samplerate,
-			const uint32_t p_target_samplerate,
-			float *p_dst,
-			const uint32_t p_dst_frame_count);
+									const uint32_t p_src_frame_count,
+									const uint32_t p_src_samplerate,
+									const uint32_t p_target_samplerate,
+									float *p_dst,
+									const uint32_t p_dst_frame_count);
 
 	void start();
 	void stop();
 
 	static void _get_capture_block(AudioServer *p_audio_server,
-			const uint32_t &p_mix_frame_count,
-			const Vector2 *p_process_buffer_in,
-			float *p_process_buffer_out);
+								   const uint32_t &p_mix_frame_count,
+								   const Vector2 *p_process_buffer_in,
+								   float *p_process_buffer_out);
 
 	void _mix_audio(const Vector2 *p_process_buffer_in);
 
 	static bool _16_pcm_mono_to_real_stereo(const PackedByteArray *p_src_buffer,
-			PackedVector2Array *p_dst_buffer);
+											PackedVector2Array *p_dst_buffer);
 
 	virtual bool
 	compress_buffer_internal(const PackedByteArray *p_pcm_byte_array,
-			CompressedSpeechBuffer *p_output_buffer) {
+							 CompressedSpeechBuffer *p_output_buffer) {
 		p_output_buffer->buffer_size =
 				encode_buffer(p_pcm_byte_array, p_output_buffer->compressed_byte_array);
 		if (p_output_buffer->buffer_size != -1) {
@@ -270,9 +270,9 @@ public:
 			SpeechDecoder *speech_decoder, const PackedByteArray *p_read_byte_array,
 			const int p_read_size, PackedVector2Array *p_write_vec2_array) {
 		if (decode_buffer(speech_decoder, p_read_byte_array, &pcm_byte_array_cache,
-					p_read_size, SPEECH_SETTING_PCM_BUFFER_SIZE)) {
+						  p_read_size, SPEECH_SETTING_PCM_BUFFER_SIZE)) {
 			if (_16_pcm_mono_to_real_stereo(&pcm_byte_array_cache,
-						p_write_vec2_array)) {
+											p_write_vec2_array)) {
 				return true;
 			}
 		}
@@ -280,13 +280,13 @@ public:
 	}
 
 	virtual Dictionary compress_buffer(const PackedByteArray &p_pcm_byte_array,
-			Dictionary p_output_buffer);
+									   Dictionary p_output_buffer);
 
 	virtual PackedVector2Array
 	decompress_buffer(Ref<SpeechDecoder> p_speech_decoder,
-			const PackedByteArray &p_read_byte_array,
-			const int p_read_size,
-			PackedVector2Array p_write_vec2_array);
+					  const PackedByteArray &p_read_byte_array,
+					  const int p_read_size,
+					  PackedVector2Array p_write_vec2_array);
 
 	void set_streaming_bus(const String &p_name);
 	bool set_audio_input_stream_player(Node *p_audio_input_stream_player);

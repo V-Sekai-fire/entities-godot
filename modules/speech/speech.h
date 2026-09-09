@@ -114,8 +114,8 @@ public:
 	void clear_skipped_audio_packets();
 	virtual PackedVector2Array
 	decompress_buffer(Ref<SpeechDecoder> p_speech_decoder,
-			PackedByteArray p_read_byte_array, const int p_read_size,
-			PackedVector2Array p_write_vec2_array);
+					  PackedByteArray p_read_byte_array, const int p_read_size,
+					  PackedVector2Array p_write_vec2_array);
 	// Copies all the input buffers to the output buffers
 	// Returns the amount of buffers
 	Array copy_and_clear_buffers();
