@@ -425,7 +425,7 @@ void WebTransportPeer::close() {
 // Drop one client. This used to call `close()`, which stops the listener — so kicking one
 // player, or one player leaving, took every other player with them and the server too.
 //
-// `p_force` is not honoured yet and says so rather than being silently ignored: a graceful
+// `p_force` is not honored yet and says so rather than being silently ignored: a graceful
 // close still sends the WebTransport close message first, which is what tells the client it was
 // disconnected instead of leaving it to time out.
 void WebTransportPeer::disconnect_peer(int p_peer, bool p_force) {
