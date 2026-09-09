@@ -272,6 +272,9 @@ void _drain_work_queue(WorkQueue &p_queue, picoquic_cnx_t *p_cnx,
 				}
 				picoquic_add_to_stream(p_cnx, sid, item.bytes.ptr(), item.bytes.size(), 0);
 			} break;
+			case WORK_CLOSE_SESSION: {
+				// Server-side only; nothing enqueues it on a client queue.
+			} break;
 		}
 	}
 }
