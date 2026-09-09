@@ -42,7 +42,7 @@
 #include "servers/audio/audio_server.h"
 
 #include "playback_stats.h"
-#include "servers/audio/effects/audio_stream_generator.h"
+#include "scene/resources/audio/audio_stream_generator.h"
 #include "speech_processor.h"
 
 class Speech : public Node {
