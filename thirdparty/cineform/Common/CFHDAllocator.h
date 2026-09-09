@@ -22,6 +22,8 @@
 #ifndef CFHD_ALLOCATOR_H
 #define CFHD_ALLOCATOR_H
 
+#include <stddef.h>  // size_t, which this header uses in its own signatures
+
 typedef void * (* UnalignedAllocProc)(void *allocator, size_t size);
 typedef void * (* AlignedAllocProc)(void *allocator, size_t size, size_t alignment);
 typedef void (* UnalignedFreeProc)(void *allocator, void *block);
