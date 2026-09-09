@@ -81,42 +81,7 @@
 #endif
 
 
-#ifdef _WIN32
-
 #include "cpuid.h"
-
-int GetProcessorCount()
-{
-	SYSTEM_INFO cSystem_info;
-	GetSystemInfo(&cSystem_info);
-	return cSystem_info.dwNumberOfProcessors;
-}
-
-#elif __APPLE__
-
-#include <sys/types.h>
-#include <sys/sysctl.h>
-
-static int GetProcessorCount()
-{
-	int maxProcs = 0;
-	size_t length = sizeof(maxProcs);
-	sysctlbyname("hw.physicalcpu",&maxProcs, &length, NULL, 0);
-	
-	return maxProcs;
-}
-
-#else
-
-#include <stdint.h>
-#include <unistd.h>
-
-int GetProcessorCount()
-{
-	return sysconf(_SC_NPROCESSORS_ONLN);
-}
-
-#endif
 
 
 void CLanczosScaler::ComputeRowScaleFactors(short *scaleFactors, int inputWidth, int outputWidth, int lobes=3)
