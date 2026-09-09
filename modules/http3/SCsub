@@ -108,6 +108,9 @@ if picoquic_present and picotls_present and env["platform"] != "web":
             # toolchain headers. We route debug output via debug_printf_push_stream
             # instead.
             "DISABLE_DEBUG_PRINTF",
+            # mbedtls 4 moved chacha20 and friends behind mbedtls/private/ and
+            # declares them only under this opt-in; picotls calls them directly.
+            "MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS",
         ]
     )
     if env["platform"] == "windows":
