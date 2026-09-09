@@ -24305,7 +24305,8 @@ void TransformInverseFrameThreadedToYUV(DECODER *decoder, int frame_index, int n
 										uint8_t *output, int pitch, FRAME_INFO *info,
 										int chroma_offset, int precision)
 {
-	int32_t lPreviousCount,i;
+	long lPreviousCount;
+	int32_t i;
 
 	// There are half as many input rows as output rows
 	int transform_height = (((info->height+7)/8)*8) / 2;
@@ -24341,7 +24342,8 @@ void TransformInverseFrameThreadedToRow16u(DECODER *decoder, int frame_index, in
 										   PIXEL16U *output, int pitch, FRAME_INFO *info,
 										   int chroma_offset, int precision)
 {
-	int32_t lPreviousCount,i;
+	long lPreviousCount;
+	int32_t i;
 
 	// There are half as many input rows as output rows
 	int transform_height = (((info->height+7)/8)*8) / 2;
