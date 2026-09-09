@@ -312,6 +312,10 @@ env_refine = env_cassie.Clone()
 # require clang's absence like the determinism elif chain above does.
 if ("g++" in _compiler or "gcc" in _compiler) and "clang" not in _compiler:
     env_refine.Append(CCFLAGS=["-Wno-duplicated-branches", "-Wno-ctor-dtor-privacy"])
+elif "clang" in _compiler:
+    # Eigen declares helper function templates a given TU may not instantiate,
+    # which -Wunused-template reports under -Werror. They are Eigen's, not ours.
+    env_refine.Append(CCFLAGS=["-Wno-unused-template"])
 env_refine.add_source_files(env.modules_sources, ["src/refine.cpp"])
 
 # The slang_dispatch wrappers #include the vendored Slang CPU prelude, whose
