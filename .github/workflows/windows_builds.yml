@@ -47,6 +47,16 @@ jobs:
             bin: ./bin/godot.windows.template_release.x86_64.console.exe
             compiler: msvc
 
+          # The desk's only sanctioned toolchain, so this is the job whose result
+          # says anything about the binary we ship. MSVC and clang-cl are
+          # blocklisted here and GCC is not what we build with.
+          - name: Template w/ llvm-mingw (target=template_release, use_mingw=yes use_llvm=yes)
+            cache-name: windows-template-llvm-mingw
+            target: template_release
+            scons-flags: use_mingw=yes use_llvm=yes
+            bin: ./bin/godot.windows.template_release.x86_64.llvm.console.exe
+            compiler: llvm-mingw
+
           - name: Template w/ GCC (target=template_release, use_mingw=yes)
             cache-name: windows-template-gcc
             # MinGW takes MUCH longer to compile; save time by only targeting Template.
@@ -104,10 +114,22 @@ jobs:
             echo "ACCESSKIT_ENABLED=no" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Set up llvm-mingw
+        if: matrix.compiler == 'llvm-mingw'
+        shell: sh
+        run: |
+          # Pinned to the release the desk carries, so a local build and this job
+          # see the same compiler and the same warnings.
+          ver=20260826
+          curl -fsSL -o llvm-mingw.zip             "https://github.com/mstorsjo/llvm-mingw/releases/download/$ver/llvm-mingw-$ver-ucrt-x86_64.zip"
+          7z x -y llvm-mingw.zip > /dev/null
+          echo "MINGW_PREFIX=$PWD/llvm-mingw-$ver-ucrt-x86_64" >> "$GITHUB_ENV"
+          echo "$PWD/llvm-mingw-$ver-ucrt-x86_64/bin" >> "$GITHUB_PATH"
+
       - name: Compilation
         uses: ./.github/actions/godot-build
         with:
-          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }} d3d12=${{ steps.d3d12-sdk.outputs.D3D12_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }}
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }} ${{ matrix.compiler == 'llvm-mingw' && format('mingw_prefix={0}', env.MINGW_PREFIX) || '' }} d3d12=${{ steps.d3d12-sdk.outputs.D3D12_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }}
           platform: windows
           target: ${{ matrix.target }}
 
