@@ -473,7 +473,7 @@ void AudioServer::_mix_step() {
 	to_mix = buffer_size;
 }
 
-void AudioServer::_mix_step_for_channel(AudioFrame *p_out_buf, AudioFrame *p_source_buf, AudioFrame p_vol_start, AudioFrame p_vol_final, float p_attenuation_filter_cutoff_hz, float p_highshelf_gain, AudioSourceId p_audio_source_id, AudioFilterSW::Processor *p_processor_l, AudioFilterSW::Processor *p_processor_r, int p_channel_idx, BusType p_bus_type, const Vector<Ref<AudioEffectInstance>> &p_pre_mix_effects, const Vector<Bus::Effect> *p_bus_effects) {
+void AudioServer::_mix_step_for_channel(AudioFrame *p_out_buf, AudioFrame *p_source_buf, AudioFrame p_vol_start, AudioFrame p_vol_final, float p_attenuation_filter_cutoff_hz, float p_highshelf_gain, AudioSourceId p_audio_source_id, AudioFilterSW::Processor *p_processor_l, AudioFilterSW::Processor *p_processor_r, int p_channel_idx, AuSE::BusType p_bus_type, const Vector<Ref<AudioEffectInstance>> &p_pre_mix_effects, const Vector<Bus::Effect> *p_bus_effects) {
 	if (p_bus_type == AuSE::BUS_TYPE_SPATIAL_3D && SpatialAudioServer::get_singleton() && p_audio_source_id.get_id() != -1) {
 		SpatialAudioServer::get_singleton()->push_source_buffer(p_audio_source_id, p_channel_idx, buffer_size, p_source_buf);
 		return;
@@ -1208,16 +1208,16 @@ void AudioServer::stop_playback_stream(Ref<AudioStreamPlayback> p_playback) {
 	} while (!playback_node->state.compare_exchange_strong(old_state, new_state));
 }
 
-void AudioServer::set_playback_bus_exclusive(Ref<AudioStreamPlayback> p_playback, const StringName &p_bus, Vector<AudioFrame> p_volumes) {
+void AudioServer::set_playback_bus_exclusive(Ref<AudioStreamPlayback> p_playback, const StringName &p_bus, Vector<AudioFrame> p_volumes, AudioSourceId p_source_id) {
 	ERR_FAIL_COND(p_volumes.size() != AuSC::MAX_CHANNELS_PER_BUS);
 
 	HashMap<StringName, Vector<AudioFrame>> map;
 	map[p_bus] = p_volumes;
 
-	set_playback_bus_volumes_linear(p_playback, map);
+	set_playback_bus_volumes_linear(p_playback, map, p_source_id);
 }
 
-void AudioServer::set_playback_bus_volumes_linear(Ref<AudioStreamPlayback> p_playback, const HashMap<StringName, Vector<AudioFrame>> &p_bus_volumes) {
+void AudioServer::set_playback_bus_volumes_linear(Ref<AudioStreamPlayback> p_playback, const HashMap<StringName, Vector<AudioFrame>> &p_bus_volumes, AudioSourceId p_source_id) {
 	ERR_FAIL_COND(p_bus_volumes.size() > AuSC::MAX_BUSES_PER_PLAYBACK);
 
 	// Samples.
@@ -1231,6 +1231,7 @@ void AudioServer::set_playback_bus_volumes_linear(Ref<AudioStreamPlayback> p_pla
 	if (!playback_node) {
 		return;
 	}
+	playback_node->source_id = p_source_id;
 	AudioStreamPlaybackBusDetails *old_bus_details, *new_bus_details = new AudioStreamPlaybackBusDetails();
 
 	int idx = 0;
@@ -1275,7 +1276,7 @@ void AudioServer::set_playback_all_bus_volumes_linear(Ref<AudioStreamPlayback> p
 		}
 	}
 
-	set_playback_bus_volumes_linear(p_playback, map);
+	set_playback_bus_volumes_linear(p_playback, map, p_source_id);
 }
 
 void AudioServer::set_playback_pitch_scale(Ref<AudioStreamPlayback> p_playback, float p_pitch_scale) {
