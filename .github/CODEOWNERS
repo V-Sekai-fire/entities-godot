@@ -298,3 +298,8 @@
 *.py                                          @godotengine/buildsystem
 SConstruct                                    @godotengine/buildsystem
 SCsub                                         @godotengine/buildsystem
+
+# V-Sekai Resonance Audio
+
+/modules/speech/                              @fire
+/servers/resonanceaudio/                      @fire
