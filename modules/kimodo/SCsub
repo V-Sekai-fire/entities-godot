@@ -12,10 +12,12 @@ Import("env_modules")
 env_kimodo = env_modules.Clone()
 
 tp = "#thirdparty/kimodo/"
-env_kimodo.Prepend(CPPPATH=[
-    tp + "include",
-    "#modules/ggml",
-])
+env_kimodo.Prepend(
+    CPPPATH=[
+        tp + "include",
+        "#modules/ggml",
+    ]
+)
 
 kimodo_thirdparty_sources = []
 

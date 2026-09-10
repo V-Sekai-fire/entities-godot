@@ -12,10 +12,12 @@ Import("env_modules")
 env_motion_bricks = env_modules.Clone()
 
 tp = "#thirdparty/motion_bricks/"
-env_motion_bricks.Prepend(CPPPATH=[
-    tp + "include",
-    "#modules/ggml",
-])
+env_motion_bricks.Prepend(
+    CPPPATH=[
+        tp + "include",
+        "#modules/ggml",
+    ]
+)
 
 motion_bricks_thirdparty_sources = []
 

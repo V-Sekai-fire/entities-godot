@@ -12,10 +12,12 @@ Import("env_modules")
 env_pixal3d = env_modules.Clone()
 
 tp = "#thirdparty/pixal3d/"
-env_pixal3d.Prepend(CPPPATH=[
-    tp + "include",
-    "#modules/ggml",
-])
+env_pixal3d.Prepend(
+    CPPPATH=[
+        tp + "include",
+        "#modules/ggml",
+    ]
+)
 
 pixal3d_thirdparty_sources = []
 

@@ -214,6 +214,12 @@
 /modules/zip/                                 @godotengine/core
 /modules/zip/doc_classes/                     @godotengine/core @godotengine/documentation
 /modules/zip/tests/                           @godotengine/core @godotengine/tests
+/modules/ggml/                                @fire
+/modules/kimodo/                              @fire
+/modules/motion_bricks/                       @fire
+/modules/pixal3d/                             @fire
+/modules/rf_detr/                             @fire
+/modules/skin_tokens/                         @fire
 
 # Platform
 

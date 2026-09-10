@@ -12,10 +12,12 @@ Import("env_modules")
 env_rf_detr = env_modules.Clone()
 
 tp = "#thirdparty/rf_detr/"
-env_rf_detr.Prepend(CPPPATH=[
-    tp + "include",
-    "#modules/ggml",
-])
+env_rf_detr.Prepend(
+    CPPPATH=[
+        tp + "include",
+        "#modules/ggml",
+    ]
+)
 
 rf_detr_thirdparty_sources = []
 

@@ -14,11 +14,13 @@ Import("env_modules")
 env_ggml = env_modules.Clone()
 
 tp = "#thirdparty/ggml/"
-env_ggml.Prepend(CPPPATH=[
-    tp + "include",
-    tp + "src",
-    tp + "src/ggml-cpu",
-])
+env_ggml.Prepend(
+    CPPPATH=[
+        tp + "include",
+        tp + "src",
+        tp + "src/ggml-cpu",
+    ]
+)
 
 # Placeholder for the vendored source list. The follow-up import PR
 # populates thirdparty/ggml/ and this list.

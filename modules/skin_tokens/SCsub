@@ -12,10 +12,12 @@ Import("env_modules")
 env_skin_tokens = env_modules.Clone()
 
 tp = "#thirdparty/skin_tokens/"
-env_skin_tokens.Prepend(CPPPATH=[
-    tp + "include",
-    "#modules/ggml",
-])
+env_skin_tokens.Prepend(
+    CPPPATH=[
+        tp + "include",
+        "#modules/ggml",
+    ]
+)
 
 skin_tokens_thirdparty_sources = []
 
