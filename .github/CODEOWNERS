@@ -345,3 +345,4 @@ SCsub                                         @godotengine/buildsystem
 
 /modules/speech/                              @fire
 /servers/resonanceaudio/                      @fire
+/modules/motion_bricks/                               @fire
