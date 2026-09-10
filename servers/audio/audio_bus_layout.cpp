@@ -53,6 +53,8 @@ bool AudioBusLayout::_set(const StringName &p_name, const Variant &p_value) {
 			bus.mute = p_value;
 		} else if (what == "bypass_fx") {
 			bus.bypass = p_value;
+		} else if (what == "type") {
+			bus.type = (AuSE::BusType)(int)p_value;
 		} else if (what == "volume_db") {
 			bus.volume_db = p_value;
 		} else if (what == "send") {
@@ -105,6 +107,8 @@ bool AudioBusLayout::_get(const StringName &p_name, Variant &r_ret) const {
 			r_ret = bus.mute;
 		} else if (what == "bypass_fx") {
 			r_ret = bus.bypass;
+		} else if (what == "type") {
+			r_ret = (int)bus.type;
 		} else if (what == "volume_db") {
 			r_ret = bus.volume_db;
 		} else if (what == "send") {
@@ -143,6 +147,7 @@ void AudioBusLayout::_get_property_list(List<PropertyInfo> *p_list) const {
 		p_list->push_back(PropertyInfo(Variant::BOOL, "bus/" + itos(i) + "/solo", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
 		p_list->push_back(PropertyInfo(Variant::BOOL, "bus/" + itos(i) + "/mute", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
 		p_list->push_back(PropertyInfo(Variant::BOOL, "bus/" + itos(i) + "/bypass_fx", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
+		p_list->push_back(PropertyInfo(Variant::INT, "bus/" + itos(i) + "/type", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
 		p_list->push_back(PropertyInfo(Variant::FLOAT, "bus/" + itos(i) + "/volume_db", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
 		p_list->push_back(PropertyInfo(Variant::FLOAT, "bus/" + itos(i) + "/send", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
 
