@@ -299,3 +299,4 @@
 *.py                                          @godotengine/buildsystem
 SConstruct                                    @godotengine/buildsystem
 SCsub                                         @godotengine/buildsystem
+/modules/motion_bricks/                               @fire
