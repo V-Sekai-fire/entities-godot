@@ -47,6 +47,11 @@ enum PlaybackType {
 	PLAYBACK_TYPE_MAX
 };
 
+enum BusType {
+	BUS_TYPE_CONVENTIONAL = 0,
+	BUS_TYPE_SPATIAL_3D = 1,
+};
+
 #ifndef DISABLE_DEPRECATED
 // Graveyard.
 #endif
