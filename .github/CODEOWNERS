@@ -347,3 +347,4 @@ SCsub                                         @godotengine/buildsystem
 /servers/resonanceaudio/                      @fire
 /modules/motion_bricks/                               @fire
 /modules/pixal3d/                                     @fire
+/modules/rf_detr/                                     @fire
