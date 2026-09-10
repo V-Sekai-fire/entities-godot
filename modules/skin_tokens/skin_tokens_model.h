@@ -9,7 +9,6 @@
 
 #include "core/io/resource.h"
 
-
 // wraps skin-tokens-cpp (skintokens.h C ABI). Retargets a source motion onto a humanoid rig described by the GLB bytes.
 // Scaffolded per RFD 2242. Implementation of retarget() lands with the
 // #thirdparty/skin_tokens/ import PR — this class exists so
@@ -24,5 +23,5 @@ protected:
 
 public:
 	Error load_from_path(const String &p_path);
-	Dictionary retarget(const PackedByteArray& p_glb_bytes);
+	Dictionary retarget(const PackedByteArray &p_glb_bytes);
 };

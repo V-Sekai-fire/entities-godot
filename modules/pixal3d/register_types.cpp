@@ -7,9 +7,9 @@
 
 #include "register_types.h"
 
-#include "core/object/class_db.h"
-
 #include "pixal3d_model.h"
+
+#include "core/object/class_db.h"
 
 void initialize_pixal3d_module(ModuleInitializationLevel p_level) {
 	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {

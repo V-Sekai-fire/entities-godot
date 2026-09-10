@@ -9,7 +9,6 @@
 
 #include "core/io/resource.h"
 
-
 // wraps rf-detr-cpp via its rfdetr_capi.{h,cpp} (added in a paired PR to V-Sekai-fire/rf-detr-cpp). Returns detected boxes and keypoints.
 // Scaffolded per RFD 2242. Implementation of detect() lands with the
 // #thirdparty/rf_detr/ import PR — this class exists so
@@ -24,5 +23,5 @@ protected:
 
 public:
 	Error load_from_path(const String &p_path);
-	Array detect(const Ref<Image>& p_image);
+	Array detect(const Ref<Image> &p_image);
 };

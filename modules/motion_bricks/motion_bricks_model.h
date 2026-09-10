@@ -24,5 +24,5 @@ protected:
 
 public:
 	Error load_from_path(const String &p_path);
-	Ref<Animation> generate(const Ref<class MotionBricksCommand>& p_command);
+	Ref<Animation> generate(const Ref<class MotionBricksCommand> &p_command);
 };

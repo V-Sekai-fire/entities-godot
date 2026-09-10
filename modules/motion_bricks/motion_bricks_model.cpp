@@ -11,7 +11,7 @@ Error MotionBricksModel::load_from_path(const String &p_path) {
 	ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "MotionBricksModel::load_from_path is scaffolding; the #thirdparty/motion_bricks/ import PR provides the implementation.");
 }
 
-Ref<Animation> MotionBricksModel::generate(const Ref<class MotionBricksCommand>& p_command) {
+Ref<Animation> MotionBricksModel::generate(const Ref<class MotionBricksCommand> &p_command) {
 	ERR_FAIL_V_MSG({}, "MotionBricksModel::generate is scaffolding; the #thirdparty/motion_bricks/ import PR provides the implementation.");
 }
 

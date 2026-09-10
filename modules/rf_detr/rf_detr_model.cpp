@@ -11,7 +11,7 @@ Error RFDetrModel::load_from_path(const String &p_path) {
 	ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "RFDetrModel::load_from_path is scaffolding; the #thirdparty/rf_detr/ import PR provides the implementation.");
 }
 
-Array RFDetrModel::detect(const Ref<Image>& p_image) {
+Array RFDetrModel::detect(const Ref<Image> &p_image) {
 	ERR_FAIL_V_MSG({}, "RFDetrModel::detect is scaffolding; the #thirdparty/rf_detr/ import PR provides the implementation.");
 }
 

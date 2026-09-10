@@ -24,5 +24,5 @@ protected:
 
 public:
 	Error load_from_path(const String &p_path);
-	Ref<Animation> generate(const String& p_prompt);
+	Ref<Animation> generate(const String &p_prompt);
 };

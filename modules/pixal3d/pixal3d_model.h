@@ -24,5 +24,5 @@ protected:
 
 public:
 	Error load_from_path(const String &p_path);
-	Ref<ArrayMesh> image_to_mesh(const Ref<Image>& p_image);
+	Ref<ArrayMesh> image_to_mesh(const Ref<Image> &p_image);
 };

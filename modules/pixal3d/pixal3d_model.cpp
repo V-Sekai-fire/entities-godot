@@ -11,7 +11,7 @@ Error Pixal3DModel::load_from_path(const String &p_path) {
 	ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "Pixal3DModel::load_from_path is scaffolding; the #thirdparty/pixal3d/ import PR provides the implementation.");
 }
 
-Ref<ArrayMesh> Pixal3DModel::image_to_mesh(const Ref<Image>& p_image) {
+Ref<ArrayMesh> Pixal3DModel::image_to_mesh(const Ref<Image> &p_image) {
 	ERR_FAIL_V_MSG({}, "Pixal3DModel::image_to_mesh is scaffolding; the #thirdparty/pixal3d/ import PR provides the implementation.");
 }
 
