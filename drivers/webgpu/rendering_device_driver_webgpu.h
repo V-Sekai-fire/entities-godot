@@ -7,15 +7,7 @@
 #include "servers/rendering/rendering_context_driver.h"
 #include "servers/rendering/rendering_device_driver.h"
 
-#include <spirv_webgpu_transform.h>
-
 class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
-	// TODO: Comb through the code and use this type.
-	// Often, we mix `uint32_t`'s that mean different things.
-	// To prevent confusion,
-	//		`OriginalBindingIndex` refers to bindings pre-correction.
-	//		`CorrectedBindingIndex` refers to bindings after correction.
-	// corrections refer to `spirv-webgpu-transform` transforms.
 	typedef uint32_t OriginalBindingIndex;
 	typedef uint32_t CorrectedBindingIndex;
 
