@@ -12,7 +12,7 @@ if backend == "dawn-desktop":
     env.Prepend(LIBS=["webgpu_dawn"])
     thirdparty_dirs += [
         "#thirdparty/dawn/include",
-        "#thirdparty/dawn/include/webgpu",
+        "#thirdparty/dawn/gen/include",
     ]
 elif backend == "emdawnwebgpu":
     pass
