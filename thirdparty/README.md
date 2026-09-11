@@ -167,18 +167,6 @@ Patches:
 - `0001-mingw-support.patch` ([GH-83452](https://github.com/godotengine/godot/pull/83452))
 
 
-## dawn
-
-- Upstream: https://github.com/google/dawn
-- Version: `1e897275172a23f27b0022fa6beae3084ed54a9b` (2025)
-- License: BSD-3-Clause
-
-Pruned source snapshot produced by `thirdparty/dawn/update-dawn.sh`.
-Retains `src/`, `include/`, `generator/`, `scripts/`, and the Khronos
-header subsets of `third_party/`. Tests, samples, docs, WebGPU CTS,
-Chromium build infrastructure and SDK binaries are dropped.
-
-
 ## directx_headers
 
 - Upstream: https://github.com/microsoft/DirectX-Headers
