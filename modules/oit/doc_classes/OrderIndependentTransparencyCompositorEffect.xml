@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="OrderIndependentTransparencyCompositorEffect" inherits="CompositorEffect" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Weighted-blended order-independent transparency compositor effect.
+	</brief_description>
+	<description>
+		Implements weighted-blended order-independent transparency (McGuire/Bavoil) entirely inside a [CompositorEffect] using the public [RenderingDevice] API. On Forward+ the callback runs at [constant CompositorEffect.EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT]; on Mobile projects should switch to [constant CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TRANSPARENT]. The effect issues a two-attachment accumulate pass over transparent batches followed by a fullscreen composite blit with (ONE, ONE_MINUS_SRC_ALPHA) blending.
+		Reverse-Z depth reject is used when sampling the resolved scene depth so occluded fragments are dropped before the weight function runs.
+		Geometry batches are supplied through the [signal OrderIndependentTransparencyGeometryRelay.transparency_batches_ready] signal (Path A) or, in a future engine hook, directly by the renderer.
+	</description>
+	<tutorials>
+		<link title="Weighted, Blended Order-Independent Transparency (McGuire &amp; Bavoil)">https://jcgt.org/published/0002/02/09/</link>
+	</tutorials>
+	<methods>
+		<method name="_on_batches_ready">
+			<return type="void" />
+			<param index="0" name="batches" type="Array" />
+			<description>
+				Slot for the geometry relay's transparency_batches_ready signal. Not intended for direct invocation.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="ldr_scale" type="float" setter="set_ldr_scale" getter="get_ldr_scale" default="0.5">
+			Multiplier applied to the composite output. The POC uses [code]0.5[/code] for LDR framebuffers and [code]1.0[/code] for HDR to compensate for the weighted-blended saturation curve.
+		</member>
+		<member name="msaa_enabled" type="bool" setter="set_msaa_enabled" getter="get_msaa_enabled" default="false">
+			Enables the [code]USE_MSAA[/code] variant of the composite shader for per-sample resolve. Not supported on all drivers; falls back to non-MSAA with a warn-once.
+		</member>
+		<member name="rt_format" type="int" setter="set_rt_format" getter="get_rt_format" enum="OrderIndependentTransparencyCompositorEffect.RenderTargetFormat" default="1">
+			Precision of the accum render target. HDR uses [code]R16G16B16A16_SFLOAT[/code]; LDR uses [code]R8G8B8A8_UNORM[/code].
+		</member>
+		<member name="average_depth_complexity" type="float" setter="set_average_depth_complexity" getter="get_average_depth_complexity" default="4.0">
+			Tuning knob that scales the weighted-blended weight-function denominator. Projects with more transparent overlap should raise this value.
+		</member>
+		<member name="debug_overlay_enabled" type="bool" setter="set_debug_overlay_enabled" getter="get_debug_overlay_enabled" default="false">
+			When [code]true[/code], performs a fenced async readback of the accum texture every N frames and emits [signal order_independent_transparency_stats] with peak alpha-weight saturation and revealage extremes.
+		</member>
+	</members>
+	<signals>
+		<signal name="order_independent_transparency_stats">
+			<param index="0" name="stats" type="Dictionary" />
+			<description>
+				Emitted when the debug overlay has new stats. Only fires while [member debug_overlay_enabled] is [code]true[/code].
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="RT_FORMAT_LDR" value="0" enum="RenderTargetFormat">
+			8-bit-per-channel unorm accum target.
+		</constant>
+		<constant name="RT_FORMAT_HDR" value="1" enum="RenderTargetFormat">
+			16-bit-per-channel float accum target (default).
+		</constant>
+	</constants>
+</class>

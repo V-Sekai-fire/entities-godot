@@ -1,0 +1,15 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+Import("env_modules")
+
+env_module = env_modules.Clone()
+
+# Compile RD shader headers.
+env_module.GLSL_HEADER("shaders/order_independent_transparency_weighted.glsl")
+env_module.GLSL_HEADER("shaders/order_independent_transparency_composite.glsl")
+env_module.Depends(Glob("shaders/*.glsl.gen.h"), ["#glsl_builders.py"])
+
+# Godot source files.
+env_module.add_source_files(env.modules_sources, "*.cpp")
