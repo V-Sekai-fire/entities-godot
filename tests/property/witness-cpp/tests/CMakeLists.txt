@@ -20,6 +20,7 @@ add_executable(witness_lib_tests
 	test_shrinkers.cpp
 	test_reproducer.cpp
 	test_assume_classify.cpp
+	test_combinators.cpp
 )
 
 target_link_libraries(witness_lib_tests PRIVATE

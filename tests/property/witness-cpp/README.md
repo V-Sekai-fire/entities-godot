@@ -41,16 +41,23 @@ avoids "plausible" to sidestep any confusion with the Lean library.
 - Deterministic seeded RNG (`std::mt19937_64`).
 - Generator + Predicate contract.
 - Shrinking: iterative, non-throwing, 128-step budget.
-- Built-in generators: `gen_int`, `gen_uint`, `gen_int64`, `gen_float`,
-  `gen_double`, `gen_string`, `gen_vector<T>`, `gen_pair<A,B>`,
-  `gen_optional<T>`.
-- Built-in shrinkers: `shrink_int`, `shrink_uint`, `shrink_int64`,
-  `shrink_float`, `shrink_double`, `shrink_string`, `shrink_vector<T>`,
-  `shrink_pair<A,B>`, `shrink_optional<T>`.
+- Built-in generators: `gen_bool`, `gen_char`, `gen_int`, `gen_uint`,
+  `gen_int64`, `gen_float`, `gen_double`, `gen_string`, `gen_vector<T>`,
+  `gen_pair<A,B>`, `gen_optional<T>`, variadic `gen_tuple<...>`.
+- Built-in combinators: `gen_oneof` (choose one of several generators),
+  `gen_transform` (map a function over generator output), `gen_filter`
+  (retry until a predicate holds, bounded).
+- Built-in shrinkers: `shrink_bool`, `shrink_char`, `shrink_int`,
+  `shrink_uint`, `shrink_int64`, `shrink_float`, `shrink_double`,
+  `shrink_string`, `shrink_vector<T>`, `shrink_pair<A,B>`,
+  `shrink_optional<T>`, variadic `shrink_tuple<...>`.
 - `assume(cond)`: reject invalid inputs; rejected trials don't count
   toward `num_inst`.
 - `classify(cond, label)`: distribution stats over holding trials,
   reported on `PROVABLY_NONE`.
+- `resolve_with_ladder(...)`: run against a caller-supplied ladder
+  instead of `DEFAULT_LADDER`.
+- Doctest macros: `PROP_CHECK`, `PROP_CHECK_SHRINK`, `PROP_CHECK_SEED`.
 
 ## Usage
 
