@@ -173,14 +173,10 @@ Patches:
 - Version: `1e897275172a23f27b0022fa6beae3084ed54a9b` (2025)
 - License: BSD-3-Clause
 
-Prebuilt install tree (headers + CMake package config + platform libraries)
-for the WebGPU rendering device driver's `dawn-desktop` and `emdawnwebgpu`
-build paths. Not a source snapshot — regenerating requires a Dawn build.
-
-Files extracted from an upstream install target:
-
-- `include/webgpu/*` and `include/dawn/*` — public C and C++ headers.
-- `lib/cmake/Dawn/*` — `DawnConfig.cmake` and friends for `find_package(Dawn)`.
+Pruned source snapshot produced by `thirdparty/dawn/update-dawn.sh`.
+Retains `src/`, `include/`, `generator/`, `scripts/`, and the Khronos
+header subsets of `third_party/`. Tests, samples, docs, WebGPU CTS,
+Chromium build infrastructure and SDK binaries are dropped.
 
 
 ## directx_headers
@@ -915,11 +911,7 @@ Patches:
 
 - Upstream: https://github.com/davnotdev/naga-native
 - Version: `87cd2a99b6b894a657a8bb798745699f45748094` (2025)
-- License: see upstream `LICENSE`
-
-C API bindings for `naga`, the WGSL/SPIR-V/MSL/HLSL/GLSL shader translator
-used by `wgpu` — used by the WebGPU rendering device driver for shader
-translation on native platforms.
+- License: see upstream
 
 Files extracted from the upstream source:
 
@@ -1127,11 +1119,7 @@ Patches:
 
 - Upstream: https://github.com/davnotdev/spirv-webgpu-transform
 - Version: `285f70a8a5e1710d8b0b9c3cd88ac56d8bb12a65` (2025)
-- License: see upstream `LICENSE`
-
-SPIR-V patcher/transformer that fixes up shader binaries for consumption
-by WebGPU / WGSL toolchains, used by the WebGPU rendering device driver
-for shader porting from SPIR-V.
+- License: see upstream
 
 Files extracted from the upstream source:
 
@@ -1331,9 +1319,6 @@ The following files are extracted from thirdparty sources:
 - Upstream: https://github.com/gfx-rs/wgpu-native
 - Version: `12a4b75bd966a03172e5fb5a367cb2e0ce9480ed` (2025)
 - License: Apache-2.0 OR MIT
-
-Public C API headers for `wgpu-native`, the Rust WebGPU implementation
-used by the WebGPU rendering device driver on native platforms.
 
 Files extracted from the upstream source:
 
