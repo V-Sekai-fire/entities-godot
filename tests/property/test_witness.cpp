@@ -28,125 +28,128 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-// Godot-side shim for github.com/V-Sekai-fire/witness-cpp — pulled in
-// as a git subtree at tests/property/witness-cpp so the property harness
-// can be developed and tested standalone (with its own CMake/doctest CI)
-// while still linking into Godot's tests binary here.
-//
-// The shim intentionally does NOT include witness/doctest.h — that
-// header includes <doctest/doctest.h>, which is a different install
-// path than Godot's thirdparty/doctest. Godot's tests/test_macros.h
-// already provides SUBCASE, CHECK and INFO from the same doctest
-// distribution; the PROP_CHECK macros below are the two-liner that
-// binds witness::resolve into a doctest SUBCASE.
+// Godot-side shim for V-Sekai-fire/witness-cpp — pulled in as a git
+// subtree at tests/property/witness-cpp. The shim does NOT include
+// witness/doctest.h (that header pulls <doctest/doctest.h>, which is
+// a different install path than Godot's thirdparty/doctest). Godot's
+// tests/test_macros.h supplies TEST_CASE, SUBCASE, CHECK and INFO
+// from the same doctest distribution.
 
 #include "tests/property/witness-cpp/include/witness/ladder.h"
 #include "tests/test_macros.h"
 
 #include <algorithm>
-#include <cstdlib>
+#include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
-#define PROP_CHECK(m_query, m_make_input, m_predicate)                        \
-	SUBCASE(m_query) {                                                        \
-		::witness::Trial _prop_trial =                                        \
-				::witness::resolve(m_query, m_make_input, m_predicate);       \
-		INFO(_prop_trial.message);                                            \
-		CHECK(_prop_trial.outcome != ::witness::Outcome::FOUND);              \
-	}
-
 namespace TestWitness {
 
+static std::vector<int> gen_int_vec(::witness::RNG &rng, const ::witness::Level &lvl) {
+	uint32_t n = rng.uint_range(0, static_cast<uint32_t>(lvl.fin_bound / 32));
+	std::vector<int> v(n);
+	for (uint32_t i = 0; i < n; ++i) {
+		v[i] = rng.int_range(-100, 100);
+	}
+	return v;
+}
+
 TEST_CASE("[Witness] reverse . reverse is identity on std::vector<int>") {
-	PROP_CHECK(
-			"involution",
-			[](::witness::RNG &rng, const ::witness::Level &lvl) {
-				std::vector<int> v(rng.uint_range(0, static_cast<uint32_t>(lvl.fin_bound / 32)));
-				for (auto &x : v) {
-					x = rng.int_range(-100, 100);
-				}
-				return v;
-			},
-			[](const std::vector<int> &v) {
-				std::vector<int> r = v;
-				std::reverse(r.begin(), r.end());
-				std::reverse(r.begin(), r.end());
-				return r == v;
-			});
+	::witness::Generator<std::vector<int>> gen = &gen_int_vec;
+	std::function<bool(const std::vector<int> &)> pred = [](const std::vector<int> &v) {
+		std::vector<int> r = v;
+		std::reverse(r.begin(), r.end());
+		std::reverse(r.begin(), r.end());
+		return r == v;
+	};
+	::witness::Trial t = ::witness::resolve<std::vector<int>>("involution", gen, pred);
+	INFO(t.message);
+	CHECK(t.outcome != ::witness::Outcome::FOUND);
 }
 
-TEST_CASE("[Witness] negative control: a planted-false property is caught") {
-	// A ladder that ALWAYS reports PROVABLY_NONE regardless of the
-	// predicate is decoration — this rule-2 control asserts the runner
-	// terminates with FOUND on an obviously-false statement.
-	::witness::Trial trial = ::witness::resolve(
-			"vectors are always empty",
-			[](::witness::RNG &rng, const ::witness::Level &lvl) {
-				std::vector<int> v(rng.uint_range(0, static_cast<uint32_t>(lvl.fin_bound / 32)));
-				for (auto &x : v) {
-					x = rng.int_range(-100, 100);
-				}
-				return v;
-			},
-			[](const std::vector<int> &v) {
-				return v.empty();
-			});
-
-	INFO(trial.message);
-	CHECK(trial.outcome == ::witness::Outcome::FOUND);
-	CHECK(trial.level == 0);
+TEST_CASE("[Witness] falsifiability: a planted-false property is caught") {
+	::witness::Generator<std::vector<int>> gen = &gen_int_vec;
+	std::function<bool(const std::vector<int> &)> pred = [](const std::vector<int> &v) {
+		return v.empty();
+	};
+	::witness::Trial t = ::witness::resolve<std::vector<int>>("vectors always empty", gen, pred);
+	INFO(t.message);
+	CHECK(t.outcome == ::witness::Outcome::FOUND);
+	CHECK(t.level == 0);
 }
 
-TEST_CASE("[Witness] reproducer seed on failure names the seed to re-run") {
-	::witness::Trial t = ::witness::resolve(
-			"always-false", ::witness::gen_int,
-			[](int) { return false; }, 0xC0FFEEULL);
+TEST_CASE("[Witness] the reproducer seed lands in the FOUND message") {
+	::witness::Generator<int> gen = &::witness::gen_int;
+	std::function<bool(const int &)> pred = [](const int &) { return false; };
+	::witness::Trial t = ::witness::resolve<int>("always-false", gen, pred, 0xC0FFEEULL);
 	INFO(t.message);
 	CHECK(t.outcome == ::witness::Outcome::FOUND);
 	CHECK(t.message.find("property_seed=0xc0ffee") != std::string::npos);
 }
 
-TEST_CASE("[Witness] assume() and classify() flow through to the report") {
-	::witness::Trial t = ::witness::resolve(
-			"assume + classify",
-			::witness::gen_int,
-			[](int n) {
-				::witness::assume(n >= -1000000); // effectively always true
-				::witness::classify(n > 0, "positive");
-				return true;
-			},
-			0xBEEFULL);
+TEST_CASE("[Witness] falsifiability: a different seed yields a different message") {
+	::witness::Generator<int> gen = &::witness::gen_int;
+	std::function<bool(const int &)> pred = [](const int &) { return false; };
+	::witness::Trial a = ::witness::resolve<int>("always-false", gen, pred, 0x1ULL);
+	::witness::Trial b = ::witness::resolve<int>("always-false", gen, pred, 0x2ULL);
+	CHECK(a.message != b.message);
+}
+
+TEST_CASE("[Witness] assume + classify flow through to the report") {
+	::witness::Generator<int> gen = &::witness::gen_int;
+	std::function<bool(const int &)> pred = [](const int &n) {
+		::witness::assume(n >= -1000000);
+		::witness::classify(n > 0, "positive");
+		return true;
+	};
+	::witness::Trial t = ::witness::resolve<int>("assume + classify", gen, pred, 0xBEEFULL);
 	CHECK(t.outcome == ::witness::Outcome::PROVABLY_NONE);
 	INFO(t.message);
 	CHECK(t.message.find("classifications:") != std::string::npos);
 	CHECK(t.message.find("positive") != std::string::npos);
 }
 
+TEST_CASE("[Witness] falsifiability: a label that never matches never appears") {
+	::witness::Generator<int> gen = &::witness::gen_int;
+	std::function<bool(const int &)> pred = [](const int &) {
+		::witness::classify(false, "unreachable");
+		return true;
+	};
+	::witness::Trial t = ::witness::resolve<int>("always-hold", gen, pred, 0xBEEFULL);
+	CHECK(t.message.find("unreachable") == std::string::npos);
+}
+
 TEST_CASE("[Witness] shrinker reduces a falsifying vector toward the minimum") {
-	auto shrinker = [](const std::vector<int> &v) {
-		return ::witness::shrink_vector(v);
+	::witness::Generator<std::vector<int>> gen = [](::witness::RNG &rng, const ::witness::Level &lvl) {
+		std::vector<int> v(rng.uint_range(20, static_cast<uint32_t>(lvl.fin_bound / 4) + 20));
+		for (std::size_t i = 0; i < v.size(); ++i) {
+			v[i] = rng.int_range(-100, 100);
+		}
+		return v;
 	};
-	auto printer = [](std::ostream &os, const std::vector<int> &v) {
-		os << "vector<int> size=" << v.size();
+	std::function<bool(const std::vector<int> &)> pred = [](const std::vector<int> &v) { return v.empty(); };
+	::witness::Shrinker<std::vector<int>> sh = &::witness::shrink_vector<int>;
+	std::function<void(std::ostream &, const std::vector<int> &)> printer =
+			[](std::ostream &os, const std::vector<int> &v) { os << "size=" << v.size(); };
+	::witness::Trial t = ::witness::resolve<std::vector<int>>("shrink toward minimum", gen, pred, sh, printer);
+	INFO(t.message);
+	CHECK(t.outcome == ::witness::Outcome::FOUND);
+	CHECK(t.message.find("shrunk ") != std::string::npos);
+}
+
+TEST_CASE("[Witness] falsifiability: no_shrink leaves the counterexample untouched") {
+	::witness::Generator<std::vector<int>> gen = [](::witness::RNG &rng, const ::witness::Level &lvl) {
+		std::vector<int> v(rng.uint_range(20, static_cast<uint32_t>(lvl.fin_bound / 4) + 20));
+		for (std::size_t i = 0; i < v.size(); ++i) {
+			v[i] = rng.int_range(-100, 100);
+		}
+		return v;
 	};
-
-	::witness::Trial trial = ::witness::resolve(
-			"vectors are always empty (shrinking variant)",
-			[](::witness::RNG &rng, const ::witness::Level &lvl) {
-				std::vector<int> v(rng.uint_range(20, static_cast<uint32_t>(lvl.fin_bound / 4) + 20));
-				for (auto &x : v) {
-					x = rng.int_range(-100, 100);
-				}
-				return v;
-			},
-			[](const std::vector<int> &v) { return v.empty(); },
-			shrinker,
-			printer);
-
-	INFO(trial.message);
-	CHECK(trial.outcome == ::witness::Outcome::FOUND);
-	CHECK(trial.message.find("shrunk ") != std::string::npos);
+	std::function<bool(const std::vector<int> &)> pred = [](const std::vector<int> &v) { return v.empty(); };
+	::witness::Trial t = ::witness::resolve<std::vector<int>>("no_shrink control", gen, pred);
+	CHECK(t.outcome == ::witness::Outcome::FOUND);
+	CHECK(t.message.find("shrunk ") == std::string::npos);
 }
 
 } // namespace TestWitness
