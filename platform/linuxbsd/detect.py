@@ -90,6 +90,7 @@ def get_flags():
     return {
         "arch": detect_arch(),
         "supported": ["library", "mono"],
+        "webgpu_backend": "wgpu-desktop",
     }
 
 
@@ -534,6 +535,18 @@ def configure(env: "SConsEnvironment"):
                 "\nAlternatively, disable this driver by compiling with `accesskit=no` explicitly."
             )
             env["accesskit"] = False
+
+    if env["webgpu"]:
+        env.Append(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
+        if env["webgpu_backend"] == "dawn-desktop":
+            env.Append(CPPDEFINES=["WEBGPU_BACKEND_DAWN_DESKTOP"])
+        elif env["webgpu_backend"] == "wgpu-desktop":
+            env.Append(CPPDEFINES=["WEBGPU_BACKEND_WGPU_DESKTOP"])
+        else:
+            print_error(
+                'Unsupported "webgpu_backend=%s" for platform "linuxbsd"' % env["webgpu_backend"]
+            )
+            sys.exit(255)
 
     if env["vulkan"]:
         env.Append(CPPDEFINES=["VULKAN_ENABLED"])
