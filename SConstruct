@@ -213,7 +213,7 @@ opts.Add(
         "webgpu_backend",
         "WebGPU backend library / platform",
         "auto",
-        ["auto", "dawn-desktop", "wgpu-desktop", "emdawnwebgpu"],
+        ["auto", "dawn-desktop", "emdawnwebgpu"],
         ignorecase=2
     )
 )
