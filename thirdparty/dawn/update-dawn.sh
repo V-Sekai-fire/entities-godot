@@ -22,12 +22,13 @@ git checkout -q FETCH_HEAD
 
 # Populate the submodules Dawn's generator and library actually need. Init
 # a curated set only; the Chromium build submodules (buildtools, build,
-# tools/*) are dropped below and never fetched.
-for sub in third_party/spirv-headers third_party/spirv-tools \
-           third_party/vulkan-headers third_party/vulkan-utility-libraries \
+# tools/*) are dropped below and never fetched. The Khronos-adjacent
+# submodules land at third_party/<name>/src (nested one level).
+for sub in third_party/spirv-headers/src third_party/spirv-tools/src \
+           third_party/vulkan-headers/src third_party/vulkan-utility-libraries/src \
            third_party/webgpu-headers third_party/emdawnwebgpu \
            third_party/khronos third_party/jinja2 third_party/markupsafe \
-           third_party/glfw; do
+           third_party/glfw3/src third_party/abseil-cpp; do
   if grep -q "path = ${sub}$" .gitmodules 2>/dev/null; then
     git submodule update --init --depth 1 -q "${sub}" 2>/dev/null || true
   fi
