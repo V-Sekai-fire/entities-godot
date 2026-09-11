@@ -7,15 +7,10 @@ import test_builders
 
 Import("env")
 
-# Sources with tests must be explicitly linked first.
-# The `witness-cpp` subtree under tests/property/ carries the standalone
-# library's own doctest test suite — those live under
-# tests/property/witness-cpp/tests/ and are only built by the standalone
-# CMake project. Exclude them here so Godot's tests SCU picks up only
-# the shim that adapts witness-cpp's header to Godot's doctest.
-force_link_sources = [
-    p for p in glob.glob("*/**/*.cpp", recursive=True) if "witness-cpp/" not in p.replace("\\", "/")
-]
+# Sources with tests must be explicitly linked first. witness-cpp lives
+# under thirdparty/ now (outside this tests/ tree), so no exclusion is
+# needed here.
+force_link_sources = glob.glob("*/**/*.cpp", recursive=True)
 force_link_header = env.CommandNoCache(
     "force_link.gen.h", env.Value(force_link_sources), env.Run(test_builders.force_link_builder)
 )

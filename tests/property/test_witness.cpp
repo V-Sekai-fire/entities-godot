@@ -35,7 +35,7 @@
 // tests/test_macros.h supplies TEST_CASE, SUBCASE, CHECK and INFO
 // from the same doctest distribution.
 
-#include "tests/property/witness-cpp/include/witness/ladder.h"
+#include "thirdparty/witness-cpp/include/witness/ladder.h"
 #include "tests/test_macros.h"
 
 #include <algorithm>
