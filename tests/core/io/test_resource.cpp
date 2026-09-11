@@ -1614,16 +1614,15 @@ TEST_CASE("[ResourceLoader] load_whitelisted - Null byte validation (defense in 
 	// Note: Godot's String class doesn't allow null bytes in strings, so we test by attempting
 	// to create a path that would contain null bytes if it were possible
 	// In practice, null bytes are rejected during string construction, but we validate explicitly
-	String path_with_null = save_path;
-	// Since Godot's String class replaces null bytes, we can't directly test with null bytes
-	// But the validation code will catch them if they somehow get through
-	// This test documents the security measure is in place
+	// Godot's String class replaces null bytes at construction time, so these
+	// values only exist to name what the validation branch guards against;
+	// the [[maybe_unused]] attribute keeps -Werror=unused-variable satisfied
+	// without deleting the documentation of the test's intent.
+	[[maybe_unused]] String path_with_null = save_path;
 
 	// Test 3: Whitelist key with null byte should be rejected
 	// Again, Godot's String prevents null bytes, but we validate whitelist keys
-	Dictionary null_key_whitelist;
-	// We can't create a string with null bytes in Godot, but the validation ensures
-	// that if one somehow exists, it would be caught
+	[[maybe_unused]] Dictionary null_key_whitelist;
 
 	CHECK_MESSAGE(
 			true,
