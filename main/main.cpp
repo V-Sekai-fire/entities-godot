@@ -2594,6 +2594,9 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		Vector<String> available_drivers;
 #ifdef RD_ENABLED
 		if (rendering_method == "forward_plus" || rendering_method == "mobile") {
+#ifdef WEBGPU_ENABLED
+			available_drivers.push_back("webgpu");
+#endif
 #ifdef VULKAN_ENABLED
 			available_drivers.push_back("vulkan");
 #endif
