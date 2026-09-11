@@ -925,36 +925,24 @@ Error RenderingDevice::_buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data
 	TransferWorker *transfer_worker = _acquire_transfer_worker(p_data.size(), required_align, transfer_worker_offset);
 	p_buffer->transfer_worker_index = transfer_worker->index;
 
-		memcpy(data_ptr, p_data.ptr(), p_data.size());
-
-		driver->buffer_unmap(p_buffer->driver_id);
-	} else {
-		// Otherwise, use a transfer worker.
-		uint32_t transfer_worker_offset;
-		TransferWorker *transfer_worker = _acquire_transfer_worker(p_data.size(), p_required_align, transfer_worker_offset);
-		p_buffer->transfer_worker_index = transfer_worker->index;
-
-		{
-			MutexLock lock(transfer_worker->operations_mutex);
-			p_buffer->transfer_worker_operation = ++transfer_worker->operations_counter;
-		}
-
-		// Copy to the worker's staging buffer.
-		uint8_t *data_ptr = driver->buffer_map(transfer_worker->staging_buffer);
-		ERR_FAIL_NULL_V(data_ptr, ERR_CANT_CREATE);
-
-		memcpy(data_ptr + transfer_worker_offset, p_data.ptr(), p_data.size());
-		driver->buffer_unmap(transfer_worker->staging_buffer);
-
-		// Copy from the staging buffer to the real buffer.
-		RDD::BufferCopyRegion region;
-		region.src_offset = transfer_worker_offset;
-		region.dst_offset = 0;
-		region.size = p_data.size();
-		driver->command_copy_buffer(transfer_worker->command_buffer, transfer_worker->staging_buffer, p_buffer->driver_id, region);
-
-		_release_transfer_worker(transfer_worker);
+	{
+		MutexLock lock(transfer_worker->operations_mutex);
+		p_buffer->transfer_worker_operation = ++transfer_worker->operations_counter;
 	}
+
+	uint8_t *data_ptr = driver->buffer_map(transfer_worker->staging_buffer);
+	ERR_FAIL_NULL_V(data_ptr, ERR_CANT_CREATE);
+
+	memcpy(data_ptr + transfer_worker_offset, p_data.ptr(), p_data.size());
+	driver->buffer_unmap(transfer_worker->staging_buffer);
+
+	RDD::BufferCopyRegion region;
+	region.src_offset = transfer_worker_offset;
+	region.dst_offset = 0;
+	region.size = p_data.size();
+	driver->command_copy_buffer(transfer_worker->command_buffer, transfer_worker->staging_buffer, p_buffer->driver_id, region);
+
+	_release_transfer_worker(transfer_worker);
 
 	return OK;
 }
