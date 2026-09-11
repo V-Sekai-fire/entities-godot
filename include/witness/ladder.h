@@ -51,6 +51,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -179,6 +180,15 @@ inline void print_value(std::ostream &os, const T &x) {
 // Generators. Each has the signature `T (RNG &, const Level &)` so it
 // can plug directly into resolve() without a wrapping lambda.
 // -------------------------------------------------------------------
+inline bool gen_bool(RNG &rng, const Level &) {
+	return rng.int_range(0, 1) == 1;
+}
+
+inline char gen_char(RNG &rng, const Level &) {
+	// Printable ASCII so falsifier printouts stay readable.
+	return static_cast<char>(rng.int_range(32, 126));
+}
+
 inline int gen_int(RNG &rng, const Level &lvl) {
 	int scale = std::max(1, lvl.fin_bound / 32);
 	return rng.int_range(-scale, scale);
@@ -245,11 +255,79 @@ inline auto gen_optional(ElemGen elem_gen) {
 	};
 }
 
+// Variadic tuple generator: `gen_tuple(gen_int, gen_string, gen_bool)`
+// yields a std::tuple<int, std::string, bool>.
+template <class... Gens>
+inline auto gen_tuple(Gens... gens) {
+	return [gens...](RNG &rng, const Level &lvl) {
+		return std::make_tuple(gens(rng, lvl)...);
+	};
+}
+
+// Pick one of several homogeneous generators uniformly at random.
+// For heterogeneous generators, wrap each in a std::function of the
+// common return type.
+template <class Gen>
+inline auto gen_oneof(std::vector<Gen> gens) {
+	return [gens](RNG &rng, const Level &lvl) {
+		int i = rng.int_range(0, static_cast<int>(gens.size()) - 1);
+		return gens[static_cast<std::size_t>(i)](rng, lvl);
+	};
+}
+
+// Map a function over a generator's output.
+template <class Gen, class Fn>
+inline auto gen_transform(Gen gen, Fn fn) {
+	return [gen, fn](RNG &rng, const Level &lvl) {
+		return fn(gen(rng, lvl));
+	};
+}
+
+// Filter a generator: resample up to `retries` times until `pred`
+// holds. On exhaustion the last draw is returned and assume() marks
+// the trial as SKIP so the resolver drops it.
+template <class Gen, class Pred>
+inline auto gen_filter(Gen gen, Pred pred, int retries = 32) {
+	return [gen, pred, retries](RNG &rng, const Level &lvl) {
+		auto v = gen(rng, lvl);
+		for (int i = 0; i < retries; ++i) {
+			if (pred(v)) {
+				return v;
+			}
+			v = gen(rng, lvl);
+		}
+		if (!pred(v)) {
+			ctx().verdict = Verdict::SKIP;
+		}
+		return v;
+	};
+}
+
 // -------------------------------------------------------------------
 // Shrinkers. Each takes an input and returns strictly-smaller
 // candidates; the caller's shrink loop picks the first that still
 // falsifies.
 // -------------------------------------------------------------------
+inline std::vector<bool> shrink_bool(bool b) {
+	// Only smaller value is false; false already at the minimum.
+	if (b) {
+		return { false };
+	}
+	return {};
+}
+
+inline std::vector<char> shrink_char(char c) {
+	// 'a' is the canonical minimum for readable output; step toward it.
+	std::vector<char> out;
+	if (c != 'a') {
+		out.push_back('a');
+	}
+	if (c > 'a') {
+		out.push_back(static_cast<char>(c - 1));
+	}
+	return out;
+}
+
 inline std::vector<int> shrink_int(int n) {
 	std::vector<int> out;
 	if (n != 0) {
@@ -369,6 +447,35 @@ inline auto shrink_pair(const std::pair<A, B> &p, ShrinkA a_shrink, ShrinkB b_sh
 		out.emplace_back(p.first, std::move(b));
 	}
 	return out;
+}
+
+// Tuple shrinker: shrinks one slot at a time. Callers pass one
+// shrinker per slot in the same order.
+namespace detail {
+
+template <std::size_t I, class Tup, class ShrinkI>
+inline void shrink_one_slot(const Tup &orig, ShrinkI &&shrinker, std::vector<Tup> &out) {
+	auto candidates = shrinker(std::get<I>(orig));
+	for (auto &c : candidates) {
+		Tup copy = orig;
+		std::get<I>(copy) = std::move(c);
+		out.push_back(std::move(copy));
+	}
+}
+
+template <class Tup, class Shrinks, std::size_t... Is>
+inline std::vector<Tup> shrink_tuple_impl(const Tup &t, Shrinks &shrinks, std::index_sequence<Is...>) {
+	std::vector<Tup> out;
+	(shrink_one_slot<Is>(t, std::get<Is>(shrinks), out), ...);
+	return out;
+}
+
+} // namespace detail
+
+template <class... Ts, class... Shrinks>
+inline std::vector<std::tuple<Ts...>> shrink_tuple(const std::tuple<Ts...> &t, Shrinks... shrinks) {
+	auto pack = std::make_tuple(shrinks...);
+	return detail::shrink_tuple_impl(t, pack, std::index_sequence_for<Ts...>{});
 }
 
 template <class T, class ShrinkT>
@@ -515,9 +622,13 @@ inline uint64_t pick_seed(uint64_t caller_seed) {
 }
 
 // Wrap a bool-returning predicate as a Verdict-returning one, honoring
-// assume()'s SKIP verdict.
+// assume()'s SKIP verdict. If the generator already set SKIP (via
+// gen_filter's retry-exhaustion path), the predicate is not run.
 template <class Pred, class T>
 inline Verdict run_predicate(Pred &&predicate, const T &input) {
+	if (ctx().verdict == Verdict::SKIP) {
+		return Verdict::SKIP;
+	}
 	ctx().verdict = Verdict::HOLD;
 	bool held = static_cast<bool>(predicate(input));
 	if (ctx().verdict == Verdict::SKIP) {
@@ -527,16 +638,21 @@ inline Verdict run_predicate(Pred &&predicate, const T &input) {
 	return ctx().verdict;
 }
 
-// Full resolver: generator + predicate + shrinker + printer + seed.
-template <class Gen, class Pred, class Shrink, class Printer>
-inline Trial resolve(const char *query, Gen &&make_input, Pred &&predicate,
+// Full resolver against a caller-supplied ladder. `ladder` is any
+// range of Level values — a std::vector<Level>, a std::array, or a
+// pointer + count via std::span-like usage.
+template <class Ladder, class Gen, class Pred, class Shrink, class Printer>
+inline Trial resolve_with_ladder(const char *query, const Ladder &ladder,
+		Gen &&make_input, Pred &&predicate,
 		Shrink &&shrinker, Printer &&printer, uint64_t seed = 0) {
 	uint64_t actual_seed = pick_seed(seed);
 	RNG rng(actual_seed);
 	ctx().class_hits.clear();
 	ctx().trials_counted = 0;
 
-	for (const Level &lvl : DEFAULT_LADDER) {
+	int last_idx = 0;
+	for (const Level &lvl : ladder) {
+		last_idx = lvl.idx;
 		int trial_counter = 0;
 		int assumed_skipped = 0;
 		const int assume_cap = lvl.num_inst * 10;
@@ -544,6 +660,7 @@ inline Trial resolve(const char *query, Gen &&make_input, Pred &&predicate,
 			if (assumed_skipped >= assume_cap) {
 				break;
 			}
+			ctx().verdict = Verdict::HOLD;
 			auto input = make_input(rng, lvl);
 			Verdict v = run_predicate(predicate, input);
 			if (v == Verdict::SKIP) {
@@ -562,8 +679,17 @@ inline Trial resolve(const char *query, Gen &&make_input, Pred &&predicate,
 			trial_counter++;
 		}
 	}
-	return { Outcome::PROVABLY_NONE, DEFAULT_LADDER[2].idx, 0,
+	return { Outcome::PROVABLY_NONE, last_idx, 0,
 		detail::format_provably_none(query, actual_seed) };
+}
+
+// Default resolver: walks DEFAULT_LADDER.
+template <class Gen, class Pred, class Shrink, class Printer>
+inline Trial resolve(const char *query, Gen &&make_input, Pred &&predicate,
+		Shrink &&shrinker, Printer &&printer, uint64_t seed = 0) {
+	return resolve_with_ladder(query, DEFAULT_LADDER,
+			std::forward<Gen>(make_input), std::forward<Pred>(predicate),
+			std::forward<Shrink>(shrinker), std::forward<Printer>(printer), seed);
 }
 
 // No-shrinker convenience overload.

@@ -34,4 +34,15 @@
 		CHECK(_prop_trial.outcome != ::witness::Outcome::FOUND);                   \
 	}
 
+// Explicit-seed variant: pins the RNG so a flaky property fails the
+// same way every run. The seed also lands in the FOUND message.
+#define PROP_CHECK_SEED(m_query, m_make_input, m_predicate, m_seed)                  \
+	SUBCASE(m_query) {                                                               \
+		::witness::Trial _prop_trial = ::witness::resolve(                           \
+				m_query, m_make_input, m_predicate,                                  \
+				::witness::NoShrink{}, ::witness::NoPrint{}, m_seed);                \
+		INFO(_prop_trial.message);                                                   \
+		CHECK(_prop_trial.outcome != ::witness::Outcome::FOUND);                     \
+	}
+
 #endif // WITNESS_DOCTEST_H
