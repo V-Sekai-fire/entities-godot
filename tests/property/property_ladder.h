@@ -76,7 +76,8 @@
 // The macro PROP_CHECK runs the ladder and calls doctest's CHECK/INFO
 // with the terminating Trial's diagnostic. No throw, no catch.
 
-#pragma once
+#ifndef PROPERTY_LADDER_H
+#define PROPERTY_LADDER_H
 
 #include "tests/test_macros.h"
 
@@ -171,3 +172,5 @@ inline Trial resolve(const char *query, Gen &&make_input, Pred &&predicate, uint
 		INFO(_prop_trial.message); \
 		CHECK(_prop_trial.outcome != ::property::Outcome::FOUND); \
 	}
+
+#endif // PROPERTY_LADDER_H
