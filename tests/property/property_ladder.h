@@ -165,9 +165,9 @@ inline Trial resolve(const char *query, Gen &&make_input, Pred &&predicate, uint
 
 // PROP_CHECK runs the ladder inside a doctest SUBCASE. INFO carries the
 // terminating message; CHECK asserts the outcome is not FOUND.
-#define PROP_CHECK(m_query, m_make_input, m_predicate)                                     \
-	SUBCASE(m_query) {                                                                     \
+#define PROP_CHECK(m_query, m_make_input, m_predicate) \
+	SUBCASE(m_query) { \
 		::property::Trial _prop_trial = ::property::resolve(m_query, m_make_input, m_predicate); \
-		INFO(_prop_trial.message);                                                         \
-		CHECK(_prop_trial.outcome != ::property::Outcome::FOUND);                          \
+		INFO(_prop_trial.message); \
+		CHECK(_prop_trial.outcome != ::property::Outcome::FOUND); \
 	}

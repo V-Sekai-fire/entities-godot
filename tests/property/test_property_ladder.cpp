@@ -39,8 +39,8 @@
 //      not a no-op that reports PROVABLY_NONE regardless of the
 //      predicate. Same rule 2 pattern used across the workspace.
 
+#include "tests/property/property_ladder.h"
 #include "tests/test_macros.h"
-#include "tests/property_ladder.h"
 
 #include <algorithm>
 #include <vector>
