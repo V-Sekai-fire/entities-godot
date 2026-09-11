@@ -1,0 +1,1529 @@
+#include "webgpu_conv.h"
+
+WGPUBufferUsage webgpu_buffer_usage_from_rd(BitField<RDD::BufferUsageBits> p_buffer_usage) {
+	uint32_t ret = 0;
+	// Only use MapWrite or MapRead if these are CPU buffers.
+	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_TRANSFER_FROM_BIT) {
+		ret |= WGPUBufferUsage_MapWrite | WGPUBufferUsage_CopySrc;
+	}
+	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_TRANSFER_TO_BIT) {
+		ret |= WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
+	}
+	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_TEXEL_BIT) {
+		ret |= WGPUBufferUsage_MapWrite | WGPUBufferUsage_CopySrc;
+	}
+	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_UNIFORM_BIT) {
+		ret |= WGPUBufferUsage_Uniform;
+	}
+	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_STORAGE_BIT) {
+		ret |= WGPUBufferUsage_Storage;
+	}
+	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_INDEX_BIT) {
+		ret |= WGPUBufferUsage_Index;
+	}
+	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_VERTEX_BIT) {
+		ret |= WGPUBufferUsage_Vertex;
+	}
+	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_INDIRECT_BIT) {
+		ret |= WGPUBufferUsage_Indirect;
+	}
+	return (WGPUBufferUsage)ret;
+}
+
+WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
+	WGPUTextureFormat ret = WGPUTextureFormat_Undefined;
+
+	// See https://www.w3.org/TR/webgpu/#enumdef-gputextureformat
+	// NOTE: Please also update `webgpu_bytes_per_row_from_format` and `rd_texture_format_from_webgpu` alongside this.
+	switch (p_data_format) {
+		case RDD::DataFormat::DATA_FORMAT_R8_UNORM:
+			ret = WGPUTextureFormat_R8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8_SNORM:
+			ret = WGPUTextureFormat_R8Snorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8_UINT:
+			ret = WGPUTextureFormat_R8Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8_SINT:
+			ret = WGPUTextureFormat_R8Sint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16_UINT:
+			ret = WGPUTextureFormat_R16Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16_SINT:
+			ret = WGPUTextureFormat_R16Sint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16_SFLOAT:
+			ret = WGPUTextureFormat_R16Float;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16_UNORM:
+			ret = WGPUTextureFormat_R16Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16_SNORM:
+			ret = WGPUTextureFormat_R16Snorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32_UINT:
+			ret = WGPUTextureFormat_R32Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32_SINT:
+			ret = WGPUTextureFormat_R32Sint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32_SFLOAT:
+			ret = WGPUTextureFormat_R32Float;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8_UNORM:
+			ret = WGPUTextureFormat_RG8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8_SNORM:
+			ret = WGPUTextureFormat_RG8Snorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8_UINT:
+			ret = WGPUTextureFormat_RG8Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8_SINT:
+			ret = WGPUTextureFormat_RG8Sint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16_UINT:
+			ret = WGPUTextureFormat_RG16Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16_SINT:
+			ret = WGPUTextureFormat_RG16Sint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16_SFLOAT:
+			ret = WGPUTextureFormat_RG16Float;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16_UNORM:
+			ret = WGPUTextureFormat_RG16Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16_SNORM:
+			ret = WGPUTextureFormat_RG16Snorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8B8A8_UNORM:
+			ret = WGPUTextureFormat_RGBA8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SRGB:
+			ret = WGPUTextureFormat_RGBA8UnormSrgb;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SNORM:
+			ret = WGPUTextureFormat_RGBA8Snorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8B8A8_UINT:
+			ret = WGPUTextureFormat_RGBA8Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SINT:
+			ret = WGPUTextureFormat_RGBA8Sint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_B8G8R8A8_UNORM:
+			ret = WGPUTextureFormat_BGRA8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_B8G8R8A8_SRGB:
+			ret = WGPUTextureFormat_BGRA8UnormSrgb;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32_UINT:
+			ret = WGPUTextureFormat_RG32Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32_SINT:
+			ret = WGPUTextureFormat_RG32Sint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32_SFLOAT:
+			ret = WGPUTextureFormat_RG32Float;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UINT:
+			ret = WGPUTextureFormat_RGBA16Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SINT:
+			ret = WGPUTextureFormat_RGBA16Sint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UNORM:
+			ret = WGPUTextureFormat_RGBA16Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SNORM:
+			ret = WGPUTextureFormat_RGBA16Snorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SFLOAT:
+			ret = WGPUTextureFormat_RGBA16Float;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32B32A32_UINT:
+			ret = WGPUTextureFormat_RGBA32Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SINT:
+			ret = WGPUTextureFormat_RGBA32Sint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SFLOAT:
+			ret = WGPUTextureFormat_RGBA32Float;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_A2B10G10R10_UNORM_PACK32:
+			ret = WGPUTextureFormat_RGB10A2Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_A2B10G10R10_UINT_PACK32:
+			ret = WGPUTextureFormat_RGB10A2Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_B10G11R11_UFLOAT_PACK32:
+			ret = WGPUTextureFormat_RG11B10Ufloat;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32:
+			ret = WGPUTextureFormat_RGB9E5Ufloat;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_S8_UINT:
+			ret = WGPUTextureFormat_Stencil8;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_D16_UNORM:
+			ret = WGPUTextureFormat_Depth16Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_X8_D24_UNORM_PACK32:
+			ret = WGPUTextureFormat_Depth24Plus;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_D24_UNORM_S8_UINT:
+			ret = WGPUTextureFormat_Depth24PlusStencil8;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_D32_SFLOAT:
+			ret = WGPUTextureFormat_Depth32Float;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_D32_SFLOAT_S8_UINT:
+			ret = WGPUTextureFormat_Depth32FloatStencil8;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC1_RGBA_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC1RGBAUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC1_RGBA_SRGB_BLOCK:
+			ret = WGPUTextureFormat_BC1RGBAUnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC2_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC2RGBAUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC2_SRGB_BLOCK:
+			ret = WGPUTextureFormat_BC2RGBAUnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC3_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC3RGBAUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC3_SRGB_BLOCK:
+			ret = WGPUTextureFormat_BC3RGBAUnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC4_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC4RUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC4_SNORM_BLOCK:
+			ret = WGPUTextureFormat_BC4RSnorm;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC5_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC5RGUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC5_SNORM_BLOCK:
+			ret = WGPUTextureFormat_BC5RGSnorm;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC6H_UFLOAT_BLOCK:
+			ret = WGPUTextureFormat_BC6HRGBUfloat;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC6H_SFLOAT_BLOCK:
+			ret = WGPUTextureFormat_BC6HRGBFloat;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC7_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC7RGBAUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC7_SRGB_BLOCK:
+			ret = WGPUTextureFormat_BC7RGBAUnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGB8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGB8UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGB8A1Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGB8A1UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGBA8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGBA8UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_EAC_R11_UNORM_BLOCK:
+			ret = WGPUTextureFormat_EACR11Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_EAC_R11_SNORM_BLOCK:
+			ret = WGPUTextureFormat_EACR11Snorm;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_EAC_R11G11_UNORM_BLOCK:
+			ret = WGPUTextureFormat_EACRG11Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_EAC_R11G11_SNORM_BLOCK:
+			ret = WGPUTextureFormat_EACRG11Snorm;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_4x4_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC4x4Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_4x4_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC4x4UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_5x4_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC5x4Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_5x4_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC5x4UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_5x5_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC5x5Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_5x5_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC5x5UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_6x5_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC6x5Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_6x5_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC6x5UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_6x6_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC6x6Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_6x6_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC6x6UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x5_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x5Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x5_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x5UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x6_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x6Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x6_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x6UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x8_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x8_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x8UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x5_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x5Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x5_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x5UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x6_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x6Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x6_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x6UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x8_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x8_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x8UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x10_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x10Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x10_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x10UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_12x10_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC12x10Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_12x10_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC12x10UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_12x12_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC12x12Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_12x12_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC12x12UnormSrgb;
+			break;
+
+		default:
+			break;
+	}
+
+	return ret;
+}
+
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST + 1, WGPUFilterMode_Nearest));
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR + 1, WGPUFilterMode_Linear));
+WGPUFilterMode webgpu_filter_mode_from_rd(RDD::SamplerFilter p_sampler_filter) {
+	return (WGPUFilterMode)(p_sampler_filter + 1);
+}
+
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST + 1, WGPUMipmapFilterMode_Nearest));
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR + 1, WGPUMipmapFilterMode_Linear));
+WGPUMipmapFilterMode webgpu_mipmap_filter_mode_from_rd(RDD::SamplerFilter p_sampler_filter) {
+	return (WGPUMipmapFilterMode)(p_sampler_filter + 1);
+}
+
+WGPUAddressMode webgpu_address_mode_from_rd(RDD::SamplerRepeatMode p_sampler_repeat_mode) {
+	// Not all of these exist, so we'll default to clamp to edge.
+	// See https://gpuweb.github.io/gpuweb/#enumdef-gpuaddressmode
+	switch (p_sampler_repeat_mode) {
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_REPEAT:
+			return WGPUAddressMode_Repeat;
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_MIRRORED_REPEAT:
+			return WGPUAddressMode_MirrorRepeat;
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE:
+			return WGPUAddressMode_ClampToEdge;
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_CLAMP_TO_BORDER:
+			return WGPUAddressMode_ClampToEdge;
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_MIRROR_CLAMP_TO_EDGE:
+			return WGPUAddressMode_ClampToEdge;
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_MAX:
+			return WGPUAddressMode_ClampToEdge;
+	}
+}
+
+WGPUCompareFunction webgpu_compare_mode_from_rd(RDD::CompareOperator p_compare_operator) {
+	switch (p_compare_operator) {
+		case RenderingDeviceCommons::COMPARE_OP_NEVER:
+			return WGPUCompareFunction_Never;
+		case RenderingDeviceCommons::COMPARE_OP_LESS:
+			return WGPUCompareFunction_Less;
+		case RenderingDeviceCommons::COMPARE_OP_EQUAL:
+			return WGPUCompareFunction_Equal;
+		case RenderingDeviceCommons::COMPARE_OP_LESS_OR_EQUAL:
+			return WGPUCompareFunction_LessEqual;
+		case RenderingDeviceCommons::COMPARE_OP_GREATER:
+			return WGPUCompareFunction_Greater;
+		case RenderingDeviceCommons::COMPARE_OP_NOT_EQUAL:
+			return WGPUCompareFunction_NotEqual;
+		case RenderingDeviceCommons::COMPARE_OP_GREATER_OR_EQUAL:
+			return WGPUCompareFunction_GreaterEqual;
+		case RenderingDeviceCommons::COMPARE_OP_ALWAYS:
+			return WGPUCompareFunction_Always;
+		case RenderingDeviceCommons::COMPARE_OP_MAX:
+			return WGPUCompareFunction_Undefined;
+	}
+}
+
+WGPUVertexFormat webgpu_vertex_format_from_rd(RDD::DataFormat p_data_format) {
+	// There is no longer a `WGPUVertexFormat_Undefined` value.
+	WGPUVertexFormat ret = WGPUVertexFormat_Uint8;
+
+	switch (p_data_format) {
+		case RDD::DATA_FORMAT_R8G8_UINT:
+			ret = WGPUVertexFormat_Uint8x2;
+			break;
+		case RDD::DATA_FORMAT_R8G8B8A8_UINT:
+			ret = WGPUVertexFormat_Uint8x4;
+			break;
+		case RDD::DATA_FORMAT_R8G8_SINT:
+			ret = WGPUVertexFormat_Sint8x2;
+			break;
+		case RDD::DATA_FORMAT_R8G8B8A8_SINT:
+			ret = WGPUVertexFormat_Sint8x4;
+			break;
+		case RDD::DATA_FORMAT_R8G8_UNORM:
+			ret = WGPUVertexFormat_Unorm8x2;
+			break;
+		case RDD::DATA_FORMAT_R8G8B8A8_UNORM:
+			ret = WGPUVertexFormat_Unorm8x4;
+			break;
+		case RDD::DATA_FORMAT_R8G8_SNORM:
+			ret = WGPUVertexFormat_Snorm8x2;
+			break;
+		case RDD::DATA_FORMAT_R8G8B8A8_SNORM:
+			ret = WGPUVertexFormat_Snorm8x4;
+			break;
+		case RDD::DATA_FORMAT_R16G16_UINT:
+			ret = WGPUVertexFormat_Uint16x2;
+			break;
+		case RDD::DATA_FORMAT_R16G16B16A16_UINT:
+			ret = WGPUVertexFormat_Uint16x4;
+			break;
+		case RDD::DATA_FORMAT_R16G16_SINT:
+			ret = WGPUVertexFormat_Sint16x2;
+			break;
+		case RDD::DATA_FORMAT_R16G16B16A16_SINT:
+			ret = WGPUVertexFormat_Sint16x4;
+			break;
+		case RDD::DATA_FORMAT_R16G16_UNORM:
+			ret = WGPUVertexFormat_Unorm16x2;
+			break;
+		case RDD::DATA_FORMAT_R16G16B16A16_UNORM:
+			ret = WGPUVertexFormat_Unorm16x4;
+			break;
+		case RDD::DATA_FORMAT_R16G16_SNORM:
+			ret = WGPUVertexFormat_Snorm16x2;
+			break;
+		case RDD::DATA_FORMAT_R16G16B16A16_SNORM:
+			ret = WGPUVertexFormat_Snorm16x4;
+			break;
+		case RDD::DATA_FORMAT_R16G16_SFLOAT:
+			ret = WGPUVertexFormat_Float16x2;
+			break;
+		case RDD::DATA_FORMAT_R16G16B16A16_SFLOAT:
+			ret = WGPUVertexFormat_Float16x4;
+			break;
+		case RDD::DATA_FORMAT_R32_SFLOAT:
+			ret = WGPUVertexFormat_Float32;
+			break;
+		case RDD::DATA_FORMAT_R32G32_SFLOAT:
+			ret = WGPUVertexFormat_Float32x2;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32_SFLOAT:
+			ret = WGPUVertexFormat_Float32x3;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32A32_SFLOAT:
+			ret = WGPUVertexFormat_Float32x4;
+			break;
+		case RDD::DATA_FORMAT_R32_UINT:
+			ret = WGPUVertexFormat_Uint32;
+			break;
+		case RDD::DATA_FORMAT_R32G32_UINT:
+			ret = WGPUVertexFormat_Uint32x2;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32_UINT:
+			ret = WGPUVertexFormat_Uint32x3;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32A32_UINT:
+			ret = WGPUVertexFormat_Uint32x4;
+			break;
+		case RDD::DATA_FORMAT_R32_SINT:
+			ret = WGPUVertexFormat_Sint32;
+			break;
+		case RDD::DATA_FORMAT_R32G32_SINT:
+			ret = WGPUVertexFormat_Sint32x2;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32_SINT:
+			ret = WGPUVertexFormat_Sint32x3;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32A32_SINT:
+			ret = WGPUVertexFormat_Sint32x4;
+			break;
+		default:
+			break;
+	}
+
+	return ret;
+}
+
+WGPULoadOp webgpu_load_op_from_rd(RDD::AttachmentLoadOp p_load_op) {
+	switch (p_load_op) {
+		case RenderingDeviceDriver::ATTACHMENT_LOAD_OP_LOAD:
+			return WGPULoadOp_Load;
+		case RenderingDeviceDriver::ATTACHMENT_LOAD_OP_CLEAR:
+			return WGPULoadOp_Clear;
+		case RenderingDeviceDriver::ATTACHMENT_LOAD_OP_DONT_CARE:
+			return WGPULoadOp_Load;
+	}
+}
+
+WGPUStoreOp webgpu_store_op_from_rd(RDD::AttachmentStoreOp p_store_op) {
+	switch (p_store_op) {
+		case RenderingDeviceDriver::ATTACHMENT_STORE_OP_STORE:
+			return WGPUStoreOp_Store;
+		case RenderingDeviceDriver::ATTACHMENT_STORE_OP_DONT_CARE:
+			return WGPUStoreOp_Discard;
+	}
+}
+
+WGPUTextureViewDimension webgpu_texture_view_dimension_from_rd(RDD::TextureType p_texture_type) {
+	switch (p_texture_type) {
+		case RenderingDeviceCommons::TEXTURE_TYPE_1D:
+			return WGPUTextureViewDimension_1D;
+		case RenderingDeviceCommons::TEXTURE_TYPE_2D:
+			return WGPUTextureViewDimension_2D;
+		case RenderingDeviceCommons::TEXTURE_TYPE_3D:
+			return WGPUTextureViewDimension_3D;
+		case RenderingDeviceCommons::TEXTURE_TYPE_CUBE:
+			return WGPUTextureViewDimension_Cube;
+		case RenderingDeviceCommons::TEXTURE_TYPE_1D_ARRAY:
+			return WGPUTextureViewDimension_Undefined;
+		case RenderingDeviceCommons::TEXTURE_TYPE_2D_ARRAY:
+			return WGPUTextureViewDimension_2DArray;
+		case RenderingDeviceCommons::TEXTURE_TYPE_CUBE_ARRAY:
+			return WGPUTextureViewDimension_CubeArray;
+		case RenderingDeviceCommons::TEXTURE_TYPE_MAX:
+			return WGPUTextureViewDimension_Undefined;
+	}
+}
+
+WGPUShaderStage webgpu_shader_stage_from_rd(RDD::ShaderStage p_shader_stage) {
+	switch (p_shader_stage) {
+		case RenderingDeviceCommons::SHADER_STAGE_VERTEX:
+			return WGPUShaderStage_Vertex;
+		case RenderingDeviceCommons::SHADER_STAGE_FRAGMENT:
+			return WGPUShaderStage_Fragment;
+		case RenderingDeviceCommons::SHADER_STAGE_COMPUTE:
+		case RenderingDeviceCommons::SHADER_STAGE_COMPUTE_BIT:
+			return WGPUShaderStage_Compute;
+		case RenderingDeviceCommons::SHADER_STAGE_TESSELATION_CONTROL:
+		case RenderingDeviceCommons::SHADER_STAGE_TESSELATION_EVALUATION:
+		case RenderingDeviceCommons::SHADER_STAGE_TESSELATION_EVALUATION_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_RAYGEN:
+		case RenderingDeviceCommons::SHADER_STAGE_ANY_HIT:
+		case RenderingDeviceCommons::SHADER_STAGE_CLOSEST_HIT:
+		case RenderingDeviceCommons::SHADER_STAGE_INTERSECTION:
+		case RenderingDeviceCommons::SHADER_STAGE_RAYGEN_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_ANY_HIT_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_CLOSEST_HIT_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_MISS_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_INTERSECTION_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_MAX:
+			return WGPUShaderStage_None;
+			break;
+	}
+}
+
+WGPUTextureAspect webgpu_texture_aspect_from_rd(RDD::TextureAspect p_texture_aspect) {
+	if (p_texture_aspect == RDD::TextureAspect::TEXTURE_ASPECT_DEPTH) {
+		return WGPUTextureAspect_DepthOnly;
+	} else if (p_texture_aspect == RDD::TextureAspect::TEXTURE_ASPECT_STENCIL) {
+		return WGPUTextureAspect_StencilOnly;
+	} else {
+		return WGPUTextureAspect_All;
+	}
+}
+
+WGPUTextureAspect webgpu_texture_aspect_from_rd(BitField<RDD::TextureAspectBits> p_texture_aspect) {
+	if (p_texture_aspect == RDD::TextureAspectBits::TEXTURE_ASPECT_DEPTH_BIT) {
+		return WGPUTextureAspect_DepthOnly;
+	} else if (p_texture_aspect == RDD::TextureAspectBits::TEXTURE_ASPECT_STENCIL_BIT) {
+		return WGPUTextureAspect_StencilOnly;
+	} else {
+		return WGPUTextureAspect_All;
+	}
+}
+
+// See https://github.com/gfx-rs/wgpu/blob/03ab3a27d8a2b35cc0afd7cfe418f74a2498ff20/wgpu-hal/src/lib.rs#L1689
+WGPUTextureAspect webgpu_texture_aspect_from_rd_format(RDD::DataFormat p_data_format) {
+	switch (p_data_format) {
+		case RDD::DataFormat::DATA_FORMAT_S8_UINT:
+			return WGPUTextureAspect_StencilOnly;
+		case RDD::DataFormat::DATA_FORMAT_D16_UNORM:
+		case RDD::DataFormat::DATA_FORMAT_D32_SFLOAT:
+			return WGPUTextureAspect_DepthOnly;
+		default:
+			return WGPUTextureAspect_All;
+	}
+}
+
+WGPUBlendOperation webgpu_blend_operation_from_rd(RDD::BlendOperation p_blend_operation) {
+	switch (p_blend_operation) {
+		case RenderingDeviceCommons::BLEND_OP_ADD:
+			return WGPUBlendOperation_Add;
+		case RenderingDeviceCommons::BLEND_OP_SUBTRACT:
+			return WGPUBlendOperation_Subtract;
+		case RenderingDeviceCommons::BLEND_OP_REVERSE_SUBTRACT:
+			return WGPUBlendOperation_ReverseSubtract;
+		case RenderingDeviceCommons::BLEND_OP_MINIMUM:
+			return WGPUBlendOperation_Min;
+		case RenderingDeviceCommons::BLEND_OP_MAXIMUM:
+			return WGPUBlendOperation_Max;
+		default:
+			return WGPUBlendOperation_Add;
+	}
+}
+
+WGPUBlendFactor webgpu_blend_factor_from_rd(RDD::BlendFactor p_blend_factor) {
+	// NOTE: Some of these blend factors are not supported, so we default to `WGPUBlendFactor_Zero`
+	switch (p_blend_factor) {
+		case RenderingDeviceCommons::BLEND_FACTOR_ZERO:
+			return WGPUBlendFactor_Zero;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE:
+			return WGPUBlendFactor_One;
+		case RenderingDeviceCommons::BLEND_FACTOR_SRC_COLOR:
+			return WGPUBlendFactor_Src;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_COLOR:
+			return WGPUBlendFactor_OneMinusSrc;
+		case RenderingDeviceCommons::BLEND_FACTOR_DST_COLOR:
+			return WGPUBlendFactor_Dst;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_DST_COLOR:
+			return WGPUBlendFactor_OneMinusDst;
+		case RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA:
+			return WGPUBlendFactor_SrcAlpha;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA:
+			return WGPUBlendFactor_OneMinusSrcAlpha;
+		case RenderingDeviceCommons::BLEND_FACTOR_DST_ALPHA:
+			return WGPUBlendFactor_DstAlpha;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_DST_ALPHA:
+			return WGPUBlendFactor_OneMinusDstAlpha;
+		case RenderingDeviceCommons::BLEND_FACTOR_CONSTANT_COLOR:
+			return WGPUBlendFactor_Constant;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR:
+			return WGPUBlendFactor_OneMinusConstant;
+		case RenderingDeviceCommons::BLEND_FACTOR_CONSTANT_ALPHA:
+			return WGPUBlendFactor_Constant;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA:
+			return WGPUBlendFactor_OneMinusConstant;
+		case RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA_SATURATE:
+			return WGPUBlendFactor_SrcAlphaSaturated;
+		case RenderingDeviceCommons::BLEND_FACTOR_SRC1_COLOR:
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC1_COLOR:
+		case RenderingDeviceCommons::BLEND_FACTOR_SRC1_ALPHA:
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA:
+		case RenderingDeviceCommons::BLEND_FACTOR_MAX:
+			return WGPUBlendFactor_Zero;
+	}
+}
+
+WGPUStencilOperation webgpu_stencil_operation_from_rd(RDD::StencilOperation p_stencil_operation) {
+	switch (p_stencil_operation) {
+		case RenderingDeviceCommons::STENCIL_OP_KEEP:
+			return WGPUStencilOperation_Keep;
+		case RenderingDeviceCommons::STENCIL_OP_ZERO:
+			return WGPUStencilOperation_Zero;
+		case RenderingDeviceCommons::STENCIL_OP_REPLACE:
+			return WGPUStencilOperation_Replace;
+		case RenderingDeviceCommons::STENCIL_OP_INCREMENT_AND_CLAMP:
+			return WGPUStencilOperation_IncrementClamp;
+		case RenderingDeviceCommons::STENCIL_OP_DECREMENT_AND_CLAMP:
+			return WGPUStencilOperation_DecrementClamp;
+		case RenderingDeviceCommons::STENCIL_OP_INVERT:
+			return WGPUStencilOperation_Invert;
+		case RenderingDeviceCommons::STENCIL_OP_INCREMENT_AND_WRAP:
+			return WGPUStencilOperation_IncrementWrap;
+		case RenderingDeviceCommons::STENCIL_OP_DECREMENT_AND_WRAP:
+			return WGPUStencilOperation_DecrementWrap;
+		case RenderingDeviceCommons::STENCIL_OP_MAX:
+			return WGPUStencilOperation_Keep;
+	}
+}
+
+RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format) {
+	RDD::DataFormat ret = RDD::DataFormat::DATA_FORMAT_MAX;
+
+	switch (p_format) {
+		case WGPUTextureFormat_R8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8_UNORM;
+			break;
+		case WGPUTextureFormat_R8Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8_SNORM;
+			break;
+		case WGPUTextureFormat_R8Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8_UINT;
+			break;
+		case WGPUTextureFormat_R8Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8_SINT;
+			break;
+
+		case WGPUTextureFormat_R16Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16_UINT;
+			break;
+		case WGPUTextureFormat_R16Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16_SINT;
+			break;
+		case WGPUTextureFormat_R16Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R16_SFLOAT;
+			break;
+		case WGPUTextureFormat_R16Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16_UNORM;
+			break;
+		case WGPUTextureFormat_R16Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16_SNORM;
+			break;
+
+		case WGPUTextureFormat_R32Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32_UINT;
+			break;
+		case WGPUTextureFormat_R32Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32_SINT;
+			break;
+		case WGPUTextureFormat_R32Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R32_SFLOAT;
+			break;
+
+		case WGPUTextureFormat_RG8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8_UNORM;
+			break;
+		case WGPUTextureFormat_RG8Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8_SNORM;
+			break;
+		case WGPUTextureFormat_RG8Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8_UINT;
+			break;
+		case WGPUTextureFormat_RG8Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8_SINT;
+			break;
+
+		case WGPUTextureFormat_RG16Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16_UINT;
+			break;
+		case WGPUTextureFormat_RG16Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16_SINT;
+			break;
+		case WGPUTextureFormat_RG16Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16_SFLOAT;
+			break;
+		case WGPUTextureFormat_RG16Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16_UNORM;
+			break;
+		case WGPUTextureFormat_RG16Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16_SNORM;
+			break;
+
+		case WGPUTextureFormat_RGBA8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8B8A8_UNORM;
+			break;
+		case WGPUTextureFormat_RGBA8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SRGB;
+			break;
+		case WGPUTextureFormat_RGBA8Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SNORM;
+			break;
+		case WGPUTextureFormat_RGBA8Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8B8A8_UINT;
+			break;
+		case WGPUTextureFormat_RGBA8Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SINT;
+			break;
+
+		case WGPUTextureFormat_BGRA8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_B8G8R8A8_UNORM;
+			break;
+		case WGPUTextureFormat_BGRA8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_B8G8R8A8_SRGB;
+			break;
+
+		case WGPUTextureFormat_RG32Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32_UINT;
+			break;
+		case WGPUTextureFormat_RG32Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32_SINT;
+			break;
+		case WGPUTextureFormat_RG32Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32_SFLOAT;
+			break;
+
+		case WGPUTextureFormat_RGBA16Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UINT;
+			break;
+		case WGPUTextureFormat_RGBA16Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SINT;
+			break;
+		case WGPUTextureFormat_RGBA16Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SFLOAT;
+			break;
+		case WGPUTextureFormat_RGBA16Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UNORM;
+			break;
+		case WGPUTextureFormat_RGBA16Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SNORM;
+			break;
+
+		case WGPUTextureFormat_RGBA32Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32B32A32_UINT;
+			break;
+		case WGPUTextureFormat_RGBA32Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SINT;
+			break;
+		case WGPUTextureFormat_RGBA32Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SFLOAT;
+			break;
+
+		case WGPUTextureFormat_RGB10A2Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_A2B10G10R10_UNORM_PACK32;
+			break;
+		case WGPUTextureFormat_RGB10A2Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_A2B10G10R10_UINT_PACK32;
+			break;
+		case WGPUTextureFormat_RG11B10Ufloat:
+			ret = RDD::DataFormat::DATA_FORMAT_B10G11R11_UFLOAT_PACK32;
+			break;
+		case WGPUTextureFormat_RGB9E5Ufloat:
+			ret = RDD::DataFormat::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32;
+			break;
+
+		case WGPUTextureFormat_Stencil8:
+			ret = RDD::DataFormat::DATA_FORMAT_S8_UINT;
+			break;
+		case WGPUTextureFormat_Depth16Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_D16_UNORM;
+			break;
+		case WGPUTextureFormat_Depth24Plus:
+			ret = RDD::DataFormat::DATA_FORMAT_X8_D24_UNORM_PACK32;
+			break;
+		case WGPUTextureFormat_Depth24PlusStencil8:
+			ret = RDD::DataFormat::DATA_FORMAT_D24_UNORM_S8_UINT;
+			break;
+		case WGPUTextureFormat_Depth32Float:
+			ret = RDD::DataFormat::DATA_FORMAT_D32_SFLOAT;
+			break;
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			ret = RDD::DataFormat::DATA_FORMAT_D32_SFLOAT_S8_UINT;
+			break;
+
+		case WGPUTextureFormat_BC1RGBAUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC1_RGBA_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC1RGBAUnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_BC1_RGBA_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC2RGBAUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC2_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC2RGBAUnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_BC2_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC3RGBAUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC3_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC3RGBAUnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_BC3_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC4RUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC4_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC4RSnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC4_SNORM_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC5RGUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC5_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC5RGSnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC5_SNORM_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC6HRGBUfloat:
+			ret = RDD::DataFormat::DATA_FORMAT_BC6H_UFLOAT_BLOCK;
+			break;
+		case WGPUTextureFormat_BC6HRGBFloat:
+			ret = RDD::DataFormat::DATA_FORMAT_BC6H_SFLOAT_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC7RGBAUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC7_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC7RGBAUnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_BC7_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ETC2RGB8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ETC2RGB8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ETC2RGB8A1Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ETC2RGB8A1UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ETC2RGBA8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ETC2RGBA8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_EACR11Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_EAC_R11_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_EACR11Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_EAC_R11_SNORM_BLOCK;
+			break;
+
+		case WGPUTextureFormat_EACRG11Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_EAC_R11G11_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_EACRG11Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_EAC_R11G11_SNORM_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC4x4Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_4x4_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC4x4UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_4x4_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC5x4Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_5x4_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC5x4UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_5x4_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC5x5Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_5x5_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC5x5UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_5x5_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC6x5Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_6x5_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC6x5UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_6x5_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC6x6Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_6x6_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC6x6UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_6x6_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC8x5Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x5_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC8x5UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x5_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC8x6Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x6_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC8x6UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x6_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC8x8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x8_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC8x8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x8_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC10x5Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x5_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC10x5UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x5_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC10x6Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x6_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC10x6UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x6_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC10x8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x8_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC10x8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x8_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC10x10Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x10_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC10x10UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x10_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC12x10Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_12x10_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC12x10UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_12x10_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC12x12Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_12x12_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC12x12UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_12x12_SRGB_BLOCK;
+			break;
+
+		default:
+			break;
+	}
+
+	return ret;
+}
+
+uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) {
+	// NOTE: For limits that aren't supported, I've put the max uint64 value. This may cause issues.
+	switch (p_selected_limit) {
+		case RenderingDeviceCommons::LIMIT_MAX_BOUND_UNIFORM_SETS:
+			return p_limits.maxBindGroups;
+		case RenderingDeviceCommons::LIMIT_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS:
+			return p_limits.maxColorAttachments;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURES_PER_UNIFORM_SET:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_SAMPLERS_PER_UNIFORM_SET:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_BUFFERS_PER_UNIFORM_SET:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_IMAGES_PER_UNIFORM_SET:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_UNIFORM_BUFFERS_PER_UNIFORM_SET:
+			return p_limits.maxUniformBuffersPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_DRAW_INDEXED_INDEX:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_FRAMEBUFFER_HEIGHT:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_FRAMEBUFFER_WIDTH:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_ARRAY_LAYERS:
+			return p_limits.maxTextureArrayLayers;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_1D:
+			return p_limits.maxTextureDimension1D;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_2D:
+			return p_limits.maxTextureDimension2D;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_3D:
+			return p_limits.maxTextureDimension3D;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_CUBE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE:
+			return p_limits.maxSampledTexturesPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_SAMPLERS_PER_SHADER_STAGE:
+			return p_limits.maxSamplersPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_BUFFERS_PER_SHADER_STAGE:
+			return p_limits.maxStorageBuffersPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_IMAGES_PER_SHADER_STAGE:
+			return p_limits.maxStorageTexturesPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_UNIFORM_BUFFERS_PER_SHADER_STAGE:
+			return p_limits.maxUniformBuffersPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_PUSH_CONSTANT_SIZE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_UNIFORM_BUFFER_SIZE:
+			return p_limits.maxUniformBufferBindingSize;
+		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_ATTRIBUTE_OFFSET:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_ATTRIBUTES:
+			return p_limits.maxVertexAttributes;
+		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_BINDINGS:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_BINDING_STRIDE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
+			return p_limits.minUniformBufferOffsetAlignment;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_SHARED_MEMORY_SIZE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_Y:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_Z:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_INVOCATIONS:
+			return p_limits.maxComputeInvocationsPerWorkgroup;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X:
+			return p_limits.maxComputeWorkgroupSizeX;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Y:
+			return p_limits.maxComputeWorkgroupSizeY;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Z:
+			return p_limits.maxComputeWorkgroupSizeZ;
+		// HACK: These need to be defined to get a working window.
+		// I'm not sure what this number should be.
+		case RenderingDeviceCommons::LIMIT_MAX_VIEWPORT_DIMENSIONS_X:
+			return 99999;
+		case RenderingDeviceCommons::LIMIT_MAX_VIEWPORT_DIMENSIONS_Y:
+			return 99999;
+		case RenderingDeviceCommons::LIMIT_SUBGROUP_SIZE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_SUBGROUP_MIN_SIZE:
+			return 0;
+		case RenderingDeviceCommons::LIMIT_SUBGROUP_MAX_SIZE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_SUBGROUP_IN_SHADERS:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_SUBGROUP_OPERATIONS:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_METALFX_TEMPORAL_SCALER_MIN_SCALE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_METALFX_TEMPORAL_SCALER_MAX_SCALE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_SHADER_VARYINGS:
+			return UINT64_MAX;
+	}
+}
+
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+WGPUComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle) {
+	switch (p_texture_swizzle) {
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_ZERO:
+			return WGPUComponentSwizzle_Zero;
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_ONE:
+			return WGPUComponentSwizzle_One;
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_R:
+			return WGPUComponentSwizzle_R;
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_G:
+			return WGPUComponentSwizzle_G;
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_B:
+			return WGPUComponentSwizzle_B;
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_A:
+			return WGPUComponentSwizzle_A;
+		default:
+			return WGPUComponentSwizzle_Undefined;
+	}
+}
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
+WGPUNativeTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle) {
+	switch (p_texture_swizzle) {
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_ZERO:
+			return WGPUNativeTextureComponentSwizzle_Zero;
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_ONE:
+			return WGPUNativeTextureComponentSwizzle_One;
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_R:
+			return WGPUNativeTextureComponentSwizzle_R;
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_G:
+			return WGPUNativeTextureComponentSwizzle_G;
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_B:
+			return WGPUNativeTextureComponentSwizzle_B;
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_A:
+			return WGPUNativeTextureComponentSwizzle_A;
+		default:
+			return WGPUNativeTextureComponentSwizzle_Identity;
+	}
+}
+#endif
+
+WGPUTextureSampleType webgpu_texture_sample_type_from_shader_uniform(RDD::ShaderUniform::TextureSampleType p_texture_sample_type) {
+	switch (p_texture_sample_type) {
+		case RenderingDeviceCommons::ShaderUniform::Float:
+			return WGPUTextureSampleType_Float;
+		case RenderingDeviceCommons::ShaderUniform::Int:
+			return WGPUTextureSampleType_Sint;
+		case RenderingDeviceCommons::ShaderUniform::UInt:
+			return WGPUTextureSampleType_Uint;
+		case RenderingDeviceCommons::ShaderUniform::Depth:
+			return WGPUTextureSampleType_Depth;
+			break;
+	}
+}
+
+bool webgpu_texture_format_is_depth_stencil(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_Depth24PlusStencil8:
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			return true;
+		default:
+			return false;
+	}
+}
+
+bool webgpu_texture_format_has_depth_aspect(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_Depth16Unorm:
+		case WGPUTextureFormat_Depth24Plus:
+		case WGPUTextureFormat_Depth24PlusStencil8:
+		case WGPUTextureFormat_Depth32Float:
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			return true;
+		default:
+			return false;
+	}
+}
+
+bool webgpu_texture_format_has_stencil_aspect(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_Stencil8:
+		case WGPUTextureFormat_Depth24PlusStencil8:
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			return true;
+		default:
+			return false;
+	}
+}
+
+WGPUTextureFormat webgpu_texture_format_downgrade_depth_only(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_Depth24PlusStencil8:
+			return WGPUTextureFormat_Depth24Plus;
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			return WGPUTextureFormat_Depth32Float;
+		default:
+			return WGPUTextureFormat_Undefined;
+	}
+}
+
+uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTextureAspect aspect) {
+	switch (format) {
+		case WGPUTextureFormat_R8Unorm:
+		case WGPUTextureFormat_R8Snorm:
+		case WGPUTextureFormat_R8Uint:
+		case WGPUTextureFormat_R8Sint:
+		case WGPUTextureFormat_Stencil8:
+			return 1;
+
+		case WGPUTextureFormat_RG8Unorm:
+		case WGPUTextureFormat_RG8Snorm:
+		case WGPUTextureFormat_RG8Uint:
+		case WGPUTextureFormat_RG8Sint:
+		case WGPUTextureFormat_R16Unorm:
+		case WGPUTextureFormat_R16Snorm:
+		case WGPUTextureFormat_R16Uint:
+		case WGPUTextureFormat_R16Sint:
+		case WGPUTextureFormat_R16Float:
+		case WGPUTextureFormat_Depth16Unorm:
+			return 2;
+
+		case WGPUTextureFormat_RGBA8Unorm:
+		case WGPUTextureFormat_RGBA8UnormSrgb:
+		case WGPUTextureFormat_RGBA8Snorm:
+		case WGPUTextureFormat_RGBA8Uint:
+		case WGPUTextureFormat_RGBA8Sint:
+		case WGPUTextureFormat_BGRA8Unorm:
+		case WGPUTextureFormat_BGRA8UnormSrgb:
+		case WGPUTextureFormat_RG16Unorm:
+		case WGPUTextureFormat_RG16Snorm:
+		case WGPUTextureFormat_RG16Uint:
+		case WGPUTextureFormat_RG16Sint:
+		case WGPUTextureFormat_RG16Float:
+		case WGPUTextureFormat_R32Uint:
+		case WGPUTextureFormat_R32Sint:
+		case WGPUTextureFormat_R32Float:
+		case WGPUTextureFormat_RGB9E5Ufloat:
+		case WGPUTextureFormat_RGB10A2Uint:
+		case WGPUTextureFormat_RGB10A2Unorm:
+		case WGPUTextureFormat_RG11B10Ufloat:
+		case WGPUTextureFormat_Depth32Float:
+			return 4;
+
+		case WGPUTextureFormat_RGBA16Unorm:
+		case WGPUTextureFormat_RGBA16Snorm:
+		case WGPUTextureFormat_RGBA16Uint:
+		case WGPUTextureFormat_RGBA16Sint:
+		case WGPUTextureFormat_RGBA16Float:
+		// case WGPUTextureFormat_R64Uint:
+		case WGPUTextureFormat_RG32Uint:
+		case WGPUTextureFormat_RG32Sint:
+		case WGPUTextureFormat_RG32Float:
+			return 8;
+
+		case WGPUTextureFormat_RGBA32Uint:
+		case WGPUTextureFormat_RGBA32Sint:
+		case WGPUTextureFormat_RGBA32Float:
+			return 16;
+
+		case WGPUTextureFormat_Depth24Plus:
+			return -1;
+
+		case WGPUTextureFormat_Depth24PlusStencil8:
+			if (aspect == WGPUTextureAspect_StencilOnly) {
+				return 1;
+			}
+			return -1;
+
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			if (aspect == WGPUTextureAspect_DepthOnly) {
+				return 4;
+			}
+			if (aspect == WGPUTextureAspect_StencilOnly) {
+				return 1;
+			}
+			return UINT32_MAX;
+
+		case WGPUTextureFormat_BC1RGBAUnorm:
+		case WGPUTextureFormat_BC1RGBAUnormSrgb:
+		case WGPUTextureFormat_BC4RUnorm:
+		case WGPUTextureFormat_BC4RSnorm:
+		case WGPUTextureFormat_ETC2RGB8Unorm:
+		case WGPUTextureFormat_ETC2RGB8UnormSrgb:
+		case WGPUTextureFormat_ETC2RGB8A1Unorm:
+		case WGPUTextureFormat_ETC2RGB8A1UnormSrgb:
+		case WGPUTextureFormat_EACR11Unorm:
+		case WGPUTextureFormat_EACR11Snorm:
+			return 8;
+
+		case WGPUTextureFormat_BC2RGBAUnorm:
+		case WGPUTextureFormat_BC2RGBAUnormSrgb:
+		case WGPUTextureFormat_BC3RGBAUnorm:
+		case WGPUTextureFormat_BC3RGBAUnormSrgb:
+		case WGPUTextureFormat_BC5RGUnorm:
+		case WGPUTextureFormat_BC5RGSnorm:
+		case WGPUTextureFormat_BC6HRGBUfloat:
+		case WGPUTextureFormat_BC6HRGBFloat:
+		case WGPUTextureFormat_BC7RGBAUnorm:
+		case WGPUTextureFormat_BC7RGBAUnormSrgb:
+		case WGPUTextureFormat_ETC2RGBA8Unorm:
+		case WGPUTextureFormat_ETC2RGBA8UnormSrgb:
+		case WGPUTextureFormat_EACRG11Unorm:
+		case WGPUTextureFormat_EACRG11Snorm:
+		case WGPUTextureFormat_ASTC4x4Unorm:
+		case WGPUTextureFormat_ASTC4x4UnormSrgb:
+		case WGPUTextureFormat_ASTC5x4Unorm:
+		case WGPUTextureFormat_ASTC5x4UnormSrgb:
+		case WGPUTextureFormat_ASTC5x5Unorm:
+		case WGPUTextureFormat_ASTC5x5UnormSrgb:
+		case WGPUTextureFormat_ASTC6x5Unorm:
+		case WGPUTextureFormat_ASTC6x5UnormSrgb:
+		case WGPUTextureFormat_ASTC6x6Unorm:
+		case WGPUTextureFormat_ASTC6x6UnormSrgb:
+		case WGPUTextureFormat_ASTC8x5Unorm:
+		case WGPUTextureFormat_ASTC8x5UnormSrgb:
+		case WGPUTextureFormat_ASTC8x6Unorm:
+		case WGPUTextureFormat_ASTC8x6UnormSrgb:
+		case WGPUTextureFormat_ASTC8x8Unorm:
+		case WGPUTextureFormat_ASTC8x8UnormSrgb:
+		case WGPUTextureFormat_ASTC10x5Unorm:
+		case WGPUTextureFormat_ASTC10x5UnormSrgb:
+		case WGPUTextureFormat_ASTC10x6Unorm:
+		case WGPUTextureFormat_ASTC10x6UnormSrgb:
+		case WGPUTextureFormat_ASTC10x8Unorm:
+		case WGPUTextureFormat_ASTC10x8UnormSrgb:
+		case WGPUTextureFormat_ASTC10x10Unorm:
+		case WGPUTextureFormat_ASTC10x10UnormSrgb:
+		case WGPUTextureFormat_ASTC12x10Unorm:
+		case WGPUTextureFormat_ASTC12x10UnormSrgb:
+		case WGPUTextureFormat_ASTC12x12Unorm:
+		case WGPUTextureFormat_ASTC12x12UnormSrgb:
+			return 16;
+
+		default:
+			return -1; // Unknown format
+	}
+}
+
+FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat format) {
+	switch (format) {
+		case WGPUTextureFormat_R8Unorm:
+		case WGPUTextureFormat_R8Snorm:
+		case WGPUTextureFormat_R8Uint:
+		case WGPUTextureFormat_R8Sint:
+		case WGPUTextureFormat_R16Uint:
+		case WGPUTextureFormat_R16Sint:
+		case WGPUTextureFormat_R16Unorm:
+		case WGPUTextureFormat_R16Snorm:
+		case WGPUTextureFormat_R16Float:
+		case WGPUTextureFormat_RG8Unorm:
+		case WGPUTextureFormat_RG8Snorm:
+		case WGPUTextureFormat_RG8Uint:
+		case WGPUTextureFormat_RG8Sint:
+		case WGPUTextureFormat_R32Uint:
+		case WGPUTextureFormat_R32Sint:
+		case WGPUTextureFormat_R32Float:
+		case WGPUTextureFormat_RG16Uint:
+		case WGPUTextureFormat_RG16Sint:
+		case WGPUTextureFormat_RG16Unorm:
+		case WGPUTextureFormat_RG16Snorm:
+		case WGPUTextureFormat_RG16Float:
+		case WGPUTextureFormat_RGBA8Unorm:
+		case WGPUTextureFormat_RGBA8UnormSrgb:
+		case WGPUTextureFormat_RGBA8Snorm:
+		case WGPUTextureFormat_RGBA8Uint:
+		case WGPUTextureFormat_RGBA8Sint:
+		case WGPUTextureFormat_BGRA8Unorm:
+		case WGPUTextureFormat_BGRA8UnormSrgb:
+		case WGPUTextureFormat_RGB9E5Ufloat:
+		case WGPUTextureFormat_RGB10A2Uint:
+		case WGPUTextureFormat_RGB10A2Unorm:
+		case WGPUTextureFormat_RG11B10Ufloat:
+		// case WGPUTextureFormat_R64Uint:
+		case WGPUTextureFormat_RG32Uint:
+		case WGPUTextureFormat_RG32Sint:
+		case WGPUTextureFormat_RG32Float:
+		case WGPUTextureFormat_RGBA16Uint:
+		case WGPUTextureFormat_RGBA16Sint:
+		case WGPUTextureFormat_RGBA16Unorm:
+		case WGPUTextureFormat_RGBA16Snorm:
+		case WGPUTextureFormat_RGBA16Float:
+		case WGPUTextureFormat_RGBA32Uint:
+		case WGPUTextureFormat_RGBA32Sint:
+		case WGPUTextureFormat_RGBA32Float:
+		case WGPUTextureFormat_Stencil8:
+		case WGPUTextureFormat_Depth16Unorm:
+		case WGPUTextureFormat_Depth24Plus:
+		case WGPUTextureFormat_Depth24PlusStencil8:
+		// case WGPUTextureFormat_NV12:
+		case WGPUTextureFormat_Depth32Float:
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			return (FormatBlockDimension){ 1, 1 };
+
+		case WGPUTextureFormat_BC1RGBAUnorm:
+		case WGPUTextureFormat_BC1RGBAUnormSrgb:
+		case WGPUTextureFormat_BC2RGBAUnorm:
+		case WGPUTextureFormat_BC2RGBAUnormSrgb:
+		case WGPUTextureFormat_BC3RGBAUnorm:
+		case WGPUTextureFormat_BC3RGBAUnormSrgb:
+		case WGPUTextureFormat_BC4RUnorm:
+		case WGPUTextureFormat_BC4RSnorm:
+		case WGPUTextureFormat_BC5RGUnorm:
+		case WGPUTextureFormat_BC5RGSnorm:
+		case WGPUTextureFormat_BC6HRGBUfloat:
+		case WGPUTextureFormat_BC6HRGBFloat:
+		case WGPUTextureFormat_BC7RGBAUnorm:
+		case WGPUTextureFormat_BC7RGBAUnormSrgb:
+		case WGPUTextureFormat_ETC2RGB8Unorm:
+		case WGPUTextureFormat_ETC2RGB8UnormSrgb:
+		case WGPUTextureFormat_ETC2RGB8A1Unorm:
+		case WGPUTextureFormat_ETC2RGB8A1UnormSrgb:
+		case WGPUTextureFormat_ETC2RGBA8Unorm:
+		case WGPUTextureFormat_ETC2RGBA8UnormSrgb:
+		case WGPUTextureFormat_EACR11Unorm:
+		case WGPUTextureFormat_EACR11Snorm:
+		case WGPUTextureFormat_EACRG11Unorm:
+		case WGPUTextureFormat_EACRG11Snorm:
+			return (FormatBlockDimension){ 4, 4 };
+
+		case WGPUTextureFormat_ASTC4x4Unorm:
+		case WGPUTextureFormat_ASTC4x4UnormSrgb:
+			return (FormatBlockDimension){ 4, 4 };
+		case WGPUTextureFormat_ASTC5x4Unorm:
+		case WGPUTextureFormat_ASTC5x4UnormSrgb:
+			return (FormatBlockDimension){ 5, 4 };
+		case WGPUTextureFormat_ASTC5x5Unorm:
+		case WGPUTextureFormat_ASTC5x5UnormSrgb:
+			return (FormatBlockDimension){ 5, 5 };
+		case WGPUTextureFormat_ASTC6x5Unorm:
+		case WGPUTextureFormat_ASTC6x5UnormSrgb:
+			return (FormatBlockDimension){ 6, 5 };
+		case WGPUTextureFormat_ASTC6x6Unorm:
+		case WGPUTextureFormat_ASTC6x6UnormSrgb:
+			return (FormatBlockDimension){ 6, 6 };
+		case WGPUTextureFormat_ASTC8x5Unorm:
+		case WGPUTextureFormat_ASTC8x5UnormSrgb:
+			return (FormatBlockDimension){ 8, 5 };
+		case WGPUTextureFormat_ASTC8x6Unorm:
+		case WGPUTextureFormat_ASTC8x6UnormSrgb:
+			return (FormatBlockDimension){ 8, 6 };
+		case WGPUTextureFormat_ASTC8x8Unorm:
+		case WGPUTextureFormat_ASTC8x8UnormSrgb:
+			return (FormatBlockDimension){ 8, 8 };
+		case WGPUTextureFormat_ASTC10x5Unorm:
+		case WGPUTextureFormat_ASTC10x5UnormSrgb:
+			return (FormatBlockDimension){ 10, 5 };
+		case WGPUTextureFormat_ASTC10x6Unorm:
+		case WGPUTextureFormat_ASTC10x6UnormSrgb:
+			return (FormatBlockDimension){ 10, 6 };
+		case WGPUTextureFormat_ASTC10x8Unorm:
+		case WGPUTextureFormat_ASTC10x8UnormSrgb:
+			return (FormatBlockDimension){ 10, 8 };
+		case WGPUTextureFormat_ASTC10x10Unorm:
+		case WGPUTextureFormat_ASTC10x10UnormSrgb:
+			return (FormatBlockDimension){ 10, 10 };
+		case WGPUTextureFormat_ASTC12x10Unorm:
+		case WGPUTextureFormat_ASTC12x10UnormSrgb:
+			return (FormatBlockDimension){ 12, 10 };
+		case WGPUTextureFormat_ASTC12x12Unorm:
+		case WGPUTextureFormat_ASTC12x12UnormSrgb:
+			return (FormatBlockDimension){ 12, 12 };
+		default:
+			return (FormatBlockDimension){ 1, 1 };
+	}
+}
