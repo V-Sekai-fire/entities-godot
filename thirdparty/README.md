@@ -167,6 +167,22 @@ Patches:
 - `0001-mingw-support.patch` ([GH-83452](https://github.com/godotengine/godot/pull/83452))
 
 
+## dawn
+
+- Upstream: https://github.com/google/dawn
+- Version: `1e897275172a23f27b0022fa6beae3084ed54a9b` (2025)
+- License: BSD-3-Clause
+
+Prebuilt install tree (headers + CMake package config + platform libraries)
+for the WebGPU rendering device driver's `dawn-desktop` and `emdawnwebgpu`
+build paths. Not a source snapshot — regenerating requires a Dawn build.
+
+Files extracted from an upstream install target:
+
+- `include/webgpu/*` and `include/dawn/*` — public C and C++ headers.
+- `lib/cmake/Dawn/*` — `DawnConfig.cmake` and friends for `find_package(Dawn)`.
+
+
 ## directx_headers
 
 - Upstream: https://github.com/microsoft/DirectX-Headers
@@ -886,6 +902,21 @@ Patches:
 - `0001-remove-unused-save-features.patch` ([GH-113965](https://github.com/godotengine/godot/issues/113965))
 
 
+## naga-native
+
+- Upstream: https://github.com/davnotdev/naga-native
+- Version: `87cd2a99b6b894a657a8bb798745699f45748094` (2025)
+- License: see upstream `LICENSE`
+
+C API bindings for `naga`, the WGSL/SPIR-V/MSL/HLSL/GLSL shader translator
+used by `wgpu` — used by the WebGPU rendering device driver for shader
+translation on native platforms.
+
+Files extracted from the upstream source:
+
+- `naga.h`
+
+
 ## offset_allocator
 
 - Upstream: https://github.com/sebbbi/OffsetAllocator
@@ -1082,6 +1113,21 @@ Patches:
 - `0002-spirv-headers.patch` ([GH-111452](https://github.com/godotengine/godot/pull/111452))
 
 
+## spirv-webgpu-transform
+
+- Upstream: https://github.com/davnotdev/spirv-webgpu-transform
+- Version: `285f70a8a5e1710d8b0b9c3cd88ac56d8bb12a65` (2025)
+- License: see upstream `LICENSE`
+
+SPIR-V patcher/transformer that fixes up shader binaries for consumption
+by WebGPU / WGSL toolchains, used by the WebGPU rendering device driver
+for shader porting from SPIR-V.
+
+Files extracted from the upstream source:
+
+- `spirv_webgpu_transform.h` (upstream path: `ffi/spirv_webgpu_transform.h`)
+
+
 ## swappy-frame-pacing
 
 - Upstream: https://android.googlesource.com/platform/frameworks/opt/gamesdk/ via https://github.com/godotengine/godot-swappy
@@ -1268,6 +1314,23 @@ Files extracted from upstream source:
 The following files are extracted from thirdparty sources:
 
 - `mesa/wayland-drm.xml`: https://gitlab.freedesktop.org/mesa/mesa/-/blob/mesa-25.3.0/src/egl/wayland/wayland-drm/wayland-drm.xml
+
+
+## wgpu
+
+- Upstream: https://github.com/gfx-rs/wgpu-native
+- Version: `12a4b75bd966a03172e5fb5a367cb2e0ce9480ed` (2025)
+- License: Apache-2.0 OR MIT
+
+Public C API headers for `wgpu-native`, the Rust WebGPU implementation
+used by the WebGPU rendering device driver on native platforms.
+
+Files extracted from the upstream source:
+
+- `wgpu.h` (upstream path: `ffi/wgpu.h`)
+- `webgpu.h` — from the pinned `ffi/webgpu-headers` submodule
+  (https://github.com/webgpu-native/webgpu-headers) at
+  `7d3186c3dd2c708703524027b46b8703534ab3cc`.
 
 
 ## wslay
