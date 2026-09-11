@@ -199,6 +199,10 @@ public:
 	int get_cmd_argc() const { return argc; }
 
 	virtual void run() override;
+	// libgodot embedded shape: even the windowed variant must not pop a
+	// modal NSAlert on Main::setup errors. The host owns thread 0 and
+	// runModal there would deadlock its loop. Log to stderr instead.
+	virtual void alert(const String &p_alert, const String &p_title = "Alert!") override;
 
 	OS_MacOS_NSApp(const char *p_execpath, int p_argc, char **p_argv);
 };
