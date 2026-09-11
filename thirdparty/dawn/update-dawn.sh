@@ -19,6 +19,20 @@ git init -q
 git remote add origin https://github.com/google/dawn.git
 git fetch --depth 1 -q origin "${GIT_COMMIT}"
 git checkout -q FETCH_HEAD
+
+# Populate the submodules Dawn's generator and library actually need. Init
+# a curated set only; the Chromium build submodules (buildtools, build,
+# tools/*) are dropped below and never fetched.
+for sub in third_party/spirv-headers third_party/spirv-tools \
+           third_party/vulkan-headers third_party/vulkan-utility-libraries \
+           third_party/webgpu-headers third_party/emdawnwebgpu \
+           third_party/khronos third_party/jinja2 third_party/markupsafe \
+           third_party/glfw; do
+  if grep -q "path = ${sub}$" .gitmodules 2>/dev/null; then
+    git submodule update --init --depth 1 -q "${sub}" 2>/dev/null || true
+  fi
+done
+
 rm -rf .git
 
 rm -rf \
@@ -34,6 +48,9 @@ if [ -d third_party ]; then
     ! -name webgpu-headers \
     ! -name emdawnwebgpu \
     ! -name khronos \
+    ! -name jinja2 \
+    ! -name markupsafe \
+    ! -name glfw \
     -exec rm -rf {} +
 fi
 
@@ -69,6 +86,16 @@ for d in include src generator scripts third_party CMakeLists.txt CMakeSettings.
 done
 
 rm -rf tmp
+
+# Run Dawn's Python generator to produce webgpu.h, dawn_proc_table.h and
+# the wire client/server shims so the driver source compiles without a
+# separate codegen step in SCons. Requires python3 + jinja2 + markupsafe.
+python3 generator/dawn_json_generator.py \
+  --dawn-json src/dawn/dawn.json \
+  --wire-json src/dawn/dawn_wire.json \
+  --targets headers,dawn_headers,cpp_headers,cpp,proc,wire \
+  --template-dir generator/templates \
+  --output-dir gen
 
 du -sh .
 
