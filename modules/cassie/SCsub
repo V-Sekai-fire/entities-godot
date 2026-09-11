@@ -326,12 +326,16 @@ env_refine.add_source_files(env.modules_sources, ["src/refine.cpp"])
 env_slang = env_cassie.Clone()
 if "clang" in _compiler or "g++" in _compiler or "gcc" in _compiler or "em++" in _compiler or "emcc" in _compiler:
     env_slang.Append(CCFLAGS=["-Wno-non-virtual-dtor"])
-# Skip *_gpu.cpp everywhere: they call RenderingServer::
-# create_local_rendering_device() which no longer exists on this Godot
-# revision, and the CPU dispatchers cover the AVBD solver. Restore once
-# the API is renamed.
-slang_dispatch_sources = [f for f in Glob("src/solver/slang_dispatch/*.cpp") if "_gpu" not in str(f)]
-env_slang.add_source_files(env.modules_sources, slang_dispatch_sources)
+# The two GPU dispatchers (cassie_mas_gpu.cpp, cassie_slang_gpu.cpp)
+# call RenderingServer::create_local_rendering_device(), which is
+# gated on RD_ENABLED — a define the Web target does not set (see
+# SConstruct: env["rendering_device"] is forced False for platform=web).
+# Skip them there and keep the pure-CPU dispatchers (curve_*) so the
+# Web build gets a working cassie module without the GPU path.
+slang_sources = Glob("src/solver/slang_dispatch/*.cpp")
+if env["platform"] == "web":
+    slang_sources = [f for f in slang_sources if not str(f).endswith("_gpu.cpp")]
+env_slang.add_source_files(env.modules_sources, slang_sources)
 # Geogram sources use the exceptions-enabled env clone.
 env_geogram.add_source_files(env.modules_sources, geogram_sources)
 env_geogram.add_source_files(env.modules_sources, pmp_sources)
