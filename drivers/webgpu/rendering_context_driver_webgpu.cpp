@@ -1,0 +1,291 @@
+
+#ifdef WEBGPU_ENABLED
+
+#include "rendering_context_driver_webgpu.h"
+
+#include "rendering_device_driver_webgpu.h"
+#include "webgpu_platform.h"
+
+#include "core/error/error_macros.h"
+
+static void handle_request_adapter(WGPURequestAdapterStatus p_status,
+		WGPUAdapter p_adapter, WGPUStringView p_message,
+		void *p_userdata, void *_) {
+	String message = String::utf8(p_message.data, p_message.length);
+	ERR_FAIL_COND_V_MSG(
+			p_status != WGPURequestAdapterStatus_Success, (void)0,
+			vformat("Failed to get WebGPU adapter: %s", message));
+
+	WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT;
+	ERR_FAIL_COND_V_MSG(
+			wgpuAdapterGetInfo(p_adapter, &info) != WGPUStatus_Success, (void)0,
+			"Failed to get WebGPU adapter info.");
+
+	RenderingContextDriver::Device device;
+	device.name = String::utf8(info.device.data, info.device.length);
+	device.vendor = info.vendorID;
+	device.type = (RenderingContextDriver::DeviceType)info.adapterType;
+
+	wgpuAdapterInfoFreeMembers(info);
+
+	RenderingContextDriverWebGpu *context = (RenderingContextDriverWebGpu *)p_userdata;
+	context->adapter_push_back(
+			p_adapter, device);
+}
+
+RenderingContextDriverWebGpu::RenderingContextDriverWebGpu() {
+}
+
+RenderingContextDriverWebGpu::~RenderingContextDriverWebGpu() {
+	if (instance != nullptr) {
+		wgpuInstanceRelease(instance);
+	}
+
+	for (WGPUAdapter &adapter : adapters) {
+		wgpuAdapterRelease(adapter);
+	}
+}
+
+Error RenderingContextDriverWebGpu::initialize() {
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	static const WGPUInstanceFeatureName required_features[] = { WGPUInstanceFeatureName_TimedWaitAny };
+#endif
+
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
+	// HACK: Forcing Vulkan works nicely if you need to use lavapipe (CPU vulkan implementation) for debugging
+	WGPUInstanceExtras instance_extras = (WGPUInstanceExtras){
+		.chain = (WGPUChainedStruct){
+				.sType = (WGPUSType)WGPUSType_InstanceExtras },
+		.backends = WGPUInstanceBackend_Vulkan
+	};
+#endif
+
+	WGPUInstanceDescriptor instance_descriptor = WGPU_INSTANCE_DESCRIPTOR_INIT;
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
+	instance_descriptor.nextInChain = &instance_extras.chain;
+#endif
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	instance_descriptor.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUInstanceFeatureName);
+	instance_descriptor.requiredFeatures = required_features;
+#endif
+
+	instance = wgpuCreateInstance(&instance_descriptor);
+	ERR_FAIL_NULL_V_MSG(instance, ERR_CANT_CREATE, "Failed to create wgpu instance.");
+
+	WGPURequestAdapterOptions adapter_options = {};
+	WGPURequestAdapterCallbackInfo adapter_callback_info = {
+		.mode = WGPUCallbackMode_AllowProcessEvents,
+		.callback = handle_request_adapter,
+		.userdata1 = this,
+	};
+
+	// There is no way to request all adapters, so we just get the high and low power ones.
+
+	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_HighPerformance;
+	WGPUFuture high_power_future = wgpuInstanceRequestAdapter(instance,
+			&adapter_options,
+			adapter_callback_info);
+
+	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_LowPower;
+	WGPUFuture low_power_future = wgpuInstanceRequestAdapter(instance,
+			&adapter_options,
+			adapter_callback_info);
+
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	WGPUFutureWaitInfo wait_infos[] = {
+		{ .future = high_power_future, .completed = false },
+		{ .future = low_power_future, .completed = false },
+	};
+	for (WGPUFutureWaitInfo &wait_info : wait_infos) {
+		WGPUWaitStatus wait_status = wgpuInstanceWaitAny(instance, 1, &wait_info, UINT64_MAX);
+		ERR_FAIL_COND_V_MSG(wait_status != WGPUWaitStatus_Success, ERR_CANT_CREATE,
+				"Failed to wait on WebGPU adapter request.");
+	}
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
+	(void)high_power_future;
+	(void)low_power_future;
+	wgpuInstanceProcessEvents(instance);
+#endif
+
+	ERR_FAIL_COND_V_MSG(adapters.is_empty(), ERR_CANT_CREATE, "No suitable WebGPU adapter found.");
+
+	return OK;
+}
+
+const RenderingContextDriver::Device &RenderingContextDriverWebGpu::device_get(uint32_t p_device_index) const {
+	DEV_ASSERT(p_device_index < adapters.size());
+	const RenderingContextDriver::Device &driver_device = driver_devices[p_device_index];
+	return driver_device;
+}
+
+uint32_t RenderingContextDriverWebGpu::device_get_count() const {
+	return adapters.size();
+}
+
+bool RenderingContextDriverWebGpu::device_supports_present(uint32_t p_device_index, SurfaceID p_surface) const {
+	DEV_ASSERT(p_device_index < adapters.size());
+	WGPUAdapter adapter = adapters[p_device_index];
+	Surface *surface = (Surface *)p_surface;
+	WGPUSurfaceCapabilities caps = WGPU_SURFACE_CAPABILITIES_INIT;
+	if (wgpuSurfaceGetCapabilities(surface->surface, adapter, &caps) != WGPUStatus_Success) {
+		return false;
+	}
+	bool supported = caps.formatCount != 0;
+	wgpuSurfaceCapabilitiesFreeMembers(caps);
+	return supported;
+}
+
+RenderingDeviceDriver *RenderingContextDriverWebGpu::driver_create() {
+	return memnew(RenderingDeviceDriverWebGpu(this));
+}
+
+void RenderingContextDriverWebGpu::driver_free(RenderingDeviceDriver *p_driver) {
+	memdelete(p_driver);
+}
+
+RenderingContextDriver::SurfaceID RenderingContextDriverWebGpu::surface_create(const void *p_platform_data) {
+	print_error("Surface creation should not be called on the platform-agnostic version of the driver.");
+	return SurfaceID();
+}
+
+void RenderingContextDriverWebGpu::surface_set_size(SurfaceID p_surface, uint32_t p_width, uint32_t p_height) {
+	Surface *surface = (Surface *)(p_surface);
+	surface->width = p_width;
+	surface->height = p_height;
+	surface->needs_resize = true;
+}
+
+void RenderingContextDriverWebGpu::surface_set_vsync_mode(SurfaceID p_surface, DisplayServerEnums::VSyncMode p_vsync_mode) {
+	Surface *surface = (Surface *)(p_surface);
+	surface->vsync_mode = p_vsync_mode;
+	surface->needs_resize = true;
+}
+
+DisplayServerEnums::VSyncMode RenderingContextDriverWebGpu::surface_get_vsync_mode(SurfaceID p_surface) const {
+	Surface *surface = (Surface *)(p_surface);
+	return surface->vsync_mode;
+}
+
+// TODO: HDR
+void RenderingContextDriverWebGpu::surface_set_hdr_output_enabled(SurfaceID p_surface, bool p_enabled) {
+	// TODO: HDR — route to a WGPUSurfaceConfiguration update with an HDR color-space chain.
+}
+
+bool RenderingContextDriverWebGpu::surface_get_hdr_output_enabled(SurfaceID p_surface) const {
+	// TODO: HDR — query actual surface capability once the chain is configured.
+	return false;
+}
+
+void RenderingContextDriverWebGpu::surface_set_hdr_output_reference_luminance(SurfaceID p_surface, float p_reference_luminance) {
+	// TODO: HDR — feed into the canvas tone-mapping reference luminance.
+}
+
+float RenderingContextDriverWebGpu::surface_get_hdr_output_reference_luminance(SurfaceID p_surface) const {
+	// TODO: HDR
+	return 0.0f;
+}
+
+void RenderingContextDriverWebGpu::surface_set_hdr_output_max_luminance(SurfaceID p_surface, float p_max_luminance) {
+	// TODO: HDR — feed into the canvas tone-mapping peak luminance.
+}
+
+float RenderingContextDriverWebGpu::surface_get_hdr_output_max_luminance(SurfaceID p_surface) const {
+	// TODO: HDR
+	return 0.0f;
+}
+
+void RenderingContextDriverWebGpu::surface_set_hdr_output_linear_luminance_scale(SurfaceID p_surface, float p_linear_luminance_scale) {
+	// TODO: HDR — feed into the linear-light scaling used by the display chain.
+}
+
+float RenderingContextDriverWebGpu::surface_get_hdr_output_linear_luminance_scale(SurfaceID p_surface) const {
+	// TODO: HDR
+	return 0.0f;
+}
+
+float RenderingContextDriverWebGpu::surface_get_hdr_output_max_value(SurfaceID p_surface) const {
+	// TODO: HDR — return the surface's max representable linear value (>1.0 for HDR).
+	// Defensive SDR fallback for now; gated unreachable while _enabled is false.
+	return 1.0f;
+}
+
+uint32_t RenderingContextDriverWebGpu::surface_get_width(SurfaceID p_surface) const {
+	Surface *surface = (Surface *)(p_surface);
+	return surface->width;
+}
+
+uint32_t RenderingContextDriverWebGpu::surface_get_height(SurfaceID p_surface) const {
+	Surface *surface = (Surface *)(p_surface);
+	return surface->height;
+}
+
+void RenderingContextDriverWebGpu::surface_set_needs_resize(SurfaceID p_surface, bool p_needs_resize) {
+	Surface *surface = (Surface *)(p_surface);
+	surface->needs_resize = p_needs_resize;
+}
+
+bool RenderingContextDriverWebGpu::surface_get_needs_resize(SurfaceID p_surface) const {
+	Surface *surface = (Surface *)(p_surface);
+	return surface->needs_resize;
+}
+
+void RenderingContextDriverWebGpu::surface_destroy(SurfaceID p_surface) {
+	Surface *surface = (Surface *)(p_surface);
+	wgpuSurfaceRelease(surface->surface);
+	memdelete(surface);
+}
+bool RenderingContextDriverWebGpu::is_debug_utils_enabled() const {
+	// Although there is a flag to enable validation in WGPU, the spec doesn't support this.
+	// See: https://docs.rs/wgpu/latest/wgpu/struct.InstanceFlags.html#associatedconstant.DEBUG
+	return false;
+}
+
+WGPUInstance RenderingContextDriverWebGpu::instance_get() const {
+	return instance;
+}
+
+WGPUAdapter RenderingContextDriverWebGpu::adapter_get(uint32_t p_adapter_index) const {
+	DEV_ASSERT(p_adapter_index < adapters.size());
+	WGPUAdapter adapter = adapters[p_adapter_index];
+	return adapter;
+}
+
+void RenderingContextDriverWebGpu::adapter_push_back(WGPUAdapter p_adapter, Device p_device) {
+	adapters.push_back(p_adapter);
+	driver_devices.push_back(p_device);
+}
+
+void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGPUDevice p_device) {
+	WGPUSurfaceCapabilities capabilities = WGPU_SURFACE_CAPABILITIES_INIT;
+	wgpuSurfaceGetCapabilities(surface, p_adapter, &capabilities);
+
+	// Godot only supports these swapchain formats.
+	for (uint32_t i = 0; i < capabilities.formatCount; i++) {
+		WGPUTextureFormat format = capabilities.formats[i];
+		switch (format) {
+			case WGPUTextureFormat_BGRA8Unorm:
+				this->format = format;
+				this->rd_format = RDD::DATA_FORMAT_B8G8R8A8_UNORM;
+				break;
+			case WGPUTextureFormat_RGBA8Unorm:
+				this->format = format;
+				this->rd_format = RDD::DATA_FORMAT_R8G8B8A8_UNORM;
+				break;
+			default:
+				break;
+		}
+	}
+
+	// TODO: Complete full surface config.
+	WGPUSurfaceConfiguration surface_config = (WGPUSurfaceConfiguration){
+		.device = p_device,
+		.format = this->format,
+		.usage = WGPUTextureUsage_RenderAttachment,
+		.width = this->width,
+		.height = this->height,
+	};
+
+	wgpuSurfaceConfigure(this->surface, &surface_config);
+}
+
+#endif // WEBGPU_ENABLED
