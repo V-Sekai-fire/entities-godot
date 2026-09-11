@@ -2,26 +2,10 @@
 
 Import("env")
 
-thirdparty_dirs = []
-
-backend = env["webgpu_backend"]
-if backend == "auto":
-    backend = "emdawnwebgpu" if env["platform"] == "web" else "dawn-desktop"
-
-if backend == "dawn-desktop":
-    env.Prepend(LIBS=["webgpu_dawn"])
-    thirdparty_dirs += [
-        "#thirdparty/dawn/include",
-        "#thirdparty/dawn/gen/include",
-    ]
-elif backend == "emdawnwebgpu":
-    pass
-else:
+if env["platform"] != "web":
     raise ValueError(
-        'Unsupported "webgpu_backend=%s" for platform "%s".' % (backend, env["platform"])
+        'The WebGPU driver is only supported on platform "web" (via emdawnwebgpu).'
     )
-
-env.Prepend(CPPPATH=thirdparty_dirs)
 
 driver_obj = []
 env.add_source_files(driver_obj, "*.cpp")
