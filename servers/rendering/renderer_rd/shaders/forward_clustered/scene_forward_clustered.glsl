@@ -6,7 +6,10 @@
 
 /* Include half precision types. */
 #include "../half_inc.glsl"
+
+#define UNDEF_SHADOW
 #include "scene_forward_clustered_inc.glsl"
+#undef UNDEF_SHADOW
 
 #define SHADER_IS_SRGB false
 #define SHADER_SPACE_FAR 0.0
@@ -720,7 +723,9 @@ void vertex_shader(vec3 vertex_input,
 		point_coord_interp = point_coord;
 #endif
 	} else {
+#ifndef WEBGPU_USED
 		gl_PointSize = point_size;
+#endif
 	}
 #endif
 }
@@ -940,7 +945,90 @@ layout(location = 9) in float dp_clip;
 layout(location = 10) in flat uint instance_index_interp;
 
 #ifdef USE_LIGHTMAP
-#include "../bicubic_filter_inc.glsl"
+// w0, w1, w2, and w3 are the four cubic B-spline basis functions
+float w0(float a) {
+	return (1.0 / 6.0) * (a * (a * (-a + 3.0) - 3.0) + 1.0);
+}
+
+float w1(float a) {
+	return (1.0 / 6.0) * (a * a * (3.0 * a - 6.0) + 4.0);
+}
+
+float w2(float a) {
+	return (1.0 / 6.0) * (a * (a * (-3.0 * a + 3.0) + 3.0) + 1.0);
+}
+
+float w3(float a) {
+	return (1.0 / 6.0) * (a * a * a);
+}
+
+// g0 and g1 are the two amplitude functions
+float g0(float a) {
+	return w0(a) + w1(a);
+}
+
+float g1(float a) {
+	return w2(a) + w3(a);
+}
+
+// h0 and h1 are the two offset functions
+float h0(float a) {
+	return -1.0 + w1(a) / (w0(a) + w1(a));
+}
+
+float h1(float a) {
+	return 1.0 + w3(a) / (w2(a) + w3(a));
+}
+
+// HACK: WGSL translators cannot parse array indexed texture arguments, so we need to inline this.
+#ifndef WEBGPU_USED
+
+vec4 textureArray_bicubic(texture2DArray tex, vec3 uv, vec2 texture_size) {
+	vec2 texel_size = vec2(1.0) / texture_size;
+
+	uv.xy = uv.xy * texture_size + vec2(0.5);
+
+	vec2 iuv = floor(uv.xy);
+	vec2 fuv = fract(uv.xy);
+
+	float g0x = g0(fuv.x);
+	float g1x = g1(fuv.x);
+	float h0x = h0(fuv.x);
+	float h1x = h1(fuv.x);
+	float h0y = h0(fuv.y);
+	float h1y = h1(fuv.y);
+
+	vec2 p0 = (vec2(iuv.x + h0x, iuv.y + h0y) - vec2(0.5)) * texel_size;
+	vec2 p1 = (vec2(iuv.x + h1x, iuv.y + h0y) - vec2(0.5)) * texel_size;
+	vec2 p2 = (vec2(iuv.x + h0x, iuv.y + h1y) - vec2(0.5)) * texel_size;
+	vec2 p3 = (vec2(iuv.x + h1x, iuv.y + h1y) - vec2(0.5)) * texel_size;
+
+	return (g0(fuv.y) * (g0x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p0, uv.z)) + g1x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p1, uv.z)))) +
+			(g1(fuv.y) * (g0x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p2, uv.z)) + g1x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p3, uv.z))));
+}
+
+#else
+
+#define TEXTURE_ARRAY_BICUBIC_INLINED(tex, uv, texture_size) \
+	vec2 texel_size = vec2(1.0) / texture_size; \
+	vec3 _uv = uv; \
+	_uv.xy = _uv.xy * texture_size + vec2(0.5); \
+	vec2 iuv = floor(_uv.xy); \
+	vec2 fuv = fract(_uv.xy); \
+	float g0x = g0(fuv.x); \
+	float g1x = g1(fuv.x); \
+	float h0x = h0(fuv.x); \
+	float h1x = h1(fuv.x); \
+	float h0y = h0(fuv.y); \
+	float h1y = h1(fuv.y); \
+	vec2 p0 = (vec2(iuv.x + h0x, iuv.y + h0y) - vec2(0.5)) * texel_size; \
+	vec2 p1 = (vec2(iuv.x + h1x, iuv.y + h0y) - vec2(0.5)) * texel_size; \
+	vec2 p2 = (vec2(iuv.x + h0x, iuv.y + h1y) - vec2(0.5)) * texel_size; \
+	vec2 p3 = (vec2(iuv.x + h1x, iuv.y + h1y) - vec2(0.5)) * texel_size; \
+	vec4 textureArray_bicubic_out = (g0(fuv.y) * (g0x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p0, _uv.z)) + g1x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p1, _uv.z)))) + \
+			(g1(fuv.y) * (g0x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p2, _uv.z)) + g1x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p3, _uv.z)))); \
+
+#endif
 #endif //USE_LIGHTMAP
 
 #ifdef USE_MULTIVIEW
@@ -1303,7 +1391,12 @@ void fragment_shader(in SceneData scene_data) {
 	if (sc_emulate_point_size) {
 		point_coord = point_coord_interp;
 	} else {
+#ifdef WEBGPU_USED
+		// HACK: stubby stubby (no gl_PointCoord in webGPU)
+		point_coord = vec2(0.5);
+#else
 		point_coord = gl_PointCoord;
+#endif
 	}
 #else // !POINT_SIZE_USED
 	vec2 point_coord = vec2(0.5);
@@ -1720,7 +1813,6 @@ void fragment_shader(in SceneData scene_data) {
 #ifdef USE_RADIANCE_OCTMAP_ARRAY
 
 		float roughness_lod, blend;
-
 		blend = modf(sqrt(roughness) * MAX_ROUGHNESS_LOD, roughness_lod);
 
 		float ref_lod = vec3_to_oct_lod(dFdx(ref_vec), dFdy(ref_vec), scene_data_block.data.radiance_pixel_size);
@@ -1851,10 +1943,22 @@ void fragment_shader(in SceneData scene_data) {
 			vec3 lm_light_l1p1;
 
 			if (sc_use_lightmap_bicubic_filter()) {
-				lm_light_l0 = texture_array_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 0.0), lightmaps.data[ofs].light_texture_size).rgb;
-				lm_light_l1n1 = (texture_array_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 1.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
-				lm_light_l1_0 = (texture_array_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 2.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
-				lm_light_l1p1 = (texture_array_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 3.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
+// See function definition, TLDR: we have to inline this for WGSL translation.
+#ifndef WEBGPU_USED
+				lm_light_l0 = textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 0.0), lightmaps.data[ofs].light_texture_size).rgb;
+				lm_light_l1n1 = (textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 1.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
+				lm_light_l1_0 = (textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 2.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
+				lm_light_l1p1 = (textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 3.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
+#else
+				TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 0.0), lightmaps.data[ofs].light_texture_size)
+				lm_light_l0 = textureArray_bicubic_out.rgb;
+				TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 1.0), lightmaps.data[ofs].light_texture_size)
+				lm_light_l1n1 = (textureArray_bicubic_out.rgb - vec3(0.5)) * 2.0;
+				TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 2.0), lightmaps.data[ofs].light_texture_size)
+				lm_light_l1_0 = (textureArray_bicubic_out.rgb - vec3(0.5)) * 2.0;
+				TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 3.0), lightmaps.data[ofs].light_texture_size)
+				lm_light_l1p1 = (textureArray_bicubic_out.rgb - vec3(0.5)) * 2.0;
+#endif
 			} else {
 				lm_light_l0 = textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 0.0), 0.0).rgb;
 				lm_light_l1n1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0;
@@ -1932,7 +2036,13 @@ void fragment_shader(in SceneData scene_data) {
 
 		} else {
 			if (sc_use_lightmap_bicubic_filter()) {
-				ambient_light += texture_array_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb * lightmaps.data[ofs].exposure_normalization;
+// See function definition, TLDR: we have to inline this for WGSL translation.
+#ifndef WEBGPU_USED
+				ambient_light += textureArray_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb * lightmaps.data[ofs].exposure_normalization;
+#else
+				TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size)
+				ambient_light += textureArray_bicubic_out.rgb * lightmaps.data[ofs].exposure_normalization;
+#endif
 			} else {
 				ambient_light += textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb * lightmaps.data[ofs].exposure_normalization;
 			}
@@ -2392,7 +2502,13 @@ void fragment_shader(in SceneData scene_data) {
 				const vec3 uvw = vec3(scaled_uv, float(slice));
 
 				if (sc_use_lightmap_bicubic_filter()) {
-					shadowmask = texture_array_bicubic(lightmap_textures[MAX_LIGHTMAP_TEXTURES + ofs], uvw, lightmaps.data[ofs].light_texture_size).x;
+// See function definition, TLDR: we have to inline this for WGSL translation.
+#ifndef WEBGPU_USED
+					shadowmask = textureArray_bicubic(lightmap_textures[MAX_LIGHTMAP_TEXTURES + ofs], uvw, lightmaps.data[ofs].light_texture_size).x;
+#else
+					TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[MAX_LIGHTMAP_TEXTURES + ofs], uvw, lightmaps.data[ofs].light_texture_size)
+					shadowmask = textureArray_bicubic_out.x;
+#endif
 				} else {
 					shadowmask = textureLod(sampler2DArray(lightmap_textures[MAX_LIGHTMAP_TEXTURES + ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).x;
 				}
@@ -2450,7 +2566,9 @@ void fragment_shader(in SceneData scene_data) {
 							float range_begin = directional_lights.data[i].shadow_range_begin.x;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale1 * test_radius;
-							shadow = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
+							// HACK: AHAHAHAHAHA
+							// shadow = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
+							shadow = 0.5;
 							blend_count++;
 						}
 
@@ -2466,7 +2584,9 @@ void fragment_shader(in SceneData scene_data) {
 							float range_begin = directional_lights.data[i].shadow_range_begin.y;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale2 * test_radius;
-							float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
+							// HACK: AHAHAHAHAHA
+							// float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
+							float s = 0.5;
 
 							if (blend_count == 0) {
 								shadow = s;
@@ -2491,7 +2611,9 @@ void fragment_shader(in SceneData scene_data) {
 							float range_begin = directional_lights.data[i].shadow_range_begin.z;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale3 * test_radius;
-							float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
+							// HACK: AHAHAHAHAHA
+							// float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
+							float s = 0.5;
 
 							if (blend_count == 0) {
 								shadow = s;
@@ -2516,7 +2638,9 @@ void fragment_shader(in SceneData scene_data) {
 							float range_begin = directional_lights.data[i].shadow_range_begin.w;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale4 * test_radius;
-							float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
+							// HACK: AHAHAHAHAHA
+							// float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
+							float s = 0.5;
 
 							if (blend_count == 0) {
 								shadow = s;

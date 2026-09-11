@@ -196,7 +196,7 @@ private:
 	RDD::MemoryAllocationType _get_buffer_alloc_type(bool p_has_initial_data, Thread::ID p_thread_id) const;
 
 	Buffer *_get_buffer_from_owner(RID p_buffer);
-	Error _buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data, uint32_t p_required_align = 32);
+	Error _buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data);
 
 	void update_perf_report();
 	// Flag for batching descriptor sets.
@@ -1138,10 +1138,11 @@ public:
 	typedef Uniform PipelineImmutableSampler;
 	RID shader_create_from_bytecode_with_samplers(const Vector<uint8_t> &p_shader_binary, RID p_placeholder = RID(), const Vector<PipelineImmutableSampler> &p_immutable_samplers = Vector<PipelineImmutableSampler>());
 
-private:
+public:
 	static const uint32_t MAX_UNIFORM_SETS = 16;
 	static const uint32_t MAX_PUSH_CONSTANT_SIZE = 128;
 
+private:
 	// This structure contains the descriptor set. They _need_ to be allocated
 	// for a shader (and will be erased when this shader is erased), but should
 	// work for other shaders as long as the hash matches. This covers using

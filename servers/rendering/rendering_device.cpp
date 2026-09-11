@@ -919,11 +919,11 @@ RenderingDevice::Buffer *RenderingDevice::_get_buffer_from_owner(RID p_buffer) {
 	return buffer;
 }
 
-Error RenderingDevice::_buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data, uint32_t p_required_align) {
-	if (p_buffer->alloc_type == RDD::MEMORY_ALLOCATION_TYPE_GPU_MAPPABLE) {
-		// Copy directly to the buffer if available.
-		uint8_t *data_ptr = driver->buffer_map(p_buffer->driver_id);
-		ERR_FAIL_NULL_V(data_ptr, ERR_CANT_CREATE);
+Error RenderingDevice::_buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data) {
+	uint32_t required_align = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
+	uint32_t transfer_worker_offset;
+	TransferWorker *transfer_worker = _acquire_transfer_worker(p_data.size(), required_align, transfer_worker_offset);
+	p_buffer->transfer_worker_index = transfer_worker->index;
 
 		memcpy(data_ptr, p_data.ptr(), p_data.size());
 
@@ -970,11 +970,14 @@ Error RenderingDevice::_insert_staging_block(StagingBuffers &p_staging_buffers) 
 
 	block.frame_used = 0;
 	block.fill_amount = 0;
-	block.data_ptr = driver->buffer_map(block.driver_id);
 
-	if (block.data_ptr == nullptr) {
-		driver->buffer_free(block.driver_id);
-		return ERR_CANT_CREATE;
+	if (p_staging_buffers.usage_bits.has_flag(RDD::BUFFER_USAGE_TRANSFER_FROM_BIT)) {
+		block.data_ptr = driver->buffer_map(block.driver_id);
+
+		if (block.data_ptr == nullptr) {
+			driver->buffer_free(block.driver_id);
+			return ERR_CANT_CREATE;
+		}
 	}
 
 	p_staging_buffers.blocks.insert(p_staging_buffers.current, block);
@@ -1177,7 +1180,7 @@ Error RenderingDevice::_buffer_update(Buffer *p_buffer, RID p_buffer_id, uint32_
 	command_buffer_copies_vector.clear();
 
 	const uint8_t *src_data = reinterpret_cast<const uint8_t *>(p_data);
-	const uint32_t required_align = 32;
+	const uint32_t required_align = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
 	while (to_submit > 0) {
 		uint32_t block_write_offset;
 		uint32_t block_write_amount;
@@ -1422,7 +1425,7 @@ Error RenderingDevice::buffer_get_data_async(RID p_buffer, const Callable &p_cal
 	get_data_request.frame_local_index = frames[frame].download_buffer_copy_regions.size();
 	get_data_request.size = p_size;
 
-	const uint32_t required_align = 32;
+	const uint32_t required_align = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
 	uint32_t block_write_offset;
 	uint32_t block_write_amount;
 	StagingRequiredAction required_action;
