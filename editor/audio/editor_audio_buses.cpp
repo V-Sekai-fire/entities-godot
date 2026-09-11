@@ -298,7 +298,7 @@ void EditorAudioBus::_notification(int p_what) {
 void EditorAudioBus::update_type() {
 	type->clear();
 	type->set_disabled(false);
-	AudioServer::BusType current_type = AudioServer::get_singleton()->get_bus_type(get_index());
+	AuSE::BusType current_type = AudioServer::get_singleton()->get_bus_type(get_index());
 	type->add_item(TTR("Non-spatial"));
 	type->add_item(TTR("Spatial 3D"));
 	type->select(current_type == AuSE::BUS_TYPE_CONVENTIONAL ? 0 : 1);
