@@ -50,6 +50,10 @@
 #include "drivers/gles3/rasterizer_gles3.h"
 #endif
 
+#if defined(RD_ENABLED)
+#include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
+#endif
+
 #include <emscripten.h>
 #include <png.h>
 
@@ -66,11 +70,18 @@ DisplayServerWeb *DisplayServerWeb::get_singleton() {
 // Window (canvas)
 bool DisplayServerWeb::check_size_force_redraw() {
 	bool size_changed = godot_js_display_size_update() != 0;
-	if (size_changed && rect_changed_callback.is_valid()) {
+	if (size_changed) {
 		Size2i window_size = window_get_size();
-		Variant size = Rect2i(Point2i(), window_size); // TODO use window_get_position if implemented.
-		rect_changed_callback.call(size);
-		emscripten_set_canvas_element_size(canvas_id, window_size.x, window_size.y);
+#ifdef RD_ENABLED
+		if (rendering_context) {
+			rendering_context->window_set_size(DisplayServerEnums::MAIN_WINDOW_ID, window_size.x, window_size.y);
+		}
+#endif
+		if (rect_changed_callback.is_valid()) {
+			Variant size = Rect2i(Point2i(), window_size); // TODO use window_get_position if implemented.
+			rect_changed_callback.call(size);
+			emscripten_set_canvas_element_size(canvas_id, window_size.x, window_size.y);
+		}
 	}
 	return size_changed;
 }
@@ -1006,6 +1017,9 @@ Vector<String> DisplayServerWeb::get_rendering_drivers_func() {
 #ifdef GLES3_ENABLED
 	drivers.push_back("opengl3");
 #endif
+#ifdef WEBGPU_ENABLED
+	drivers.push_back("webgpu");
+#endif
 	return drivers;
 }
 
@@ -1131,7 +1145,7 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 	// Expose method for requesting quit.
 	godot_js_os_request_quit_cb(request_quit_callback);
 
-#ifdef GLES3_ENABLED
+#if defined(GLES3_ENABLED)
 	bool webgl2_inited = false;
 	if (godot_js_display_has_webgl(2)) {
 		EmscriptenWebGLContextAttributes attributes;
@@ -1157,6 +1171,30 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 				"Unable to initialize WebGL 2 video driver");
 		RasterizerDummy::make_current();
 	}
+#elif defined(WEBGPU_ENABLED)
+	rendering_context = memnew(RenderingContextDriverWebGpuWeb);
+	rendering_context->initialize();
+
+	RenderingContextDriverWebGpuWeb::WindowPlatformData wpd;
+	wpd.canvas_id = canvas_id;
+	rendering_context->window_create(DisplayServerEnums::MAIN_WINDOW_ID, &wpd);
+
+	Size2i canvas_size = window_get_size();
+	rendering_context->window_set_size(DisplayServerEnums::MAIN_WINDOW_ID, canvas_size.width, canvas_size.height);
+	rendering_context->window_set_vsync_mode(DisplayServerEnums::MAIN_WINDOW_ID, p_vsync_mode);
+
+	rendering_device = memnew(RenderingDevice);
+	if (rendering_device->initialize(rendering_context, DisplayServerEnums::MAIN_WINDOW_ID) != OK) {
+		memdelete(rendering_device);
+		rendering_device = nullptr;
+		memdelete(rendering_context);
+		rendering_context = nullptr;
+		r_error = ERR_UNAVAILABLE;
+		return;
+	}
+	rendering_device->screen_create(DisplayServerEnums::MAIN_WINDOW_ID);
+
+	RendererCompositorRD::make_current();
 #else
 	RasterizerDummy::make_current();
 #endif
