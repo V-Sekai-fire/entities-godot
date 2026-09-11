@@ -89,7 +89,8 @@ def get_flags():
         "use_volk": False,
         "metal": True,
         "webgpu": False,
-        "supported": ["library", "metal", "mono"],
+        "webgpu_backend": "dawn-desktop",
+        "supported": ["library", "metal", "mono", "webgpu"],
     }
 
 
@@ -338,6 +339,20 @@ def configure(env: "SConsEnvironment"):
         extra_frameworks.add("MetalKit")
         extra_frameworks.add("MetalFX")
         env.Prepend(CPPPATH=["#thirdparty/spirv-cross"])
+
+    if env["webgpu"]:
+        env.AppendUnique(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
+        backend = env["webgpu_backend"]
+        if backend == "auto":
+            backend = "dawn-desktop"
+        if backend == "dawn-desktop":
+            env.Append(CPPDEFINES=["WEBGPU_BACKEND_DAWN_DESKTOP"])
+            extra_frameworks.add("Metal")
+            extra_frameworks.add("QuartzCore")
+            env.Append(LINKFLAGS=["-framework", "IOKit", "-framework", "IOSurface"])
+        else:
+            print_error('Unsupported "webgpu_backend=%s" for platform "macos"' % env["webgpu_backend"])
+            sys.exit(255)
 
     if env["vulkan"]:
         env.AppendUnique(CPPDEFINES=["VULKAN_ENABLED"])

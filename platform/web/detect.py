@@ -258,10 +258,11 @@ def configure(env: "SConsEnvironment"):
         # env.Append(LINKFLAGS=["--closure=1"])
 
         env.Append(CCFLAGS=["--use-port=emdawnwebgpu"])
-        # env.Append(LINKFLAGS=["--use-port=emdawnwebgpu"])
-        # env.Append(LINKFLAGS=["--use-port=emdawnwebgpu", "-sJSPI"])
         env.Append(LINKFLAGS=["--use-port=emdawnwebgpu", "-sASYNCIFY=1", "-sASYNCIFY_STACK_SIZE=65536"])
-        if env["webgpu_backend"]:
+        backend = env["webgpu_backend"]
+        if backend == "auto":
+            backend = "emdawnwebgpu"
+        if backend == "emdawnwebgpu":
             env.Append(CPPDEFINES=["WEBGPU_BACKEND_EMDAWN"])
         else:
             print_error('Unsupported "webgpu_backend=%s" for platform "web"' % env["webgpu_backend"])

@@ -898,17 +898,6 @@ Patches:
 - `0001-remove-unused-save-features.patch` ([GH-113965](https://github.com/godotengine/godot/issues/113965))
 
 
-## naga-native
-
-- Upstream: https://github.com/davnotdev/naga-native
-- Version: `87cd2a99b6b894a657a8bb798745699f45748094` (2025)
-- License: see upstream
-
-Files extracted from the upstream source:
-
-- `naga.h`
-
-
 ## offset_allocator
 
 - Upstream: https://github.com/sebbbi/OffsetAllocator
@@ -1105,17 +1094,6 @@ Patches:
 - `0002-spirv-headers.patch` ([GH-111452](https://github.com/godotengine/godot/pull/111452))
 
 
-## spirv-webgpu-transform
-
-- Upstream: https://github.com/davnotdev/spirv-webgpu-transform
-- Version: `285f70a8a5e1710d8b0b9c3cd88ac56d8bb12a65` (2025)
-- License: see upstream
-
-Files extracted from the upstream source:
-
-- `spirv_webgpu_transform.h` (upstream path: `ffi/spirv_webgpu_transform.h`)
-
-
 ## swappy-frame-pacing
 
 - Upstream: https://android.googlesource.com/platform/frameworks/opt/gamesdk/ via https://github.com/godotengine/godot-swappy
@@ -1302,20 +1280,6 @@ Files extracted from upstream source:
 The following files are extracted from thirdparty sources:
 
 - `mesa/wayland-drm.xml`: https://gitlab.freedesktop.org/mesa/mesa/-/blob/mesa-25.3.0/src/egl/wayland/wayland-drm/wayland-drm.xml
-
-
-## wgpu
-
-- Upstream: https://github.com/gfx-rs/wgpu-native
-- Version: `12a4b75bd966a03172e5fb5a367cb2e0ce9480ed` (2025)
-- License: Apache-2.0 OR MIT
-
-Files extracted from the upstream source:
-
-- `wgpu.h` (upstream path: `ffi/wgpu.h`)
-- `webgpu.h` — from the pinned `ffi/webgpu-headers` submodule
-  (https://github.com/webgpu-native/webgpu-headers) at
-  `7d3186c3dd2c708703524027b46b8703534ab3cc`.
 
 
 ## wslay

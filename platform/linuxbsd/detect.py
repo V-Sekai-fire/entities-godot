@@ -89,8 +89,8 @@ def get_doc_path():
 def get_flags():
     return {
         "arch": detect_arch(),
-        "supported": ["library", "mono"],
-        "webgpu_backend": "wgpu-desktop",
+        "supported": ["library", "mono", "webgpu"],
+        "webgpu_backend": "dawn-desktop",
     }
 
 
@@ -538,10 +538,11 @@ def configure(env: "SConsEnvironment"):
 
     if env["webgpu"]:
         env.Append(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
-        if env["webgpu_backend"] == "dawn-desktop":
+        backend = env["webgpu_backend"]
+        if backend == "auto":
+            backend = "dawn-desktop"
+        if backend == "dawn-desktop":
             env.Append(CPPDEFINES=["WEBGPU_BACKEND_DAWN_DESKTOP"])
-        elif env["webgpu_backend"] == "wgpu-desktop":
-            env.Append(CPPDEFINES=["WEBGPU_BACKEND_WGPU_DESKTOP"])
         else:
             print_error(
                 'Unsupported "webgpu_backend=%s" for platform "linuxbsd"' % env["webgpu_backend"]
