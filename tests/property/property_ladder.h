@@ -48,10 +48,15 @@
 // Property tests classically use `throw` on a failed sample to unwind
 // the trial and hand the input to a shrinker. Godot's tree is compiled
 // with -fno-exceptions, so this harness reports failure via a plain
-// return value; there is no exception-based unwind. Shrinking is v2 —
-// with pure predicates it is straightforward to add iteratively over a
-// caller-supplied shrink function, matching Plausible's Shrinkable
-// instance shape.
+// return value: no exception unwind anywhere. Shrinking is layered on
+// top of that by iterating over smaller candidates — a caller-supplied
+// `shrink(input) -> std::vector<T>` producing strictly smaller
+// candidates. Matches Plausible's `Shrinkable` instance shape: at each
+// step the current failing input is replaced by the first candidate
+// that still falsifies the predicate; the loop ends when no candidate
+// falsifies or the shrink budget is spent. The shrunk minimum surfaces
+// through `Trial::message`, formatted by an optional `to_string`
+// callable so the failure log names the minimal counterexample.
 //
 // Usage:
 //
@@ -135,31 +140,153 @@ struct RNG {
 	uint64_t next_u64() { return gen(); }
 };
 
-// Run one predicate through the ladder. Gen must be
-// `T (RNG &, const Level &)` and Pred must be `bool (const T &)`.
+// Shrink a falsifying input toward its minimum. `shrinker(x)` returns a
+// list of strictly smaller candidates; the first one that still
+// falsifies replaces `x`, and the loop repeats until no candidate
+// falsifies or `budget` iterations pass. Non-throwing, deterministic
+// given a pure predicate + pure shrinker.
+template <class T, class Pred, class Shrink>
+inline T shrink_input(T input, Pred &&predicate, Shrink &&shrinker, int budget = 128, int *r_iterations = nullptr) {
+	int iterations = 0;
+	for (int i = 0; i < budget; ++i) {
+		auto candidates = shrinker(input);
+		bool improved = false;
+		for (auto &c : candidates) {
+			if (!predicate(c)) {
+				input = std::move(c);
+				improved = true;
+				iterations++;
+				break;
+			}
+		}
+		if (!improved) {
+			break;
+		}
+	}
+	if (r_iterations) {
+		*r_iterations = iterations;
+	}
+	return input;
+}
+
+// A no-op shrinker for callers that do not supply one. Returns an empty
+// candidate set, so `shrink_input` terminates immediately.
+struct NoShrink {
+	template <class T>
+	std::vector<T> operator()(const T &) const {
+		return {};
+	}
+};
+
+// A no-op printer for callers that do not supply one. Emits nothing.
+struct NoPrint {
+	template <class T>
+	void operator()(std::ostream &, const T &) const {}
+};
+
+namespace detail {
+
+// Format a Trial's terminating message. `printer(os, input)` runs when
+// present to inject the input's value into the log.
+template <class T, class Printer>
+inline std::string format_found(const char *query, const Level &lvl, int trial_idx, const T &input, int shrink_iters, Printer &&printer) {
+	std::ostringstream o;
+	o << query << " falsified at level " << lvl.idx
+	  << " trial " << trial_idx
+	  << " (walk_steps=" << lvl.walk_steps
+	  << " fin_bound=" << lvl.fin_bound << ")";
+	if (shrink_iters > 0) {
+		o << "; shrunk " << shrink_iters << " step(s)";
+	}
+	std::ostringstream body;
+	printer(body, input);
+	if (!body.str().empty()) {
+		o << "; minimum=" << body.str();
+	}
+	return o.str();
+}
+
+inline std::string format_provably_none(const char *query) {
+	std::ostringstream o;
+	o << query << " held across the ladder (" << (int)(sizeof(DEFAULT_LADDER) / sizeof(Level)) << " rungs)";
+	return o.str();
+}
+
+} // namespace detail
+
+// Full resolver: generator + predicate + shrinker + printer.
 // Predicate returns true when the property holds on this input.
-//
-// Returns the terminating Trial: FOUND with a message, or PROVABLY_NONE
-// after every rung's num_inst trials held the predicate.
-template <class Gen, class Pred>
-inline Trial resolve(const char *query, Gen &&make_input, Pred &&predicate, uint64_t seed = 0xC0FFEEULL) {
+// Returns the terminating Trial: FOUND with the shrunk minimum in the
+// message, or PROVABLY_NONE after every rung's num_inst trials held the
+// predicate.
+template <class Gen, class Pred, class Shrink, class Printer>
+inline Trial resolve(const char *query, Gen &&make_input, Pred &&predicate,
+		Shrink &&shrinker, Printer &&printer, uint64_t seed = 0xC0FFEEULL) {
 	RNG rng(seed);
 	for (const Level &lvl : DEFAULT_LADDER) {
 		for (int t = 0; t < lvl.num_inst; ++t) {
 			auto input = make_input(rng, lvl);
 			if (!predicate(input)) {
-				std::ostringstream o;
-				o << query << " falsified at level " << lvl.idx
-				  << " trial " << t
-				  << " (walk_steps=" << lvl.walk_steps
-				  << " fin_bound=" << lvl.fin_bound << ")";
-				return { Outcome::FOUND, lvl.idx, t, o.str() };
+				int shrink_iters = 0;
+				auto minimum = shrink_input(std::move(input), predicate, shrinker, /*budget=*/128, &shrink_iters);
+				return { Outcome::FOUND, lvl.idx, t,
+					detail::format_found(query, lvl, t, minimum, shrink_iters, printer) };
 			}
 		}
 	}
-	std::ostringstream o;
-	o << query << " held across the ladder (" << (int)(sizeof(DEFAULT_LADDER) / sizeof(Level)) << " rungs)";
-	return { Outcome::PROVABLY_NONE, DEFAULT_LADDER[2].idx, 0, o.str() };
+	return { Outcome::PROVABLY_NONE, DEFAULT_LADDER[2].idx, 0, detail::format_provably_none(query) };
+}
+
+// No-shrinker convenience overload.
+template <class Gen, class Pred>
+inline Trial resolve(const char *query, Gen &&make_input, Pred &&predicate, uint64_t seed = 0xC0FFEEULL) {
+	return resolve(query, std::forward<Gen>(make_input), std::forward<Pred>(predicate),
+			NoShrink{}, NoPrint{}, seed);
+}
+
+// Default shrinkers for common types. Each returns strictly smaller
+// candidates; empty vector when no smaller candidate exists.
+
+// Integers: try 0, sign-flipped, and halved. In that order — 0 is the
+// smallest sensible witness; sign flip converts a large negative to a
+// large positive (still large but often surfaces sign-dependent bugs);
+// halving is the classic monotone reducer.
+inline std::vector<int> shrink_int(int n) {
+	std::vector<int> out;
+	if (n != 0) {
+		out.push_back(0);
+	}
+	if (n < 0) {
+		out.push_back(-n);
+	}
+	int halved = n / 2;
+	if (halved != n) {
+		out.push_back(halved);
+	}
+	return out;
+}
+
+// std::vector<T>: try dropping each element and halving the length.
+// Preserves relative order — element-drop is the standard shape-reducer.
+template <class T>
+inline std::vector<std::vector<T>> shrink_vector(const std::vector<T> &v) {
+	std::vector<std::vector<T>> out;
+	if (v.empty()) {
+		return out;
+	}
+	// Half-length prefix.
+	if (v.size() > 1) {
+		out.emplace_back(v.begin(), v.begin() + v.size() / 2);
+	}
+	// One-element removed, from the front.
+	for (std::size_t i = 0; i < v.size(); ++i) {
+		std::vector<T> smaller;
+		smaller.reserve(v.size() - 1);
+		smaller.insert(smaller.end(), v.begin(), v.begin() + i);
+		smaller.insert(smaller.end(), v.begin() + i + 1, v.end());
+		out.emplace_back(std::move(smaller));
+	}
+	return out;
 }
 
 } // namespace property
@@ -169,6 +296,16 @@ inline Trial resolve(const char *query, Gen &&make_input, Pred &&predicate, uint
 #define PROP_CHECK(m_query, m_make_input, m_predicate) \
 	SUBCASE(m_query) { \
 		::property::Trial _prop_trial = ::property::resolve(m_query, m_make_input, m_predicate); \
+		INFO(_prop_trial.message); \
+		CHECK(_prop_trial.outcome != ::property::Outcome::FOUND); \
+	}
+
+// PROP_CHECK_SHRINK runs the ladder with a caller-supplied shrinker
+// and printer. On FOUND the printer emits the minimum counterexample
+// into the doctest INFO log.
+#define PROP_CHECK_SHRINK(m_query, m_make_input, m_predicate, m_shrinker, m_printer) \
+	SUBCASE(m_query) { \
+		::property::Trial _prop_trial = ::property::resolve(m_query, m_make_input, m_predicate, m_shrinker, m_printer); \
 		INFO(_prop_trial.message); \
 		CHECK(_prop_trial.outcome != ::property::Outcome::FOUND); \
 	}
