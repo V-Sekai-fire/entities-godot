@@ -303,9 +303,25 @@ def configure(env: "SConsEnvironment"):
     # Wrap the JavaScript support code around a closure named Godot.
     env.Append(LINKFLAGS=["-sMODULARIZE=1", "-sEXPORT_NAME='Godot'"])
 
-    # Force long jump mode to 'wasm'
+    # Use the wasm-native longjmp path. emcc's JS-emulated 'emscripten' mode
+    # is mutually exclusive with -fwasm-exceptions, and every module here that
+    # needs exceptions on Web (kimodo, pixal3d, skin_tokens, motion_bricks,
+    # ggml) requests -fwasm-exceptions from its own SCsub — the pair collides
+    # at compile time with 'em++: error: SUPPORT_LONGJMP=emscripten is not
+    # compatible with -fwasm-exceptions'. The wasm mode uses wasm's own
+    # exception-handling proposal for longjmp too, so both flags coexist.
     env.Append(CCFLAGS=["-sSUPPORT_LONGJMP='wasm'"])
     env.Append(LINKFLAGS=["-sSUPPORT_LONGJMP='wasm'"])
+
+    # Enable exception handling for web platform to support C++ modules like sandbox
+    env.Append(LINKFLAGS=["-sDISABLE_EXCEPTION_CATCHING=0"])
+    env.Append(LINKFLAGS=["-sDISABLE_EXCEPTION_THROWING=0"])
+
+    # Explicitly disable the disable_exceptions flag to allow sandbox module to build
+    env["disable_exceptions"] = False
+
+    # Configure third-party libraries to not use longjmp
+    env.Append(CPPDEFINES=["WEBP_NO_LONGJMP", "PNG_NO_SETJMP", "FT_NO_LONGJMP"])
 
     # Allow increasing memory buffer size during runtime. This is efficient
     # when using WebAssembly (in comparison to asm.js) and works well for
