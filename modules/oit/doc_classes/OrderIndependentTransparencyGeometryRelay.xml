@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="OrderIndependentTransparencyGeometryRelay" inherits="Node3D" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Path A geometry helper that feeds transparent meshes to an [OrderIndependentTransparencyCompositorEffect].
+	</brief_description>
+	<description>
+		Traverses child [MeshInstance3D] nodes (or the explicit list in [member mesh_paths]) every frame, packs their POSITION streams and per-instance albedo/world_transform into byte buffers, uploads them to shared SSBOs, and emits [signal transparency_batches_ready] for the compositor effect to consume on its next callback.
+		[b]Caveat:[/b] Path A duplicates transparent vertex data on the GPU because it re-submits the geometry outside of Godot's normal render list. A future engine hook (Path B) would let engine-managed transparent surfaces flow through the compositor effect without this duplication; see the module README for the planned surface-skip flag.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="repack_now">
+			<return type="void" />
+			<description>
+				Forces a rescan of the target meshes and emits [signal transparency_batches_ready] with the resulting batch descriptors.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="compositor_effect_path" type="NodePath" setter="set_compositor_effect_path" getter="get_compositor_effect_path" default="NodePath(&quot;&quot;)">
+			Optional [NodePath] to the [OrderIndependentTransparencyCompositorEffect] that should consume this relay. When unset, the relay only emits the signal and any listener may connect.
+		</member>
+		<member name="auto_repack" type="bool" setter="set_auto_repack" getter="get_auto_repack" default="true">
+			When [code]true[/code], the relay re-packs its batches whenever the child count changes. Set to [code]false[/code] for static scenes and call [method repack_now] manually.
+		</member>
+		<member name="mesh_paths" type="PackedStringArray" setter="set_mesh_paths" getter="get_mesh_paths" default="PackedStringArray()">
+			Explicit list of node paths (relative to the relay) to include. Overrides the default child-traversal when non-empty.
+		</member>
+	</members>
+	<signals>
+		<signal name="transparency_batches_ready">
+			<param index="0" name="batches" type="Array" />
+			<description>
+				Emitted after a repack. [code]batches[/code] is an [Array] of per-mesh descriptor [Dictionary]s consumed by the compositor effect.
+			</description>
+		</signal>
+	</signals>
+</class>
