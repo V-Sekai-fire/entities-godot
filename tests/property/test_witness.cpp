@@ -36,6 +36,7 @@
 // from the same doctest distribution.
 
 #include "thirdparty/witness-cpp/include/witness/ladder.h"
+
 #include "tests/test_macros.h"
 
 #include <algorithm>
