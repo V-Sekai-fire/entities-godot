@@ -10,9 +10,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: linux-gcc,     os: ubuntu-latest,  cc: gcc,   cxx: g++     }
-          - { name: linux-clang,   os: ubuntu-latest,  cc: clang, cxx: clang++ }
-          - { name: macos-clang,   os: macos-latest,   cc: clang, cxx: clang++ }
+          - { name: linux-gcc,     os: ubuntu-latest,  cc: gcc,   cxx: g++,     no_exc: ON  }
+          - { name: linux-clang,   os: ubuntu-latest,  cc: clang, cxx: clang++, no_exc: ON  }
+          - { name: macos-clang,   os: macos-latest,   cc: clang, cxx: clang++, no_exc: ON  }
+          # MSVC's STL uses throw internally, so the -fno-exceptions
+          # guard doesn't apply there; the Windows job builds with
+          # WITNESS_NO_EXCEPTIONS=OFF and still exercises
+          # every test case. This proves the header compiles cleanly
+          # under MSVC and that the library's own logic is
+          # exception-free even when the surrounding STL uses them.
+          - { name: windows-msvc,  os: windows-latest, cc: cl,    cxx: cl,      no_exc: OFF }
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.name }}
     steps:
@@ -21,16 +28,16 @@ jobs:
         env:
           CC:  ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
-        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DWITNESS_NO_EXCEPTIONS=${{ matrix.no_exc }}
       - name: build
-        run: cmake --build build -j
+        run: cmake --build build --config Release -j
       - name: test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure
 
   no-exceptions-guard:
     # Belt-and-braces: separate job that verifies -fno-exceptions is on
     # by grepping the compile database. If someone ever turns
-    # PLAUSIBLE_WITNESS_NO_EXCEPTIONS off by default, this catches it.
+    # WITNESS_NO_EXCEPTIONS off by default, this catches it.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
