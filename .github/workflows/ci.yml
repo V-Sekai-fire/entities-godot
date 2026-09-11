@@ -1,0 +1,42 @@
+name: ci
+on:
+  push:
+    branches: [main, "main/**", "head/**"]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-gcc,     os: ubuntu-latest,  cc: gcc,   cxx: g++     }
+          - { name: linux-clang,   os: ubuntu-latest,  cc: clang, cxx: clang++ }
+          - { name: macos-clang,   os: macos-latest,   cc: clang, cxx: clang++ }
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        env:
+          CC:  ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+      - name: build
+        run: cmake --build build -j
+      - name: test
+        run: ctest --test-dir build --output-on-failure
+
+  no-exceptions-guard:
+    # Belt-and-braces: separate job that verifies -fno-exceptions is on
+    # by grepping the compile database. If someone ever turns
+    # PLAUSIBLE_WITNESS_NO_EXCEPTIONS off by default, this catches it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -B build -S . -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - run: |
+          if ! grep -q -- '-fno-exceptions' build/compile_commands.json; then
+            echo "::error::-fno-exceptions is not being passed to the test build"
+            exit 1
+          fi
