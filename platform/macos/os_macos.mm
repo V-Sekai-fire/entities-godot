@@ -1191,6 +1191,16 @@ OS_MacOS_NSApp::OS_MacOS_NSApp(const char *p_execpath, int p_argc, char **p_argv
 	sigaction(SIGINT, &action, nullptr);
 }
 
+// MARK: - OS_MacOS_NSApp overrides for libgodot embedded
+
+void OS_MacOS_NSApp::alert(const String &p_alert, const String &p_title) {
+	// libgodot embedded: the host owns the main thread and cannot
+	// service NSAlert's runModal loop. Print to stderr instead so
+	// error paths (Main::setup failures, project-load errors) surface
+	// without deadlocking the embedder.
+	WARN_PRINT(p_alert);
+}
+
 // MARK: - OS_MacOS_Headless
 
 void OS_MacOS_Headless::alert(const String &p_alert, const String &p_title) {
