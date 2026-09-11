@@ -514,7 +514,7 @@ Error ResourceLoaderText::load() {
 		if (using_whitelist && !ResourceLoader::_is_path_whitelisted(path, external_path_whitelist)) {
 			error = ERR_FILE_MISSING_DEPENDENCIES;
 			error_text = "[ext_resource] External dependency not in whitelist: " + path;
-			_printerr();
+			ERR_PRINT(_get_error_string());
 			return error;
 		}
 
