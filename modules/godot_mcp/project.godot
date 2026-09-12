@@ -1,0 +1,11 @@
+; Godot project wrapping the vsekai_godot_mcp addon (canonical home).
+; Headless tests: godot --headless --path . --script res://tests/test_commands.gd
+config_version=5
+
+[application]
+
+config/name="vsekai_godot_mcp"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/vsekai_godot_mcp/plugin.cfg")
