@@ -117,7 +117,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 			UniformData &u = webgpu_uniform_data.write[global_idx];
 
 			const SpvReflectDescriptorBinding &binding = uniform_refl.get_spv_reflect();
-			u.image_format = (uint32_t)uniform_refl.image.format;
+			u.image_format = (uint32_t)uniform_refl.texture_format;
 			u.texture_image_type = (uint32_t)_texture_type_from_spv((SpvDim)binding.image.dim, binding.image.arrayed != 0);
 			u.texture_is_multisample = binding.image.ms != 0 ? 1u : 0u;
 			u.texture_sample_type = (uint32_t)RDC::ShaderUniform::TextureSampleType::Float;
