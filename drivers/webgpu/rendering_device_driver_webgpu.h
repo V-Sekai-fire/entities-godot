@@ -4,12 +4,13 @@
 #include "core/templates/hash_map.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 #include "drivers/webgpu/webgpu_common.h"
+#include "drivers/webgpu/webgpu_binding_remap.h"
 #include "servers/rendering/rendering_context_driver.h"
 #include "servers/rendering/rendering_device_driver.h"
 
 class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 	typedef uint32_t OriginalBindingIndex;
-	typedef uint32_t CorrectedBindingIndex;
+	typedef uint32_t RemappedBindingIndex;
 
 	struct ShaderInfo;
 	struct PipelineInfo;
@@ -417,6 +418,7 @@ public:
 	virtual RenderPassID swap_chain_get_render_pass(SwapChainID p_swap_chain) override final;
 	virtual DataFormat swap_chain_get_format(SwapChainID p_swap_chain) override final;
 	virtual ColorSpace swap_chain_get_color_space(SwapChainID p_swap_chain) override final;
+	virtual bool swap_chain_get_hdr_output_supported(SwapChainID p_swap_chain) override final;
 	virtual void swap_chain_free(SwapChainID p_swap_chain) override final;
 
 	/*********************/
@@ -463,12 +465,12 @@ private:
 
 		// It is crucially important that we save ALL corrections, even of pruned bindings.
 		// Pruned bindings can still affect the offset of our bindings.
-		HashMap<uint32_t, HashMap<OriginalBindingIndex, Vector<uint32_t>>> set_binding_corrections;
-		HashMap<uint32_t, HashMap<CorrectedBindingIndex, WebGpuBindingHint>> set_binding_hints;
+		HashMap<uint32_t, HashMap<OriginalBindingIndex, Vector<uint32_t>>> set_binding_remaps;
+		HashMap<uint32_t, HashMap<RemappedBindingIndex, WebGpuBindingHint>> set_binding_hints;
 
 		// TODO: Should we actually store both original and corrected indices? There must be a better abstraction here.
 		// Used to mask out pruned bindings in _mock_bind_group_create.
-		HashMap<uint32_t, HashSet<CorrectedBindingIndex>> used_set_bindings;
+		HashMap<uint32_t, HashSet<RemappedBindingIndex>> used_set_bindings;
 		// Used to accurately recreate a set of resources in _mock_bind_group_create.
 		HashMap<uint32_t, HashMap<OriginalBindingIndex, UniformType>> used_original_bindings_map;
 
@@ -499,18 +501,18 @@ public:
 	/**** UNIFORM SET ****/
 	/*********************/
 
-	class CorrectedBinding {
+	class RemappedBinding {
 	public:
 		// Used to index the `p_bindings` passed in.
 		uint32_t input_idx;
 		// Binding indices as seen from a WGSL shader.
-		CorrectedBindingIndex corrected_binding_idx;
+		RemappedBindingIndex corrected_binding_idx;
 		// Index of uniforms[_].
 		uint32_t original_array_idx;
 		// Index of uniform.ids[_].
 		uint32_t binding_id_idx;
 		UniformType original_type;
-		Pair<SpvTransformCorrectionType, bool> maybe_correction;
+		Pair<BindingRemapKind, bool> remap;
 	};
 
 private:
@@ -520,9 +522,9 @@ private:
 		CORRECTED,
 	};
 	// Unified logic for index correction.
-	Vector<CorrectedBinding> _correct_binding_indices(
+	Vector<RemappedBinding> _remap_binding_indices(
 			const Vector<Pair<uint32_t, UniformType>> &p_bindings,
-			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
+			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_remaps,
 			const HashSet<uint32_t> *p_pruned_bindings = nullptr,
 			BindingIndexType p_mask_type = BindingIndexType::NONE);
 
@@ -538,8 +540,8 @@ private:
 	WGPUBindGroup _bind_group_create(
 			const VectorView<BoundUniform> &p_uniforms,
 			WGPUBindGroupLayout p_layout,
-			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
-			const HashSet<CorrectedBindingIndex> *p_binding_mask,
+			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_remaps,
+			const HashSet<RemappedBindingIndex> *p_binding_mask,
 			uint32_t p_push_constant_size);
 
 	// When comparison textures are unused, they are incorrectly translated as non-comparison textures.
@@ -554,16 +556,16 @@ private:
 	WGPUBindGroup _mock_bind_group_create(
 			const WGPUBindGroupLayoutDescriptor &p_descriptor,
 			WGPUBindGroupLayout p_layout,
-			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
+			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_remaps,
 			const HashMap<OriginalBindingIndex, UniformType> &p_used_original_bindings_map,
 			const HashMap<OriginalBindingIndex, BoundUniform> &p_override_uniforms,
-			const HashSet<CorrectedBindingIndex> *p_binding_mask,
+			const HashSet<RemappedBindingIndex> *p_binding_mask,
 			uint32_t p_push_constant_size);
 
 	WGPUBindGroup _mock_bind_group_create_or_get(
 			const WGPUBindGroupLayoutDescriptor &p_descriptor,
 			WGPUBindGroupLayout p_layout,
-			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
+			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_remaps,
 			const HashMap<OriginalBindingIndex, UniformType> &p_used_original_bindings_map,
 			uint32_t p_push_constant_size);
 
