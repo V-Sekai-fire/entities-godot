@@ -251,7 +251,8 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=["-sGL_ENABLE_GET_PROC_ADDRESS=0"])
 
     if env["webgpu"]:
-        env.AppendUnique(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
+        # RD_ENABLED comes from SConstruct's rendering_device block.
+        env.AppendUnique(CPPDEFINES=["WEBGPU_ENABLED"])
 
         # Debug things
         env.Append(CCFLAGS=["-g"])

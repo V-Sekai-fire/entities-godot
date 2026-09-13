@@ -722,8 +722,8 @@ if env["scu_build"]:
     methods.set_scu_folders(scu_builders.generate_scu_files(max_includes_per_scu))
 
 if env["rendering_device"]:
-    if env["platform"] == "web":
-        # Not available in the web platform.
+    if env["platform"] == "web" and not env["webgpu"]:
+        # RD on web only via WebGPU; disable when webgpu=no.
         env["rendering_device"] = False
     else:
         env.Append(CPPDEFINES=["RD_ENABLED"])
