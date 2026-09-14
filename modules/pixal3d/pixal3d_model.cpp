@@ -40,15 +40,14 @@ int Pixal3DModel::get_abi_version() const {
 	return t2_abi_version();
 }
 
-// Look one gguf path out of `opts`, empty string when the key is absent.
-// Callers ("" for "not loaded") pass the string on to t2_pipeline_load.
-static const char *opt_str(const Dictionary &opts, const char *key, String &scratch) {
-	if (!opts.has(key)) {
-		scratch = "";
-		return "";
+// Extract `key` from `opts` as a UTF-8 CharString stored in `out`, which
+// must live for the lifetime the returned pointer is used.
+static void opt_str(const Dictionary &opts, const char *key, CharString &out) {
+	if (opts.has(key)) {
+		out = String(opts[key]).utf8();
+	} else {
+		out = String("").utf8();
 	}
-	scratch = opts[key];
-	return scratch.utf8().get_data();
 }
 
 PackedByteArray Pixal3DModel::image_to_glb(const PackedByteArray &p_image_bytes, const Dictionary &p_opts) const {
@@ -59,29 +58,39 @@ PackedByteArray Pixal3DModel::image_to_glb(const PackedByteArray &p_image_bytes,
 			empty,
 			"pixal3d: opts must name at least dino_gguf, ss_flow_gguf, ss_dec_gguf.");
 
-	String s_dino, s_ss_flow, s_ss_dec, s_slat_flow, s_slat_hr, s_shape_dec, s_shape_enc, s_tex_dec, s_tex_flow, s_tex_flow_hr;
-	const char *dino = opt_str(p_opts, "dino_gguf", s_dino);
-	const char *ss_flow = opt_str(p_opts, "ss_flow_gguf", s_ss_flow);
-	const char *ss_dec = opt_str(p_opts, "ss_dec_gguf", s_ss_dec);
-	const char *slat_flow = opt_str(p_opts, "slat_flow_gguf", s_slat_flow);
-	const char *slat_hr = opt_str(p_opts, "slat_hr_flow_gguf", s_slat_hr);
-	const char *shape_dec = opt_str(p_opts, "shape_dec_gguf", s_shape_dec);
-	const char *shape_enc = opt_str(p_opts, "shape_enc_gguf", s_shape_enc);
-	const char *tex_dec = opt_str(p_opts, "tex_dec_gguf", s_tex_dec);
-	const char *tex_flow = opt_str(p_opts, "tex_flow_gguf", s_tex_flow);
-	const char *tex_flow_hr = opt_str(p_opts, "tex_flow_hr_gguf", s_tex_flow_hr);
+	CharString s_dino, s_ss_flow, s_ss_dec, s_slat_flow, s_slat_hr, s_shape_dec, s_shape_enc, s_tex_dec, s_tex_flow, s_tex_flow_hr;
+	opt_str(p_opts, "dino_gguf", s_dino);
+	opt_str(p_opts, "ss_flow_gguf", s_ss_flow);
+	opt_str(p_opts, "ss_dec_gguf", s_ss_dec);
+	opt_str(p_opts, "slat_flow_gguf", s_slat_flow);
+	opt_str(p_opts, "slat_hr_flow_gguf", s_slat_hr);
+	opt_str(p_opts, "shape_dec_gguf", s_shape_dec);
+	opt_str(p_opts, "shape_enc_gguf", s_shape_enc);
+	opt_str(p_opts, "tex_dec_gguf", s_tex_dec);
+	opt_str(p_opts, "tex_flow_gguf", s_tex_flow);
+	opt_str(p_opts, "tex_flow_hr_gguf", s_tex_flow_hr);
+	const char *dino = s_dino.get_data();
+	const char *ss_flow = s_ss_flow.get_data();
+	const char *ss_dec = s_ss_dec.get_data();
+	const char *slat_flow = s_slat_flow.get_data();
+	const char *slat_hr = s_slat_hr.get_data();
+	const char *shape_dec = s_shape_dec.get_data();
+	const char *shape_enc = s_shape_enc.get_data();
+	const char *tex_dec = s_tex_dec.get_data();
+	const char *tex_flow = s_tex_flow.get_data();
+	const char *tex_flow_hr = s_tex_flow_hr.get_data();
 
 	char err[512] = { 0 };
 	t2_pipeline *pipe = t2_pipeline_load(dino, ss_flow, ss_dec, slat_flow, slat_hr, shape_dec,
 			shape_enc, tex_dec, tex_flow, tex_flow_hr, 0, err, sizeof(err));
 	ERR_FAIL_NULL_V_MSG(pipe, empty, String("pixal3d: pipeline load failed: ") + err);
 
-	const int pipeline_type = p_opts.get("pipeline_type", T2_PIPE_AUTO);
-	const int background_mode = p_opts.get("background_mode", T2_BACKGROUND_AUTO);
-	const int seed = p_opts.get("seed", 0);
-	const int steps = p_opts.get("steps", 25);
-	const float guidance = p_opts.get("guidance", 3.0f);
-	const int texture_steps = p_opts.get("texture_steps", 0);
+	const int pipeline_type = (int)p_opts.get("pipeline_type", (int)T2_PIPE_AUTO);
+	const int background_mode = (int)p_opts.get("background_mode", (int)T2_BACKGROUND_AUTO);
+	const int seed = (int)p_opts.get("seed", 0);
+	const int steps = (int)p_opts.get("steps", 25);
+	const float guidance = (float)(double)p_opts.get("guidance", 3.0);
+	const int texture_steps = (int)p_opts.get("texture_steps", 0);
 
 	err[0] = 0;
 	t2_mesh_result *mesh = t2_generate(pipe, p_image_bytes.ptr(), p_image_bytes.size(),
