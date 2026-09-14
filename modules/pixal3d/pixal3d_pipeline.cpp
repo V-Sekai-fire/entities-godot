@@ -101,21 +101,40 @@ String Pixal3DPipeline::backend() const {
 	return name ? String::utf8(name) : String();
 }
 
-PackedByteArray Pixal3DPipeline::generate_glb(const PackedByteArray &p_image_bytes, const Dictionary &p_gen_opts) const {
-	PackedByteArray empty;
+Ref<Pixal3DLatent> Pixal3DPipeline::encode_image(const PackedByteArray &p_image_bytes, const Dictionary &p_opts) const {
+	Ref<Pixal3DLatent> empty;
 
 	ERR_FAIL_NULL_V_MSG(pipeline, empty, "pixal3d: pipeline not loaded; call load() first.");
 	ERR_FAIL_COND_V_MSG(p_image_bytes.is_empty(), empty, "pixal3d: image_bytes is empty.");
 
-	const int pipeline_type = (int)p_gen_opts.get("pipeline_type", (int)T2_PIPE_AUTO);
-	const int background_mode = (int)p_gen_opts.get("background_mode", (int)T2_BACKGROUND_AUTO);
-	const int seed = (int)p_gen_opts.get("seed", 0);
-	const int steps = (int)p_gen_opts.get("steps", 25);
-	const float guidance = (float)(double)p_gen_opts.get("guidance", 3.0);
-	const int texture_steps = (int)p_gen_opts.get("texture_steps", 0);
+	Ref<Pixal3DLatent> latent;
+	latent.instantiate();
+	latent->image_bytes = p_image_bytes;
+	latent->options_snapshot = p_opts.duplicate();
+	return latent;
+}
+
+PackedByteArray Pixal3DPipeline::decode_latent(const Ref<Pixal3DLatent> &p_latent, const Dictionary &p_gen_opts) const {
+	PackedByteArray empty;
+
+	ERR_FAIL_NULL_V_MSG(pipeline, empty, "pixal3d: pipeline not loaded; call load() first.");
+	ERR_FAIL_COND_V_MSG(p_latent.is_null(), empty, "pixal3d: latent is null.");
+	ERR_FAIL_COND_V_MSG(p_latent->image_bytes.is_empty(), empty, "pixal3d: latent carries no image bytes.");
+
+	Dictionary opts = p_latent->options_snapshot.duplicate();
+	for (const KeyValue<Variant, Variant> &kv : p_gen_opts) {
+		opts[kv.key] = kv.value;
+	}
+
+	const int pipeline_type = (int)opts.get("pipeline_type", (int)T2_PIPE_AUTO);
+	const int background_mode = (int)opts.get("background_mode", (int)T2_BACKGROUND_AUTO);
+	const int seed = (int)opts.get("seed", 0);
+	const int steps = (int)opts.get("steps", 25);
+	const float guidance = (float)(double)opts.get("guidance", 3.0);
+	const int texture_steps = (int)opts.get("texture_steps", 0);
 
 	char err[512] = { 0 };
-	t2_mesh_result *mesh = t2_generate(pipeline, p_image_bytes.ptr(), p_image_bytes.size(),
+	t2_mesh_result *mesh = t2_generate(pipeline, p_latent->image_bytes.ptr(), p_latent->image_bytes.size(),
 			pipeline_type, background_mode, (uint64_t)seed, steps, guidance, texture_steps,
 			nullptr, nullptr, nullptr, nullptr, err, sizeof(err));
 	ERR_FAIL_NULL_V_MSG(mesh, empty, String("pixal3d: generate failed: ") + err);
@@ -125,8 +144,8 @@ PackedByteArray Pixal3DPipeline::generate_glb(const PackedByteArray &p_image_byt
 	const float *verts = t2_mesh_verts(mesh);
 	const int *tris = t2_mesh_tris(mesh);
 	const float *pbr = t2_mesh_has_pbr(mesh) ? t2_mesh_pbr(mesh) : nullptr;
-	const int texture_size = (int)p_gen_opts.get("texture_size", 1024);
-	const int component_filter = (int)p_gen_opts.get("component_filter", -1);
+	const int texture_size = (int)opts.get("texture_size", 1024);
+	const int component_filter = (int)opts.get("component_filter", -1);
 
 	int glb_len = 0;
 	err[0] = 0;
@@ -161,6 +180,7 @@ void Pixal3DPipeline::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_loaded"), &Pixal3DPipeline::is_loaded);
 	ClassDB::bind_method(D_METHOD("caps"), &Pixal3DPipeline::caps);
 	ClassDB::bind_method(D_METHOD("backend"), &Pixal3DPipeline::backend);
-	ClassDB::bind_method(D_METHOD("generate_glb", "image_bytes", "gen_opts"), &Pixal3DPipeline::generate_glb);
+	ClassDB::bind_method(D_METHOD("encode_image", "image_bytes", "opts"), &Pixal3DPipeline::encode_image);
+	ClassDB::bind_method(D_METHOD("decode_latent", "latent", "gen_opts"), &Pixal3DPipeline::decode_latent);
 	ClassDB::bind_method(D_METHOD("unload"), &Pixal3DPipeline::unload);
 }

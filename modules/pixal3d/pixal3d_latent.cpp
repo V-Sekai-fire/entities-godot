@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  pixal3d_latent.cpp                                                    */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,19 +28,19 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
-
 #include "pixal3d_latent.h"
-#include "pixal3d_model.h"
-#include "pixal3d_pipeline.h"
 
 #include "core/object/class_db.h"
-void initialize_pixal3d_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-	GDREGISTER_CLASS(Pixal3DModel);
-	GDREGISTER_CLASS(Pixal3DLatent);
-	GDREGISTER_CLASS(Pixal3DPipeline);
+
+PackedByteArray Pixal3DLatent::get_image_bytes() const {
+	return image_bytes;
 }
-void uninitialize_pixal3d_module(ModuleInitializationLevel) {}
+
+Dictionary Pixal3DLatent::get_options_snapshot() const {
+	return options_snapshot;
+}
+
+void Pixal3DLatent::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("get_image_bytes"), &Pixal3DLatent::get_image_bytes);
+	ClassDB::bind_method(D_METHOD("get_options_snapshot"), &Pixal3DLatent::get_options_snapshot);
+}

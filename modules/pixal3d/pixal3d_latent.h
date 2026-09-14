@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  pixal3d_latent.h                                                      */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,19 +28,29 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
+#include "core/object/ref_counted.h"
 
-#include "pixal3d_latent.h"
-#include "pixal3d_model.h"
-#include "pixal3d_pipeline.h"
+// Opaque intermediate produced by Pixal3DPipeline.encode_image and consumed
+// by Pixal3DPipeline.decode_latent. Carries whatever the pipeline hands over
+// between the image-encoder half and the mesh-decoder half.
+//
+// The current pipeline runs image -> mesh in one call, so this class is a
+// forward-compatible handle that stashes what a split call would need: the
+// input image bytes plus a snapshot of the generation knobs seen at encode
+// time. When the trellis2 C ABI grows explicit intermediate entry points,
+// this class holds the SS_FLOW or SLAT_FLOW output instead, without any
+// caller change.
+class Pixal3DLatent : public RefCounted {
+	GDCLASS(Pixal3DLatent, RefCounted);
 
-#include "core/object/class_db.h"
-void initialize_pixal3d_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-	GDREGISTER_CLASS(Pixal3DModel);
-	GDREGISTER_CLASS(Pixal3DLatent);
-	GDREGISTER_CLASS(Pixal3DPipeline);
-}
-void uninitialize_pixal3d_module(ModuleInitializationLevel) {}
+protected:
+	static void _bind_methods();
+
+public:
+	PackedByteArray image_bytes;
+	Dictionary options_snapshot;
+
+	PackedByteArray get_image_bytes() const;
+	Dictionary get_options_snapshot() const;
+};

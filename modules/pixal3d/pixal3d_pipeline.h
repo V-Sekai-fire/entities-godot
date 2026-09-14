@@ -29,6 +29,8 @@
 /**************************************************************************/
 
 #pragma once
+#include "pixal3d_latent.h"
+
 #include "core/object/ref_counted.h"
 #include "core/string/ustring.h"
 #include "core/variant/dictionary.h"
@@ -60,12 +62,13 @@ public:
 	// The backend the pipeline is running on (e.g. "metal", "cpu").
 	String backend() const;
 
-	// Generate a GLB from image bytes against the loaded pipeline.
-	// `gen_opts` names generation knobs only (pipeline_type, background_mode,
-	// seed, steps, guidance, texture_steps, texture_size, component_filter).
-	// Returns an empty PackedByteArray on any error; the reason is pushed
-	// through print_error.
-	PackedByteArray generate_glb(const PackedByteArray &p_image_bytes, const Dictionary &p_gen_opts) const;
+	// Two-stage split. encode_image runs the image-encoder half (currently
+	// stashes the image bytes plus a snapshot of the generation options
+	// pending an ABI split); decode_latent runs the mesh-decoder half and
+	// returns GLB bytes. Every stage passes latents (RFD 1053 latents rule);
+	// the VAE-shaped decode happens once, in decode_latent, at final output.
+	Ref<Pixal3DLatent> encode_image(const PackedByteArray &p_image_bytes, const Dictionary &p_opts) const;
+	PackedByteArray decode_latent(const Ref<Pixal3DLatent> &p_latent, const Dictionary &p_gen_opts) const;
 
 	// Free the loaded pipeline. Safe to call more than once.
 	void unload();

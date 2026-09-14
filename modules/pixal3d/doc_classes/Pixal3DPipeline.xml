@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="Pixal3DPipeline" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
-		Loaded pixal3d image-to-mesh pipeline, kept resident across [method generate_glb] calls.
+		Loaded pixal3d image-to-mesh pipeline, split into an image encode and a latent decode.
 	</brief_description>
 	<description>
-		Holds the [code skip-lint]t2_pipeline[/code] handle so multiple parts of a character workflow (body, head, hair) share one loaded weight set. Compare with [method Pixal3DModel.image_to_glb], which loads and frees per call.
+		Holds the [code skip-lint]t2_pipeline[/code] handle so multiple parts of a character workflow (body, head, hair) share one loaded weight set. Every stage passes latents through [Pixal3DLatent]; the VAE-shaped decode happens once, in [method decode_latent], at final output. Compare with [method Pixal3DModel.image_to_glb], which loads and frees per call and hides the split.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -34,13 +34,20 @@
 				Returns the ggml backend the loaded pipeline is running on, e.g. [code]metal[/code] or [code]cpu[/code]. Empty when not loaded.
 			</description>
 		</method>
-		<method name="generate_glb" qualifiers="const">
-			<return type="PackedByteArray" />
+		<method name="encode_image" qualifiers="const">
+			<return type="Pixal3DLatent" />
 			<param index="0" name="image_bytes" type="PackedByteArray" />
+			<param index="1" name="opts" type="Dictionary" />
+			<description>
+				Encode an image into a [Pixal3DLatent] handle a later [method decode_latent] consumes. [param opts] carries encode-time knobs (the same keys [method decode_latent] accepts under [code skip-lint]gen_opts[/code]). Returns [code]null[/code] on any error; the reason is pushed through [method @GlobalScope.printerr].
+			</description>
+		</method>
+		<method name="decode_latent" qualifiers="const">
+			<return type="PackedByteArray" />
+			<param index="0" name="latent" type="Pixal3DLatent" />
 			<param index="1" name="gen_opts" type="Dictionary" />
 			<description>
-				Generate a GLB from [param image_bytes] against the loaded pipeline. [param gen_opts] carries generation knobs only, not GGUF paths: [code skip-lint]pipeline_type[/code] (0 auto, 1 coarse, 2 512-fine, 3 1024-cascade), [code skip-lint]background_mode[/code] (0 auto, 1 keep, 2 black, 3 white), [code skip-lint]seed[/code], [code skip-lint]steps[/code] (default 25), [code skip-lint]guidance[/code] (default 3.0), [code skip-lint]texture_steps[/code] (default 0), [code skip-lint]texture_size[/code] (default 1024), [code skip-lint]component_filter[/code] (default -1).
-				Returns an empty [PackedByteArray] on any error; the reason is pushed through [method @GlobalScope.printerr].
+				Decode a [param latent] to GLB bytes. Every key in [param gen_opts] overrides the encode-time snapshot for this decode. Knob keys: [code skip-lint]pipeline_type[/code] (0 auto, 1 coarse, 2 512-fine, 3 1024-cascade), [code skip-lint]background_mode[/code] (0 auto, 1 keep, 2 black, 3 white), [code skip-lint]seed[/code], [code skip-lint]steps[/code] (default 25), [code skip-lint]guidance[/code] (default 3.0), [code skip-lint]texture_steps[/code] (default 0), [code skip-lint]texture_size[/code] (default 1024), [code skip-lint]component_filter[/code] (default -1). Returns an empty [PackedByteArray] on any error; the reason is pushed through [method @GlobalScope.printerr].
 			</description>
 		</method>
 		<method name="unload">
