@@ -6,7 +6,7 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(r8, set = 0, binding = 1) uniform restrict readonly image2D src_pixels;
+layout(r32f, set = 0, binding = 1) uniform restrict readonly image2D src_pixels;
 layout(r16f, set = 0, binding = 2) uniform restrict writeonly image2D dst_sdf;
 
 layout(rg16i, set = 0, binding = 3) uniform restrict readonly iimage2D src_process;
