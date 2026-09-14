@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  kimodo_latent.cpp                                                     */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,19 +28,25 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
-
 #include "kimodo_latent.h"
-#include "kimodo_model.h"
-#include "kimodo_pipeline.h"
 
 #include "core/object/class_db.h"
-void initialize_kimodo_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-	GDREGISTER_CLASS(KimodoModel);
-	GDREGISTER_CLASS(KimodoLatent);
-	GDREGISTER_CLASS(KimodoPipeline);
+
+PackedFloat32Array KimodoLatent::get_embedding() const {
+	return embedding;
 }
-void uninitialize_kimodo_module(ModuleInitializationLevel) {}
+
+void KimodoLatent::set_embedding(const PackedFloat32Array &p_embedding) {
+	embedding = p_embedding;
+}
+
+int KimodoLatent::get_values() const {
+	return embedding.size();
+}
+
+void KimodoLatent::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("get_embedding"), &KimodoLatent::get_embedding);
+	ClassDB::bind_method(D_METHOD("set_embedding", "embedding"), &KimodoLatent::set_embedding);
+	ClassDB::bind_method(D_METHOD("get_values"), &KimodoLatent::get_values);
+	ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "embedding"), "set_embedding", "get_embedding");
+}
