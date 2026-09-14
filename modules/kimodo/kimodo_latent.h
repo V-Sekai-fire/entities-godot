@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  kimodo_latent.h                                                       */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,19 +28,23 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
+#include "core/object/ref_counted.h"
+#include "core/variant/packed_arrays.h"
 
-#include "kimodo_latent.h"
-#include "kimodo_model.h"
-#include "kimodo_pipeline.h"
+// A row-major [1, 1, 4096] F32 LLM2Vec embedding a caller hands to
+// KimodoPipeline.generate_from_embedding. The kimodo C ABI accepts
+// this shape directly through kimodo_generate_embedding.
+class KimodoLatent : public RefCounted {
+	GDCLASS(KimodoLatent, RefCounted);
 
-#include "core/object/class_db.h"
-void initialize_kimodo_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-	GDREGISTER_CLASS(KimodoModel);
-	GDREGISTER_CLASS(KimodoLatent);
-	GDREGISTER_CLASS(KimodoPipeline);
-}
-void uninitialize_kimodo_module(ModuleInitializationLevel) {}
+protected:
+	static void _bind_methods();
+
+public:
+	PackedFloat32Array embedding;
+
+	PackedFloat32Array get_embedding() const;
+	void set_embedding(const PackedFloat32Array &p_embedding);
+	int get_values() const;
+};
