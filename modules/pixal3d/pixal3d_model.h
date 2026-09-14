@@ -31,7 +31,6 @@
 #pragma once
 #include "core/io/resource.h"
 #include "core/variant/dictionary.h"
-#include "core/variant/typed_array.h"
 class Pixal3DModel : public Resource {
 	GDCLASS(Pixal3DModel, Resource);
 
