@@ -31,6 +31,7 @@
 #include "register_types.h"
 
 #include "pixal3d_model.h"
+#include "pixal3d_pipeline.h"
 
 #include "core/object/class_db.h"
 void initialize_pixal3d_module(ModuleInitializationLevel p_level) {
@@ -38,5 +39,6 @@ void initialize_pixal3d_module(ModuleInitializationLevel p_level) {
 		return;
 	}
 	GDREGISTER_CLASS(Pixal3DModel);
+	GDREGISTER_CLASS(Pixal3DPipeline);
 }
 void uninitialize_pixal3d_module(ModuleInitializationLevel) {}
