@@ -1,0 +1,17 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+Import("env_modules")
+
+env_image_diffusion = env_modules.Clone()
+# Header-only stub until the image-diffusion runtime is vendored
+# under `#thirdparty/image_diffusion/`. Building this module today
+# only compiles register_types + a stub Godot Resource; there is no
+# runtime linkage yet. A follow-up vendors the sources per RFD 2242's
+# packaging convention.
+env_image_diffusion.Prepend(CPPPATH=["#modules/image_diffusion"])
+
+module_obj = []
+env_image_diffusion.add_source_files(module_obj, "*.cpp")
+env.modules_sources += module_obj

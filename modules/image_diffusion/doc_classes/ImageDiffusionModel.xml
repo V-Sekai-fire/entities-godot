@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ImageDiffusionModel" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Placeholder resource for a latent-diffusion image-generation runtime, pending a vendored implementation.
+	</brief_description>
+	<description>
+		Scaffold for a Godot module wrapping a latent-diffusion image-generation runtime. The runtime source lives in [code skip-lint]3-interactor/stable-diffusion-ggml[/code]; a follow-up vendors it under [code skip-lint]#thirdparty/image_diffusion/[/code] and wires the context lifecycle plus [code skip-lint]generate_image[/code] surface. Today the module registers only [method get_abi_version] returning 0.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_abi_version" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns 0 until the runtime is vendored and the ABI version is read from its own header.
+			</description>
+		</method>
+	</methods>
+</class>
