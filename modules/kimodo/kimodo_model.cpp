@@ -30,9 +30,15 @@
 
 #include "kimodo_model.h"
 
+#include "core/error/error_macros.h"
 #include "core/object/class_db.h"
+#include "core/string/print_string.h"
+#include "core/variant/typed_array.h"
 
 #include <kimodo/kimodo_capi.h>
+
+#include <cstring>
+
 int KimodoModel::get_abi_version() const {
 	return (int)kimodo_abi_version();
 }
@@ -43,7 +49,73 @@ String KimodoModel::get_status_string(int /*s*/) const {
 	// PR wires load()/free() and reads last_error.
 	return String();
 }
+
+Dictionary KimodoModel::generate_motion(const String &p_motion_gguf, const String &p_text_gguf, const String &p_text_adapter_gguf, const String &p_prompt, const Dictionary &p_opts) const {
+	Dictionary empty;
+
+	ERR_FAIL_COND_V_MSG(p_motion_gguf.is_empty(), empty, "kimodo: motion_gguf is empty.");
+	ERR_FAIL_COND_V_MSG(p_text_gguf.is_empty(), empty, "kimodo: text_gguf is empty.");
+	ERR_FAIL_COND_V_MSG(p_prompt.is_empty(), empty, "kimodo: prompt is empty.");
+
+	CharString s_motion = p_motion_gguf.utf8();
+	CharString s_text = p_text_gguf.utf8();
+	CharString s_adapter = p_text_adapter_gguf.utf8();
+	CharString s_prompt = p_prompt.utf8();
+
+	kimodo_runtime_options rt = {};
+	rt.size = sizeof(rt);
+	rt.threads = (uint32_t)(int)p_opts.get("threads", 0);
+	rt.device = (kimodo_device)(int)p_opts.get("device", 0);
+	rt.backend_dir = nullptr;
+
+	char err[512] = { 0 };
+	kimodo_model *model = kimodo_model_load(s_motion.get_data(), s_text.get_data(),
+			p_text_adapter_gguf.is_empty() ? nullptr : s_adapter.get_data(),
+			&rt, err, sizeof(err));
+	ERR_FAIL_NULL_V_MSG(model, empty, String("kimodo: model load failed: ") + err);
+
+	kimodo_generation_options gen = {};
+	gen.size = sizeof(gen);
+	gen.seed = (uint64_t)(int)p_opts.get("seed", 0);
+	gen.frames = (uint32_t)(int)p_opts.get("frames", 120);
+	gen.diffusion_steps = (uint32_t)(int)p_opts.get("diffusion_steps", 30);
+	gen.text_cfg_weight = (float)(double)p_opts.get("text_cfg_weight", 5.0);
+	gen.constraint_cfg_weight = (float)(double)p_opts.get("constraint_cfg_weight", 1.0);
+
+	err[0] = 0;
+	kimodo_motion *motion = kimodo_generate(model, s_prompt.get_data(), &gen, err, sizeof(err));
+	if (!motion) {
+		String last = String::utf8(kimodo_model_last_error(model));
+		kimodo_model_free(model);
+		ERR_FAIL_V_MSG(empty, String("kimodo: generate failed (") + err + "): " + last);
+	}
+
+	const int frames = kimodo_motion_frames(motion);
+	const int joints = kimodo_motion_joints(motion);
+	const float *rots = kimodo_motion_local_rotations_xyzw(motion);
+	const float *root = kimodo_motion_root_positions(motion);
+
+	PackedFloat32Array rots_arr;
+	rots_arr.resize(frames * joints * 4);
+	memcpy(rots_arr.ptrw(), rots, sizeof(float) * frames * joints * 4);
+
+	PackedFloat32Array root_arr;
+	root_arr.resize(frames * 3);
+	memcpy(root_arr.ptrw(), root, sizeof(float) * frames * 3);
+
+	kimodo_motion_free(motion);
+	kimodo_model_free(model);
+
+	Dictionary out;
+	out["frames"] = frames;
+	out["joints"] = joints;
+	out["local_rotations_xyzw"] = rots_arr;
+	out["root_positions"] = root_arr;
+	return out;
+}
+
 void KimodoModel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_abi_version"), &KimodoModel::get_abi_version);
 	ClassDB::bind_method(D_METHOD("get_status_string", "status"), &KimodoModel::get_status_string);
+	ClassDB::bind_method(D_METHOD("generate_motion", "motion_gguf", "text_gguf", "text_adapter_gguf", "prompt", "opts"), &KimodoModel::generate_motion);
 }
