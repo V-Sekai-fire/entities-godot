@@ -61,7 +61,11 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	context_device = context_driver->device_get(p_device_index);
 	frame_count = MAX(p_frame_count, 1u);
 
-	WGPUFeatureName required_features[] = {
+	// Only request features the adapter reports it can grant. On browsers whose
+	// WebGPU is stable (Firefox in this window) the Dawn-draft features
+	// (texture-formats-tier1/2, subgroups, texture-component-swizzle) are not
+	// implemented and a hard requirement would fail requestDevice.
+	WGPUFeatureName wanted_features[] = {
 		WGPUFeatureName_Depth32FloatStencil8,
 		WGPUFeatureName_Float32Filterable,
 		WGPUFeatureName_TextureCompressionBC,
@@ -79,34 +83,38 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
 		(WGPUFeatureName)WGPUNativeFeature_Subgroup,
 #endif
-		// This is a fairly new feature.
-		// We can switch to this in the future, but for now, we have push constant emulation.
-		// (WGPUFeatureName)WGPUNativeFeature_Immediates,
-
-		// Binding Array related
-		// We can switch to this in the future if implemented, but now we have binding array splitting.
-		// (WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
-		// (WGPUFeatureName)WGPUNativeFeature_StorageResourceBindingArray,
-		// (WGPUFeatureName)WGPUNativeFeature_BufferBindingArray,
-		// (WGPUFeatureName)WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing,
-		// (WGPUFeatureName)WGPUNativeFeature_StorageTextureArrayNonUniformIndexing,
-
-		// Avoidable / Unused
-		// (WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
-		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirect,
-		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirectCount,
 	};
+	WGPUFeatureName required_features[sizeof(wanted_features) / sizeof(WGPUFeatureName)];
+	uint32_t required_features_count = 0;
+	for (uint32_t i = 0; i < sizeof(wanted_features) / sizeof(WGPUFeatureName); i++) {
+		if (wgpuAdapterHasFeature(adapter, wanted_features[i])) {
+			required_features[required_features_count++] = wanted_features[i];
+		}
+	}
+	// Features listed for reference only; enabling them needs matching runtime paths.
+	//   WGPUNativeFeature_Immediates — currently emulated via push constants.
+	//   Binding-array features (TextureBindingArray, StorageResourceBindingArray,
+	//   BufferBindingArray, and the two NonUniformIndexing variants) — currently
+	//   worked around via binding-array splitting.
+	//   VertexWritableStorage, MultiDrawIndirect, MultiDrawIndirectCount — unused.
 
+	// Clamp requested limits to what the adapter reports. Firefox's stable
+	// WebGPU exposes lower ceilings than Chromium's Dawn; requesting more
+	// than the adapter grants fails requestDevice.
+	WGPULimits adapter_limits = WGPU_LIMITS_INIT;
+	wgpuAdapterGetLimits(adapter, &adapter_limits);
+	auto pick_limit = [](uint32_t wanted, uint32_t supported) -> uint32_t {
+		return wanted <= supported ? wanted : supported;
+	};
 	WGPULimits required_limits = WGPU_LIMITS_INIT;
-	required_limits.maxBindGroups = WEBGPU_MAX_BIND_GROUPS;
-	// required_limits.maxImmediateSize = WEBGPU_MAX_IMMEDIATE_SIZE;
-	required_limits.maxImmediateSize = 64;
-	required_limits.maxSampledTexturesPerShaderStage = 48;
-	required_limits.maxStorageBuffersPerShaderStage = 12;
-	required_limits.maxStorageTexturesPerShaderStage = 8;
+	required_limits.maxBindGroups = pick_limit(WEBGPU_MAX_BIND_GROUPS, adapter_limits.maxBindGroups);
+	required_limits.maxImmediateSize = pick_limit(64, adapter_limits.maxImmediateSize);
+	required_limits.maxSampledTexturesPerShaderStage = pick_limit(48, adapter_limits.maxSampledTexturesPerShaderStage);
+	required_limits.maxStorageBuffersPerShaderStage = pick_limit(12, adapter_limits.maxStorageBuffersPerShaderStage);
+	required_limits.maxStorageTexturesPerShaderStage = pick_limit(8, adapter_limits.maxStorageTexturesPerShaderStage);
 
 	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
-		.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUFeatureName),
+		.requiredFeatureCount = required_features_count,
 		.requiredFeatures = required_features,
 		.requiredLimits = &required_limits,
 		.deviceLostCallbackInfo = (WGPUDeviceLostCallbackInfo){
