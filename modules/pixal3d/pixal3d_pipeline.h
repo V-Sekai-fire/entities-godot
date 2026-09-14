@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  pixal3d_pipeline.h                                                    */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,19 +28,51 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
-
+#pragma once
 #include "pixal3d_latent.h"
-#include "pixal3d_model.h"
-#include "pixal3d_pipeline.h"
 
-#include "core/object/class_db.h"
-void initialize_pixal3d_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-	GDREGISTER_CLASS(Pixal3DModel);
-	GDREGISTER_CLASS(Pixal3DLatent);
-	GDREGISTER_CLASS(Pixal3DPipeline);
-}
-void uninitialize_pixal3d_module(ModuleInitializationLevel) {}
+#include "core/object/ref_counted.h"
+#include "core/string/ustring.h"
+#include "core/variant/dictionary.h"
+
+struct t2_pipeline;
+
+class Pixal3DPipeline : public RefCounted {
+	GDCLASS(Pixal3DPipeline, RefCounted);
+
+protected:
+	static void _bind_methods();
+
+public:
+	Pixal3DPipeline();
+	~Pixal3DPipeline();
+
+	// Load the trellis2 pipeline with the given GGUFs. `opts` names the
+	// GGUF checkpoints (same keys as Pixal3DModel::image_to_glb). Returns
+	// true on success; on failure pushes the reason through print_error
+	// and leaves the pipeline unloaded.
+	bool load(const Dictionary &p_opts);
+
+	// True if the pipeline is loaded and ready to generate.
+	bool is_loaded() const;
+
+	// The capability bitmask reported by the loaded pipeline (T2_CAP_*).
+	int caps() const;
+
+	// The backend the pipeline is running on (e.g. "metal", "cpu").
+	String backend() const;
+
+	// Two-stage split. encode_image runs the image-encoder half (currently
+	// stashes the image bytes plus a snapshot of the generation options
+	// pending an ABI split); decode_latent runs the mesh-decoder half and
+	// returns GLB bytes. Every stage passes latents (RFD 1053 latents rule);
+	// the VAE-shaped decode happens once, in decode_latent, at final output.
+	Ref<Pixal3DLatent> encode_image(const PackedByteArray &p_image_bytes, const Dictionary &p_opts) const;
+	PackedByteArray decode_latent(const Ref<Pixal3DLatent> &p_latent, const Dictionary &p_gen_opts) const;
+
+	// Free the loaded pipeline. Safe to call more than once.
+	void unload();
+
+private:
+	t2_pipeline *pipeline = nullptr;
+};

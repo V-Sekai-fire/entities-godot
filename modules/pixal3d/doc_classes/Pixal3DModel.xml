@@ -10,6 +10,19 @@
 		<method name="get_abi_version" qualifiers="const">
 			<return type="int" />
 			<description>
+				Returns the pixal3d C ABI version this build links against. Bumps whenever any signature or struct layout in [code]trellis2_capi.h[/code] changes; a runtime that expects a specific ABI checks this before calling anything else.
+			</description>
+		</method>
+		<method name="image_to_glb" qualifiers="const">
+			<return type="PackedByteArray" />
+			<param index="0" name="image_bytes" type="PackedByteArray" />
+			<param index="1" name="opts" type="Dictionary" />
+			<description>
+				One-shot bytes-in, GLB-bytes-out. [param opts] names the GGUF checkpoints the pipeline needs and the generation knobs.
+				Required keys: [code skip-lint]dino_gguf[/code], [code skip-lint]ss_flow_gguf[/code], [code skip-lint]ss_dec_gguf[/code].
+				Optional keys naming further GGUFs: [code skip-lint]slat_flow_gguf[/code], [code skip-lint]slat_hr_flow_gguf[/code], [code skip-lint]shape_dec_gguf[/code], [code skip-lint]shape_enc_gguf[/code], [code skip-lint]tex_dec_gguf[/code], [code skip-lint]tex_flow_gguf[/code], [code skip-lint]tex_flow_hr_gguf[/code].
+				Optional knob keys: [code skip-lint]pipeline_type[/code] (0 auto, 1 coarse, 2 512-fine, 3 1024-cascade), [code skip-lint]background_mode[/code] (0 auto, 1 keep, 2 black, 3 white), [code skip-lint]seed[/code], [code skip-lint]steps[/code] (default 25), [code skip-lint]guidance[/code] (default 3.0), [code skip-lint]texture_steps[/code] (default 0), [code skip-lint]texture_size[/code] (default 1024), [code skip-lint]component_filter[/code] (default -1).
+				Returns an empty [PackedByteArray] on any error; the reason is pushed through [method @GlobalScope.printerr].
 			</description>
 		</method>
 	</methods>
