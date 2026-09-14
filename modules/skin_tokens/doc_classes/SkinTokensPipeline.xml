@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SkinTokensPipeline" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Loaded skin-tokens bundle, kept resident across [method rig_file] calls.
+	</brief_description>
+	<description>
+		Holds the [code skip-lint]st_model[/code] handle so a batch of parts shares one loaded weight set instead of paying [code skip-lint]st_model_load[/code] per invocation. Compare with [method SkinTokensModel.rig_file], which loads and frees per call.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="load">
+			<return type="bool" />
+			<param index="0" name="opts" type="Dictionary" />
+			<description>
+				Load the skin-tokens bundle. Required key [code skip-lint]bundle_path[/code]. Optional keys: [code skip-lint]threads[/code], [code skip-lint]device[/code] (0 auto, 1 CPU, 2 Vulkan). Returns [code]true[/code] on success; on failure pushes the reason through [method @GlobalScope.printerr] and leaves the pipeline unloaded.
+			</description>
+		</method>
+		<method name="is_loaded" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if [method load] has succeeded and [method unload] has not been called since.
+			</description>
+		</method>
+		<method name="backend" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the ggml backend the loaded pipeline is running on. Empty when not loaded.
+			</description>
+		</method>
+		<method name="last_error" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the loaded model's last error string, or empty when nothing has failed since load.
+			</description>
+		</method>
+		<method name="rig_file" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="mesh_path" type="String" />
+			<param index="1" name="output_path" type="String" />
+			<param index="2" name="opts" type="Dictionary" />
+			<description>
+				Rig an unrigged GLB at [param mesh_path], writing the rigged GLB to [param output_path]. Reuses the loaded weights across calls, so a batch of parts pays [code skip-lint]st_model_load[/code] once. [param opts] optional keys: [code skip-lint]seed[/code], [code skip-lint]top_k[/code], [code skip-lint]top_p[/code], [code skip-lint]temperature[/code], [code skip-lint]repetition_penalty[/code], [code skip-lint]beams[/code], [code skip-lint]max_tokens[/code], [code skip-lint]geometric_only[/code]. Returns the [code skip-lint]st_status[/code] enum: 0 on success; any other value is a failure whose reason was pushed through [method @GlobalScope.printerr].
+			</description>
+		</method>
+		<method name="unload">
+			<return type="void" />
+			<description>
+				Release the loaded pipeline. Safe to call more than once. The destructor also calls this.
+			</description>
+		</method>
+	</methods>
+</class>

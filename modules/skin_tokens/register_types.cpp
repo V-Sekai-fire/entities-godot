@@ -31,6 +31,7 @@
 #include "register_types.h"
 
 #include "skin_tokens_model.h"
+#include "skin_tokens_pipeline.h"
 
 #include "core/object/class_db.h"
 void initialize_skin_tokens_module(ModuleInitializationLevel p_level) {
@@ -38,5 +39,6 @@ void initialize_skin_tokens_module(ModuleInitializationLevel p_level) {
 		return;
 	}
 	GDREGISTER_CLASS(SkinTokensModel);
+	GDREGISTER_CLASS(SkinTokensPipeline);
 }
 void uninitialize_skin_tokens_module(ModuleInitializationLevel) {}
