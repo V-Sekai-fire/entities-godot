@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  motion_bricks_pipeline.h                                              */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,17 +28,37 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
+#include "core/object/ref_counted.h"
+#include "core/string/ustring.h"
+#include "core/variant/dictionary.h"
 
-#include "motion_bricks_model.h"
-#include "motion_bricks_pipeline.h"
+struct mb_model;
 
-#include "core/object/class_db.h"
-void initialize_motion_bricks_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-	GDREGISTER_CLASS(MotionBricksModel);
-	GDREGISTER_CLASS(MotionBricksPipeline);
-}
-void uninitialize_motion_bricks_module(ModuleInitializationLevel) {}
+class MotionBricksPipeline : public RefCounted {
+	GDCLASS(MotionBricksPipeline, RefCounted);
+
+protected:
+	static void _bind_methods();
+
+public:
+	MotionBricksPipeline();
+	~MotionBricksPipeline();
+
+	// Load the motion-bricks bundle directory. `opts` has required key
+	// `bundle_directory`; optional `threads`, `device` (0 auto, 1 CPU,
+	// 2 Vulkan). Returns true on success.
+	bool load(const Dictionary &p_opts);
+
+	bool is_loaded() const;
+	void unload();
+
+	// Model-level introspection reused across agents / commands / styles.
+	int get_parameter_count() const;
+	int get_joint_count() const;
+	String get_joint_name(int p_joint) const;
+	int get_joint_parent(int p_joint) const;
+
+private:
+	mb_model *model = nullptr;
+};

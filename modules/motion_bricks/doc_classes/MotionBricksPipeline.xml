@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MotionBricksPipeline" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Loaded motion-bricks bundle, kept resident so agents / commands / styles reuse the model.
+	</brief_description>
+	<description>
+		Holds the [code skip-lint]mb_model[/code] handle so downstream agents, styles and commands reuse the loaded weights instead of paying [code skip-lint]mb_model_load[/code] per creation. This rung exposes model-level introspection only (joint layout, parameter count); agent lifecycle wrapping is a later rung.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="load">
+			<return type="bool" />
+			<param index="0" name="opts" type="Dictionary" />
+			<description>
+				Load the motion-bricks bundle directory. Required key [code skip-lint]bundle_directory[/code]. Optional keys: [code skip-lint]threads[/code], [code skip-lint]device[/code] (0 auto, 1 CPU, 2 Vulkan).
+			</description>
+		</method>
+		<method name="is_loaded" qualifiers="const">
+			<return type="bool" />
+			<description>Returns [code]true[/code] if [method load] has succeeded and [method unload] has not been called since.</description>
+		</method>
+		<method name="unload">
+			<return type="void" />
+			<description>Release the loaded model. Safe to call more than once. The destructor also calls this.</description>
+		</method>
+		<method name="get_parameter_count" qualifiers="const">
+			<return type="int" />
+			<description>Returns the number of learned parameters in the loaded model. Zero when not loaded.</description>
+		</method>
+		<method name="get_joint_count" qualifiers="const">
+			<return type="int" />
+			<description>Returns the number of joints in the loaded model's skeleton. Zero when not loaded.</description>
+		</method>
+		<method name="get_joint_name" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="joint" type="int" />
+			<description>Returns the name of the given joint. Empty on failure or when not loaded.</description>
+		</method>
+		<method name="get_joint_parent" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="joint" type="int" />
+			<description>Returns the parent joint index, or [code]-1[/code] if the joint is a root or on failure.</description>
+		</method>
+	</methods>
+</class>
