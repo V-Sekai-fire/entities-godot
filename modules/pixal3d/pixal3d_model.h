@@ -30,6 +30,8 @@
 
 #pragma once
 #include "core/io/resource.h"
+#include "core/variant/dictionary.h"
+#include "core/variant/typed_array.h"
 class Pixal3DModel : public Resource {
 	GDCLASS(Pixal3DModel, Resource);
 
@@ -38,4 +40,9 @@ protected:
 
 public:
 	int get_abi_version() const;
+
+	// One-shot image_bytes -> GLB bytes. `opts` names the GGUFs and the
+	// generation knobs; returns an empty PackedByteArray on any error and
+	// pushes the reason through print_error so a caller can surface it.
+	PackedByteArray image_to_glb(const PackedByteArray &p_image_bytes, const Dictionary &p_opts) const;
 };
