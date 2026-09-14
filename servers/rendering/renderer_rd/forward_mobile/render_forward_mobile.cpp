@@ -904,7 +904,14 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 	RID framebuffer;
 	bool reverse_cull = p_render_data->scene_data->cam_transform.basis.determinant() < 0;
 	bool merge_transparent_pass = true; // If true: we can do our transparent pass in the same pass as our opaque pass.
+	// WebGPU has no subpass concept, so the mobile renderer runs the post-process
+	// step as a separate pass. That routes through the non-subpass tonemap
+	// pipeline whose bindings match WebGPU's WGSL surface.
+#ifdef WEBGPU_ENABLED
+	bool using_subpass_post_process = false;
+#else
 	bool using_subpass_post_process = true; // If true: we can do our post processing in a subpass
+#endif
 	RendererRD::MaterialStorage::Samplers samplers;
 	bool hdr_render_target = false;
 
