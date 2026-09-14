@@ -31,6 +31,7 @@
 #pragma once
 #include "core/io/resource.h"
 #include "core/string/ustring.h"
+#include "core/variant/dictionary.h"
 class SkinTokensModel : public Resource {
 	GDCLASS(SkinTokensModel, Resource);
 
@@ -40,4 +41,10 @@ protected:
 public:
 	int get_abi_version() const;
 	String get_status_string(int p_status) const;
+
+	// Rig an unrigged GLB with a skin-tokens bundle. Writes the rigged
+	// output to `output_path` and returns the ST status code (0 == OK).
+	// `opts` names the runtime device and the generation knobs; the last
+	// error string is pushed through print_error on failure.
+	int rig_file(const String &p_bundle_path, const String &p_mesh_path, const String &p_output_path, const Dictionary &p_opts) const;
 };
