@@ -91,7 +91,11 @@ const Engine = (function () {
 		}
 		const prefix = ['--rendering-driver', 'webgpu'];
 		if (!args.includes('--rendering-method')) {
-			prefix.push('--rendering-method', 'forward_plus');
+			// Mobile uses a smaller texture-format surface than forward_plus
+			// and fits inside browsers whose WebGPU is limited to the
+			// standard formats (Firefox in this window). Explicit
+			// --rendering-method in EngineConfig.args overrides this.
+			prefix.push('--rendering-method', 'mobile');
 		}
 		return prefix.concat(args);
 	};

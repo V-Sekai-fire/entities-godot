@@ -74,7 +74,9 @@ Error RenderingContextDriverWebGpu::initialize() {
 
 	WGPURequestAdapterOptions adapter_options = {};
 	WGPURequestAdapterCallbackInfo adapter_callback_info = {
-		.mode = WGPUCallbackMode_AllowProcessEvents,
+		// WaitAnyOnly so the callback fires under wgpuInstanceWaitAny below;
+		// see the equivalent switch in RenderingDeviceDriverWebGpu::initialize.
+		.mode = WGPUCallbackMode_WaitAnyOnly,
 		.callback = handle_request_adapter,
 		.userdata1 = this,
 	};
