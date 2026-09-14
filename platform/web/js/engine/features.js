@@ -14,6 +14,18 @@ const Features = {
 	},
 
 	/**
+	 * Check whether the WebGPU API is exposed. Presence of `navigator.gpu`
+	 * is a synchronous proxy; the actual adapter is acquired asynchronously
+	 * when the engine starts.
+	 *
+	 * @returns {boolean} If `navigator.gpu` is available.
+	 * @function Engine.isWebGPUAvailable
+	 */
+	isWebGPUAvailable: function () {
+		return typeof navigator !== 'undefined' && 'gpu' in navigator;
+	},
+
+	/**
 	 * Check whether the Fetch API available and supports streaming responses.
 	 *
 	 * @returns {boolean} If the Fetch API is available and supports streaming responses.
@@ -81,7 +93,14 @@ const Features = {
 		} = supportedFeatures;
 
 		const missing = [];
-		if (!Features.isWebGLAvailable(2)) {
+		// The template built with `webgpu=yes` accepts either WebGPU or
+		// WebGL2 at runtime; a WebGL2-only template still requires WebGL2.
+		const webgpuTemplate = ___GODOT_WEBGPU_ENABLED;
+		if (webgpuTemplate) {
+			if (!Features.isWebGLAvailable(2) && !Features.isWebGPUAvailable()) {
+				missing.push('WebGL2 or WebGPU - Check web browser configuration and hardware support');
+			}
+		} else if (!Features.isWebGLAvailable(2)) {
 			missing.push('WebGL2 - Check web browser configuration and hardware support');
 		}
 		if (!Features.isFetchAvailable()) {

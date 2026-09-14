@@ -1145,59 +1145,68 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 	// Expose method for requesting quit.
 	godot_js_os_request_quit_cb(request_quit_callback);
 
-#if defined(GLES3_ENABLED)
-	bool webgl2_inited = false;
-	if (godot_js_display_has_webgl(2)) {
-		EmscriptenWebGLContextAttributes attributes;
-		emscripten_webgl_init_context_attributes(&attributes);
-		attributes.alpha = OS::get_singleton()->is_layered_allowed();
-		attributes.antialias = false;
-		attributes.majorVersion = 2;
-		attributes.explicitSwapControl = true;
+	bool driver_initialized = false;
+#ifdef WEBGPU_ENABLED
+	if (p_rendering_driver == "webgpu") {
+		rendering_context = memnew(RenderingContextDriverWebGpuWeb);
+		rendering_context->initialize();
 
-		webgl_ctx = emscripten_webgl_create_context(canvas_id, &attributes);
-		webgl2_inited = webgl_ctx && emscripten_webgl_make_context_current(webgl_ctx) == EMSCRIPTEN_RESULT_SUCCESS;
-	}
-	if (webgl2_inited) {
-		if (!emscripten_webgl_enable_extension(webgl_ctx, "OVR_multiview2")) {
-			print_verbose("Failed to enable WebXR extension.");
+		RenderingContextDriverWebGpuWeb::WindowPlatformData wpd;
+		wpd.canvas_id = canvas_id;
+		rendering_context->window_create(DisplayServerEnums::MAIN_WINDOW_ID, &wpd);
+
+		Size2i canvas_size = window_get_size();
+		rendering_context->window_set_size(DisplayServerEnums::MAIN_WINDOW_ID, canvas_size.width, canvas_size.height);
+		rendering_context->window_set_vsync_mode(DisplayServerEnums::MAIN_WINDOW_ID, p_vsync_mode);
+
+		rendering_device = memnew(RenderingDevice);
+		if (rendering_device->initialize(rendering_context, DisplayServerEnums::MAIN_WINDOW_ID) != OK) {
+			memdelete(rendering_device);
+			rendering_device = nullptr;
+			memdelete(rendering_context);
+			rendering_context = nullptr;
+			r_error = ERR_UNAVAILABLE;
+			return;
 		}
-		RasterizerGLES3::make_current(false);
+		rendering_device->screen_create(DisplayServerEnums::MAIN_WINDOW_ID);
 
-	} else {
-		OS::get_singleton()->alert(
-				"Your browser seems not to support WebGL 2.\n\n"
-				"If possible, consider updating your browser version and video card drivers.",
-				"Unable to initialize WebGL 2 video driver");
+		RendererCompositorRD::make_current();
+		driver_initialized = true;
+	}
+#endif
+#ifdef GLES3_ENABLED
+	if (!driver_initialized && (p_rendering_driver == "opengl3" || p_rendering_driver == "opengl3_angle" || p_rendering_driver == "opengl3_es")) {
+		bool webgl2_inited = false;
+		if (godot_js_display_has_webgl(2)) {
+			EmscriptenWebGLContextAttributes attributes;
+			emscripten_webgl_init_context_attributes(&attributes);
+			attributes.alpha = OS::get_singleton()->is_layered_allowed();
+			attributes.antialias = false;
+			attributes.majorVersion = 2;
+			attributes.explicitSwapControl = true;
+
+			webgl_ctx = emscripten_webgl_create_context(canvas_id, &attributes);
+			webgl2_inited = webgl_ctx && emscripten_webgl_make_context_current(webgl_ctx) == EMSCRIPTEN_RESULT_SUCCESS;
+		}
+		if (webgl2_inited) {
+			if (!emscripten_webgl_enable_extension(webgl_ctx, "OVR_multiview2")) {
+				print_verbose("Failed to enable WebXR extension.");
+			}
+			RasterizerGLES3::make_current(false);
+
+		} else {
+			OS::get_singleton()->alert(
+					"Your browser seems not to support WebGL 2.\n\n"
+					"If possible, consider updating your browser version and video card drivers.",
+					"Unable to initialize WebGL 2 video driver");
+			RasterizerDummy::make_current();
+		}
+		driver_initialized = true;
+	}
+#endif
+	if (!driver_initialized) {
 		RasterizerDummy::make_current();
 	}
-#elif defined(WEBGPU_ENABLED)
-	rendering_context = memnew(RenderingContextDriverWebGpuWeb);
-	rendering_context->initialize();
-
-	RenderingContextDriverWebGpuWeb::WindowPlatformData wpd;
-	wpd.canvas_id = canvas_id;
-	rendering_context->window_create(DisplayServerEnums::MAIN_WINDOW_ID, &wpd);
-
-	Size2i canvas_size = window_get_size();
-	rendering_context->window_set_size(DisplayServerEnums::MAIN_WINDOW_ID, canvas_size.width, canvas_size.height);
-	rendering_context->window_set_vsync_mode(DisplayServerEnums::MAIN_WINDOW_ID, p_vsync_mode);
-
-	rendering_device = memnew(RenderingDevice);
-	if (rendering_device->initialize(rendering_context, DisplayServerEnums::MAIN_WINDOW_ID) != OK) {
-		memdelete(rendering_device);
-		rendering_device = nullptr;
-		memdelete(rendering_context);
-		rendering_context = nullptr;
-		r_error = ERR_UNAVAILABLE;
-		return;
-	}
-	rendering_device->screen_create(DisplayServerEnums::MAIN_WINDOW_ID);
-
-	RendererCompositorRD::make_current();
-#else
-	RasterizerDummy::make_current();
-#endif
 
 	// JS Input interface (js/libs/library_godot_input.js)
 	godot_js_input_mouse_button_cb(&DisplayServerWeb::mouse_button_callback);
