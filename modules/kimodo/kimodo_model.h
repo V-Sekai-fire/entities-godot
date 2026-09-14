@@ -31,6 +31,7 @@
 #pragma once
 #include "core/io/resource.h"
 #include "core/string/ustring.h"
+#include "core/variant/dictionary.h"
 class KimodoModel : public Resource {
 	GDCLASS(KimodoModel, Resource);
 
@@ -40,4 +41,11 @@ protected:
 public:
 	int get_abi_version() const;
 	String get_status_string(int p_status) const;
+
+	// Text-to-motion. Returns a Dictionary with `frames`, `joints`,
+	// `local_rotations_xyzw` (PackedFloat32Array, frames * joints * 4),
+	// and `root_positions` (PackedFloat32Array, frames * 3). Returns an
+	// empty Dictionary on any error; the reason is pushed through
+	// print_error.
+	Dictionary generate_motion(const String &p_motion_gguf, const String &p_text_gguf, const String &p_text_adapter_gguf, const String &p_prompt, const Dictionary &p_opts) const;
 };
