@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="KimodoPipeline" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Loaded kimodo text-to-motion model, held resident across generate calls.
+	</brief_description>
+	<description>
+		Holds the [code skip-lint]kimodo_model[/code] handle so a batch of prompts reuses the loaded weights instead of paying [code skip-lint]kimodo_model_load[/code] per call. Two decode paths: [method generate_from_prompt] runs the full text encoder plus denoiser, while [method generate_from_embedding] runs the denoiser alone against a precomputed [KimodoLatent], matching the "stages pass latents" rule.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="load">
+			<return type="bool" />
+			<param index="0" name="opts" type="Dictionary" />
+			<description>
+				Load the kimodo model. Required key [code skip-lint]motion_gguf[/code]. Optional keys: [code skip-lint]text_gguf[/code] (required for [method generate_from_prompt], unused for [method generate_from_embedding]), [code skip-lint]text_adapter_gguf[/code], [code skip-lint]threads[/code], [code skip-lint]device[/code] (0 auto, 1 CPU, 2 Vulkan). Returns [code]true[/code] on success; on failure pushes the reason through [method @GlobalScope.printerr] and leaves the pipeline unloaded.
+			</description>
+		</method>
+		<method name="is_loaded" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if [method load] has succeeded and [method unload] has not been called since.
+			</description>
+		</method>
+		<method name="last_error" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the loaded model's last error string, or empty when nothing has failed since load.
+			</description>
+		</method>
+		<method name="unload">
+			<return type="void" />
+			<description>
+				Release the loaded model. Safe to call more than once. The destructor also calls this.
+			</description>
+		</method>
+		<method name="generate_from_prompt" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="prompt" type="String" />
+			<param index="1" name="opts" type="Dictionary" />
+			<description>
+				Full text-to-motion. Runs the internal text encoder against [param prompt], then the denoiser. Requires [code skip-lint]text_gguf[/code] to have been supplied at [method load]. [param opts] carries the generation knobs. Returns a Dictionary with [code skip-lint]frames[/code], [code skip-lint]joints[/code], [code skip-lint]local_rotations_xyzw[/code] and [code skip-lint]root_positions[/code]; empty on error.
+			</description>
+		</method>
+		<method name="generate_from_embedding" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="latent" type="KimodoLatent" />
+			<param index="1" name="opts" type="Dictionary" />
+			<description>
+				Denoiser-only. Consumes a precomputed [KimodoLatent] and runs the denoiser without loading the text runtime. The honest latent-stage decode: the caller supplied the embedding, so the pipeline decodes it once. Same return shape as [method generate_from_prompt]. Refuses when [member KimodoLatent.embedding] size is not exactly 4096.
+			</description>
+		</method>
+	</methods>
+</class>

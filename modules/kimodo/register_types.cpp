@@ -30,7 +30,9 @@
 
 #include "register_types.h"
 
+#include "kimodo_latent.h"
 #include "kimodo_model.h"
+#include "kimodo_pipeline.h"
 
 #include "core/object/class_db.h"
 void initialize_kimodo_module(ModuleInitializationLevel p_level) {
@@ -38,5 +40,7 @@ void initialize_kimodo_module(ModuleInitializationLevel p_level) {
 		return;
 	}
 	GDREGISTER_CLASS(KimodoModel);
+	GDREGISTER_CLASS(KimodoLatent);
+	GDREGISTER_CLASS(KimodoPipeline);
 }
 void uninitialize_kimodo_module(ModuleInitializationLevel) {}
