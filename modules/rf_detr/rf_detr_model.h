@@ -31,6 +31,8 @@
 #pragma once
 #include "core/io/resource.h"
 #include "core/string/ustring.h"
+#include "core/variant/dictionary.h"
+#include "core/variant/typed_array.h"
 class RFDetrModel : public Resource {
 	GDCLASS(RFDetrModel, Resource);
 
@@ -40,4 +42,10 @@ protected:
 public:
 	int get_abi_version() const;
 	String get_status_string(int p_status) const;
+
+	// One-shot detect. Loads the checkpoint, runs detection against the
+	// RGBA image bytes, frees. Returns an Array of Dictionaries, each
+	// with keys x, y, width, height, score, class_id. Empty on error;
+	// the reason is pushed through print_error.
+	Array detect(const String &p_checkpoint_path, const PackedByteArray &p_image_rgba, int p_width, int p_height, const Dictionary &p_opts) const;
 };

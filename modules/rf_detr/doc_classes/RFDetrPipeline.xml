@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="RFDetrPipeline" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Loaded rf-detr checkpoint, kept resident across [method detect] calls.
+	</brief_description>
+	<description>
+		Holds the [code skip-lint]rfdetr_model[/code] handle so a batch of frames shares one loaded weight set instead of paying [code skip-lint]rfdetr_model_load[/code] per invocation. Same shape as [Pixal3DPipeline], [SkinTokensPipeline], [KimodoPipeline].
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="load">
+			<return type="bool" />
+			<param index="0" name="opts" type="Dictionary" />
+			<description>
+				Load the rf-detr checkpoint. Required key [code skip-lint]checkpoint_path[/code]. Optional keys: [code skip-lint]num_queries[/code], [code skip-lint]score_threshold[/code].
+			</description>
+		</method>
+		<method name="is_loaded" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if [method load] has succeeded and [method unload] has not been called since.
+			</description>
+		</method>
+		<method name="unload">
+			<return type="void" />
+			<description>
+				Release the loaded checkpoint. Safe to call more than once. The destructor also calls this.
+			</description>
+		</method>
+		<method name="detect" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="image_rgba" type="PackedByteArray" />
+			<param index="1" name="width" type="int" />
+			<param index="2" name="height" type="int" />
+			<param index="3" name="opts" type="Dictionary" />
+			<description>
+				Detect boxes in [param image_rgba]. Same return shape as [method RFDetrModel.detect] but reuses the loaded weights across calls.
+			</description>
+		</method>
+	</methods>
+</class>

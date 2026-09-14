@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="RFDetrModel" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
+		One-shot rf-detr object/keypoint detection over an RGBA image.
 	</brief_description>
 	<description>
+		Wraps the rf-detr C ABI ([code skip-lint]rfdetr_model_load[/code] then [code skip-lint]rfdetr_detect[/code] then [code skip-lint]rfdetr_model_free[/code]) into a single method. See [RFDetrPipeline] for a residency variant that keeps the checkpoint loaded across [method detect] calls.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -10,12 +12,26 @@
 		<method name="get_abi_version" qualifiers="const">
 			<return type="int" />
 			<description>
+				Returns the rf-detr C ABI version this build links against.
 			</description>
 		</method>
 		<method name="get_status_string" qualifiers="const">
 			<return type="String" />
 			<param index="0" name="status" type="int" />
 			<description>
+				Returns the human-readable name of an [code skip-lint]rfdetr_status[/code] enum value.
+			</description>
+		</method>
+		<method name="detect" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="checkpoint_path" type="String" />
+			<param index="1" name="image_rgba" type="PackedByteArray" />
+			<param index="2" name="width" type="int" />
+			<param index="3" name="height" type="int" />
+			<param index="4" name="opts" type="Dictionary" />
+			<description>
+				Detect boxes in [param image_rgba] (size must equal [code skip-lint]width * height * 4[/code], RGBA row-major). Returns an [Array] of Dictionaries, each with keys [code skip-lint]x[/code], [code skip-lint]y[/code], [code skip-lint]width[/code], [code skip-lint]height[/code], [code skip-lint]score[/code], [code skip-lint]class_id[/code]. Empty on error; the reason is pushed through [method @GlobalScope.printerr].
+				Optional [param opts] keys: [code skip-lint]num_queries[/code], [code skip-lint]score_threshold[/code], [code skip-lint]max_boxes[/code] (default 512).
 			</description>
 		</method>
 	</methods>

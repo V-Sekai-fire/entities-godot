@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  rf_detr_model.cpp                                                     */
+/*  rf_detr_pipeline.cpp                                                  */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,7 +28,7 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "rf_detr_model.h"
+#include "rf_detr_pipeline.h"
 
 #include "core/error/error_macros.h"
 #include "core/object/class_db.h"
@@ -36,22 +36,20 @@
 
 #include <rfdetr/rfdetr_capi.h>
 
-int RFDetrModel::get_abi_version() const {
-	return (int)rfdetr_abi_version();
+RFDetrPipeline::RFDetrPipeline() {}
+
+RFDetrPipeline::~RFDetrPipeline() {
+	unload();
 }
 
-String RFDetrModel::get_status_string(int s) const {
-	const char *m = rfdetr_status_string((rfdetr_status)s);
-	return m ? String(m) : String();
-}
+bool RFDetrPipeline::load(const Dictionary &p_opts) {
+	if (model) {
+		unload();
+	}
 
-Array RFDetrModel::detect(const String &p_checkpoint_path, const PackedByteArray &p_image_rgba, int p_width, int p_height, const Dictionary &p_opts) const {
-	Array empty;
+	ERR_FAIL_COND_V_MSG(!p_opts.has("checkpoint_path"), false, "rf_detr: opts must have checkpoint_path.");
 
-	ERR_FAIL_COND_V_MSG(p_checkpoint_path.is_empty(), empty, "rf_detr: checkpoint_path is empty.");
-	ERR_FAIL_COND_V_MSG(p_image_rgba.size() != p_width * p_height * 4, empty, "rf_detr: image_rgba size must equal width*height*4.");
-
-	CharString s_ckpt = p_checkpoint_path.utf8();
+	CharString s_ckpt = String(p_opts["checkpoint_path"]).utf8();
 
 	rfdetr_options opts;
 	rfdetr_options_init(&opts);
@@ -62,19 +60,36 @@ Array RFDetrModel::detect(const String &p_checkpoint_path, const PackedByteArray
 		opts.score_threshold = (float)(double)p_opts["score_threshold"];
 	}
 
-	rfdetr_model *model = nullptr;
 	rfdetr_status s = rfdetr_model_load(s_ckpt.get_data(), &opts, &model);
 	if (s != RFDETR_OK || model == nullptr) {
-		ERR_FAIL_V_MSG(empty, String("rf_detr: model load failed: ") + rfdetr_status_string(s));
+		model = nullptr;
+		ERR_FAIL_V_MSG(false, String("rf_detr: model load failed: ") + rfdetr_status_string(s));
 	}
+	return true;
+}
+
+bool RFDetrPipeline::is_loaded() const {
+	return model != nullptr;
+}
+
+void RFDetrPipeline::unload() {
+	if (model) {
+		rfdetr_model_free(model);
+		model = nullptr;
+	}
+}
+
+Array RFDetrPipeline::detect(const PackedByteArray &p_image_rgba, int p_width, int p_height, const Dictionary &p_opts) const {
+	Array empty;
+
+	ERR_FAIL_NULL_V_MSG(model, empty, "rf_detr: pipeline not loaded; call load() first.");
+	ERR_FAIL_COND_V_MSG(p_image_rgba.size() != p_width * p_height * 4, empty, "rf_detr: image_rgba size must equal width*height*4.");
 
 	const size_t capacity = (size_t)(int)p_opts.get("max_boxes", 512);
 	Vector<rfdetr_box> boxes;
 	boxes.resize(capacity);
 	size_t count = 0;
 	rfdetr_status ds = rfdetr_detect(model, p_image_rgba.ptr(), p_width, p_height, boxes.ptrw(), capacity, &count);
-
-	rfdetr_model_free(model);
 
 	if (ds != RFDETR_OK) {
 		ERR_FAIL_V_MSG(empty, String("rf_detr: detect failed: ") + rfdetr_status_string(ds));
@@ -95,8 +110,9 @@ Array RFDetrModel::detect(const String &p_checkpoint_path, const PackedByteArray
 	return out;
 }
 
-void RFDetrModel::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("get_abi_version"), &RFDetrModel::get_abi_version);
-	ClassDB::bind_method(D_METHOD("get_status_string", "status"), &RFDetrModel::get_status_string);
-	ClassDB::bind_method(D_METHOD("detect", "checkpoint_path", "image_rgba", "width", "height", "opts"), &RFDetrModel::detect);
+void RFDetrPipeline::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("load", "opts"), &RFDetrPipeline::load);
+	ClassDB::bind_method(D_METHOD("is_loaded"), &RFDetrPipeline::is_loaded);
+	ClassDB::bind_method(D_METHOD("unload"), &RFDetrPipeline::unload);
+	ClassDB::bind_method(D_METHOD("detect", "image_rgba", "width", "height", "opts"), &RFDetrPipeline::detect);
 }

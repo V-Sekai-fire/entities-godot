@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  rf_detr_pipeline.h                                                    */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,17 +28,34 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
+#include "core/object/ref_counted.h"
+#include "core/string/ustring.h"
+#include "core/variant/dictionary.h"
 
-#include "rf_detr_model.h"
-#include "rf_detr_pipeline.h"
+struct rfdetr_model;
 
-#include "core/object/class_db.h"
-void initialize_rf_detr_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-	GDREGISTER_CLASS(RFDetrModel);
-	GDREGISTER_CLASS(RFDetrPipeline);
-}
-void uninitialize_rf_detr_module(ModuleInitializationLevel) {}
+class RFDetrPipeline : public RefCounted {
+	GDCLASS(RFDetrPipeline, RefCounted);
+
+protected:
+	static void _bind_methods();
+
+public:
+	RFDetrPipeline();
+	~RFDetrPipeline();
+
+	// Load the rf-detr checkpoint. `opts` required key `checkpoint_path`;
+	// optional `num_queries`, `score_threshold`. Returns true on success.
+	bool load(const Dictionary &p_opts);
+
+	bool is_loaded() const;
+	void unload();
+
+	// Detect against an RGBA image. Same shape as RFDetrModel::detect
+	// but reuses the loaded weights across calls.
+	Array detect(const PackedByteArray &p_image_rgba, int p_width, int p_height, const Dictionary &p_opts) const;
+
+private:
+	rfdetr_model *model = nullptr;
+};
