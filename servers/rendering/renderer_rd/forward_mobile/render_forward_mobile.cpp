@@ -468,10 +468,12 @@ void RenderForwardMobile::update() {
 
 RD::DataFormat RenderForwardMobile::_render_buffers_get_preferred_color_format() {
 #ifdef WEBGPU_ENABLED
-	// A2B10G10R10 storage bindings aren't in WebGPU 1.0 (Firefox); the tonemap
-	// blit rebinds the color buffer as a WriteOnly storage image and Firefox
-	// rejects that on rgb10a2unorm. Rgba8Unorm is in the base WebGPU spec.
-	return RD::DATA_FORMAT_R8G8B8A8_UNORM;
+	// A2B10G10R10 has no WriteOnly storage binding in WebGPU 1.0 (Firefox).
+	// R16G16B16A16_SFLOAT is a storage-capable format in the base spec and
+	// matches the default variant of the octmap compute shaders, so the
+	// reflection-probe pipeline binds destination views with a compatible
+	// format.
+	return RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
 #else
 	// Using 32bit buffers enables AFBC on mobile devices which should have a definite performance improvement (MALI G710 and newer support this on 64bit RTs)
 	return RD::DATA_FORMAT_A2B10G10R10_UNORM_PACK32;
