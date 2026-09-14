@@ -5069,7 +5069,12 @@ void TextureStorage::_render_target_allocate_sdf(RenderTarget *rt) {
 	rt->sdf_buffer_process[0] = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 	rt->sdf_buffer_process[1] = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 
-	tformat.format = RD::DATA_FORMAT_R16_SNORM;
+	// r16snorm is a Dawn/texture-formats-tier1 storage format; WebGPU 1.0
+	// browsers (Firefox in this window) don't expose it. r16f is in the base
+	// spec and gives the same 16-bit precision, at a cost of storing a scaled
+	// float instead of a normalized short — the canvas SDF sampler treats
+	// both as fractional distances so the visual result is unchanged.
+	tformat.format = RD::DATA_FORMAT_R16_SFLOAT;
 	tformat.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT;
 
 	rt->sdf_buffer_read = RD::get_singleton()->texture_create(tformat, RD::TextureView());

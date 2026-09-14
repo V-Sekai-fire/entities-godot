@@ -24,7 +24,12 @@ static void handle_request_device(WGPURequestDeviceStatus p_status,
 		WGPUDevice p_device, WGPUStringView p_message,
 		void *userdata, void *_) {
 	if (p_status != WGPURequestDeviceStatus_Success) {
-		print_line("[WEBGPU]", String::utf8(p_message.data, p_message.length));
+		print_error(vformat("[WEBGPU] requestDevice failed: status=%d msg=%s device=%p",
+				(int)p_status, String::utf8(p_message.data, p_message.length), (void *)p_device));
+	} else if (p_device == nullptr) {
+		print_error("[WEBGPU] requestDevice reported success but device is null.");
+	} else {
+		print_verbose(vformat("[WEBGPU] requestDevice ok device=%p", (void *)p_device));
 	}
 	*(WGPUDevice *)userdata = p_device;
 }
@@ -126,7 +131,11 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		},
 	};
 	WGPURequestDeviceCallbackInfo device_callback_info = (WGPURequestDeviceCallbackInfo){
-		.mode = WGPUCallbackMode_AllowProcessEvents,
+		// WaitAnyOnly is the mode WaitAny actually drives. AllowProcessEvents
+		// requires the caller to periodically pump wgpuInstanceProcessEvents,
+		// which the emdawnwebgpu path never does; the request-device callback
+		// then never fires under the WaitAny below and the device stays null.
+		.mode = WGPUCallbackMode_WaitAnyOnly,
 		.callback = handle_request_device,
 		.userdata1 = &this->device,
 	};
@@ -135,13 +144,15 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	WGPUFutureWaitInfo wait_info = { .future = device_future, .completed = false };
 	WGPUWaitStatus wait_status = wgpuInstanceWaitAny(context_driver->instance_get(), 1, &wait_info, UINT64_MAX);
 	ERR_FAIL_COND_V_MSG(wait_status != WGPUWaitStatus_Success, FAILED,
-			"Failed to wait on WebGPU device request.");
+			vformat("Failed to wait on WebGPU device request: wait_status=%d completed=%d", (int)wait_status, (int)wait_info.completed));
+	ERR_FAIL_COND_V_MSG(!wait_info.completed, FAILED,
+			"WebGPU device-request future returned before the callback fired.");
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 	(void)device_future;
 	wgpuInstanceProcessEvents(context_driver->instance_get());
 #endif
 
-	ERR_FAIL_NULL_V_MSG(this->device, FAILED, "Failed to create wgpu device.");
+	ERR_FAIL_NULL_V_MSG(this->device, FAILED, "WebGPU device pointer is null after successful WaitAny.");
 
 #ifdef WGPU_LOG_LEVEL
 #ifdef WEBGPU_BACKEND_DAWN_DESKTOP
