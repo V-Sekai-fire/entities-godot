@@ -250,6 +250,15 @@ xcuserdata/
 
 # Build results
 [Dd]ebug/
+
+# ...except vendored source that happens to live in a directory called debug/.
+# tools/mtmd/debug/ holds mtmd-debug.h, which mtmd.cpp includes unconditionally. The
+# rule above is for Visual Studio build output, and it silently swallowed a header:
+# the file was absent from the vendored tree for this reason, and re-adding it locally
+# left it uncommitted, so every platform that compiles mtmd built here and failed in
+# CI while the platforms that skip mtmd passed.
+!thirdparty/llama_cpp/tools/mtmd/debug/
+!thirdparty/llama_cpp/tools/mtmd/debug/**
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/
@@ -270,6 +279,10 @@ bld/
 !thirdparty/**/x86/
 !thirdparty/**/arm/
 !thirdparty/**/arm64/
+!modules/llm/thirdparty/**/x64/
+!modules/llm/thirdparty/**/x86/
+!modules/llm/thirdparty/**/arm/
+!modules/llm/thirdparty/**/arm64/
 
 thirdparty/swappy-frame-pacing/arm64-v8a/abi.json
 thirdparty/swappy-frame-pacing/armeabi-v7a/abi.json
@@ -418,3 +431,8 @@ $RECYCLE.BIN/
 
 # Supplied by the repo manifest, not vendored. See default.xml.
 modules/sandbox/
+# llm module — generated build artifacts
+thirdparty/llama_cpp/ggml/src/ggml-vulkan/ggml-vulkan-shaders.hpp
+thirdparty/llama_cpp/ggml/src/ggml-vulkan/vulkan-shaders.spv/
+thirdparty/llama_cpp/ggml/src/ggml-metal/ggml-metal-embed.gen.cpp
+thirdparty/llama_cpp/ggml/src/ggml-vulkan/mingw-implib/

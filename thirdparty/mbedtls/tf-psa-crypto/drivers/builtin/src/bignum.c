@@ -21,16 +21,16 @@
  *
  */
 
-#include "tf_psa_crypto_common.h"
+#include "common.h"
 
 #if defined(MBEDTLS_BIGNUM_C)
 
-#include "mbedtls/private/bignum.h"
+#include "mbedtls/bignum.h"
 #include "bignum_core.h"
 #include "bignum_internal.h"
 #include "bn_mul.h"
 #include "mbedtls/platform_util.h"
-#include "mbedtls/private/error_common.h"
+#include "mbedtls/error.h"
 #include "constant_time_internal.h"
 
 #include <limits.h>
@@ -2059,12 +2059,6 @@ int mbedtls_mpi_inv_mod(mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi 
 
 #if defined(MBEDTLS_GENPRIME)
 
-/* Largest "small prime" tested. If this is ever changed, must update:
- * - the product below obviously,
- * - the documentation and tests of mbedtls_mpi_is_prime_ext() about this limit,
- * - documentation tests and code of mbedtls_mpi_gen_prime() about the minimum
- *   value of nbits.
- */
 static const mbedtls_mpi_sint small_primes_limit = 997;
 /* Product of small primes up to small_primes_limit included */
 static const mbedtls_mpi_uint small_primes_product_limbs[] = {
@@ -2104,8 +2098,8 @@ static const mbedtls_mpi small_primes_product = {
  *
  * Return values:
  * 0: no small factor (possible prime, more tests needed)
+ * 1: certain prime
  * MBEDTLS_ERR_MPI_NOT_ACCEPTABLE: certain non-prime
- * MBEDTLS_ERR_MPI_BAD_INPUT_DATA: input too small
  * other negative: error
  */
 static int mpi_check_small_factors(const mbedtls_mpi *X)
@@ -2115,13 +2109,22 @@ static int mpi_check_small_factors(const mbedtls_mpi *X)
 
     mbedtls_mpi_init(&g);
 
-    /* The GCD test below only works if X > small_primes_limit. */
-    if (mbedtls_mpi_cmp_int(X, small_primes_limit) <= 0) {
-        return MBEDTLS_ERR_MPI_BAD_INPUT_DATA;
-    }
-
     if ((X->p[0] & 1) == 0) {
         return MBEDTLS_ERR_MPI_NOT_ACCEPTABLE;
+    }
+
+    /* The GCD test below only works if X > small_primes_limit.
+     * Below this limit, use trial division: numbers that small are of no
+     * interest for cryptography, so we don't care about performance or side
+     * channels. We're supporting them only for backwards compatibility, so
+     * let's not waste code size on those. */
+    if (mbedtls_mpi_cmp_int(X, small_primes_limit) <= 0) {
+        mbedtls_mpi_uint x = X->p[0];
+        mbedtls_mpi_uint d = 2;
+        while (x % d != 0) {
+            ++d;
+        }
+        return x == d ? 1 : MBEDTLS_ERR_MPI_NOT_ACCEPTABLE;
     }
 
     /* We can't directly use mbedtls_mpi_gcd_modinv_odd() because we don't know
@@ -2239,12 +2242,30 @@ int mbedtls_mpi_is_prime_ext(const mbedtls_mpi *X, int rounds,
                              void *p_rng)
 {
     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    mbedtls_mpi XX;
 
-    if ((ret = mpi_check_small_factors(X)) != 0) {
+    XX.s = 1;
+    XX.n = X->n;
+    XX.p = X->p;
+
+    if (mbedtls_mpi_cmp_int(&XX, 0) == 0 ||
+        mbedtls_mpi_cmp_int(&XX, 1) == 0) {
+        return MBEDTLS_ERR_MPI_NOT_ACCEPTABLE;
+    }
+
+    if (mbedtls_mpi_cmp_int(&XX, 2) == 0) {
+        return 0;
+    }
+
+    if ((ret = mpi_check_small_factors(&XX)) != 0) {
+        if (ret == 1) {
+            return 0;
+        }
+
         return ret;
     }
 
-    return mpi_miller_rabin(X, rounds, f_rng, p_rng);
+    return mpi_miller_rabin(&XX, rounds, f_rng, p_rng);
 }
 
 /*
@@ -2271,11 +2292,7 @@ int mbedtls_mpi_gen_prime(mbedtls_mpi *X, size_t nbits, int flags,
     mbedtls_mpi_uint r;
     mbedtls_mpi Y;
 
-    /* The minimum value must be such that 2^(nbits - 2) > small_primes_limit,
-     * so we can use mbedtls_mpi_is_prime_ext(). The -2 comes from:
-     * - first -1 because X will be generated with 2^(nbits-1) <= X < 2^nbits;
-     * - another -1 because for safe primes we test (X-1) / 2. */
-    if (nbits < 12 || nbits > MBEDTLS_MPI_MAX_BITS) {
+    if (nbits < 3 || nbits > MBEDTLS_MPI_MAX_BITS) {
         return MBEDTLS_ERR_MPI_BAD_INPUT_DATA;
     }
 
@@ -2377,75 +2394,6 @@ cleanup:
 }
 
 #endif /* MBEDTLS_GENPRIME */
-
-
-#if defined(MBEDTLS_ASN1_WRITE_C)
-#include "mbedtls/asn1.h"
-#include "mbedtls/asn1write.h"
-int mbedtls_asn1_write_mpi(unsigned char **p, const unsigned char *start, const mbedtls_mpi *X)
-{
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
-    size_t len = 0;
-
-    // Write the MPI
-    //
-    len = mbedtls_mpi_size(X);
-
-    /* DER represents 0 with a sign bit (0=nonnegative) and 7 value bits, not
-     * as 0 digits. We need to end up with 020100, not with 0200. */
-    if (len == 0) {
-        len = 1;
-    }
-
-    if (*p < start || (size_t) (*p - start) < len) {
-        return MBEDTLS_ERR_ASN1_BUF_TOO_SMALL;
-    }
-
-    (*p) -= len;
-    MBEDTLS_MPI_CHK(mbedtls_mpi_write_binary(X, *p, len));
-
-    // DER format assumes 2s complement for numbers, so the leftmost bit
-    // should be 0 for positive numbers and 1 for negative numbers.
-    //
-    if (X->s == 1 && **p & 0x80) {
-        if (*p - start < 1) {
-            return MBEDTLS_ERR_ASN1_BUF_TOO_SMALL;
-        }
-
-        *--(*p) = 0x00;
-        len += 1;
-    }
-
-    MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_len(p, start, len));
-    MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_tag(p, start, MBEDTLS_ASN1_INTEGER));
-
-    ret = (int) len;
-
-cleanup:
-    return ret;
-}
-#endif /* MBEDTLS_ASN1_WRITE_C */
-
-#if defined(MBEDTLS_ASN1_PARSE_C)
-#include "mbedtls/asn1.h"
-int mbedtls_asn1_get_mpi(unsigned char **p,
-                         const unsigned char *end,
-                         mbedtls_mpi *X)
-{
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
-    size_t len;
-
-    if ((ret = mbedtls_asn1_get_tag(p, end, &len, MBEDTLS_ASN1_INTEGER)) != 0) {
-        return ret;
-    }
-
-    ret = mbedtls_mpi_read_binary(X, *p, len);
-
-    *p += len;
-
-    return ret;
-}
-#endif /* MBEDTLS_ASN1_PARSE_C */
 
 #if defined(MBEDTLS_SELF_TEST)
 

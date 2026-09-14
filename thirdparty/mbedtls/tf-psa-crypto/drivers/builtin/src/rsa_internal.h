@@ -11,10 +11,10 @@
  *  Copyright The Mbed TLS Contributors
  *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
  */
-#ifndef TF_PSA_CRYPTO_RSA_INTERNAL_H
-#define TF_PSA_CRYPTO_RSA_INTERNAL_H
+#ifndef MBEDTLS_RSA_INTERNAL_H
+#define MBEDTLS_RSA_INTERNAL_H
 
-#include "mbedtls/private/rsa.h"
+#include "mbedtls/rsa.h"
 #include "mbedtls/asn1.h"
 
 /**
@@ -61,6 +61,8 @@ int mbedtls_rsa_parse_pubkey(mbedtls_rsa_context *rsa, const unsigned char *key,
  *
  * \return          On success, the number of bytes written to the output buffer
  *                  (i.e. a value > 0).
+ * \return          MBEDTLS_ERR_RSA_BAD_INPUT_DATA if the RSA context does not
+ *                  contain a valid key pair.
  * \return          MBEDTLS_ERR_ASN1_xxx in case of failure while writing to the
  *                  output buffer.
  *
@@ -93,62 +95,9 @@ int mbedtls_rsa_write_key(const mbedtls_rsa_context *rsa, unsigned char *start,
 int mbedtls_rsa_write_pubkey(const mbedtls_rsa_context *rsa, unsigned char *start,
                              unsigned char **p);
 
-#if defined(MBEDTLS_PKCS1_V15)
-/**
- * \brief          This function performs a PKCS#1 v1.5 decryption
- *                 operation (RSAES-PKCS1-v1_5-DECRYPT).
- *
- * \warning        This is an inherently dangerous function (CWE-242). Unless
- *                 it is used in a side channel free and safe way, the calling
- *                 code is vulnerable.
- *
- * \note           The output buffer length \c output_max_len should be
- *                 as large as the size \p ctx->len of \p ctx->N, for example,
- *                 128 Bytes if RSA-1024 is used, to be able to hold an
- *                 arbitrary decrypted message. If it is not large enough to
- *                 hold the decryption of the particular ciphertext provided,
- *                 the function returns #PSA_ERROR_BUFFER_TOO_SMALL.
- *
- * \param ctx      The initialized RSA context to use.
- * \param f_rng    The RNG function. This is used for blinding and is
- *                 mandatory; see mbedtls_rsa_private() for more.
- * \param p_rng    The RNG context to be passed to \p f_rng. This may be
- *                 \c NULL if \p f_rng doesn't need a context.
- * \param olen     The address at which to store the length of
- *                 the plaintext. This must not be \c NULL.
- * \param input    The ciphertext buffer. This must be a readable buffer
- *                 of length \c ctx->len Bytes. For example, \c 256 Bytes
- *                 for an 2048-bit RSA modulus.
- * \param output   The buffer used to hold the plaintext. This must
- *                 be a writable buffer of length \p output_max_len Bytes.
- * \param output_max_len The length in Bytes of the output buffer \p output.
- * \param sensitive_ret
- *                 If this function returns \c 0, this is set to either 0 for
- *                 success, or #PSA_ERROR_INVALID_PADDING if the padding
- *                 was invalid, or #PSA_ERROR_BUFFER_TOO_SMALL if the
- *                 padding was valid but resulted in a plaintext larger than the
- *                 output buffer.
- *                 If this function returns non-zero this is set to \c 0.
- *
- * \return         \c 0 on success, or when the only error is invalid padding,
- *                 or valid padding that results in a plaintext larger than the
- *                 output buffer.
- * \return         An \c MBEDTLS_ERR_RSA_XXX error code on other failure.
- *
- */
-int mbedtls_rsa_rsaes_pkcs1_v15_decrypt_ext(mbedtls_rsa_context *ctx,
-                                            int (*f_rng)(void *, unsigned char *, size_t),
-                                            void *p_rng,
-                                            size_t *olen,
-                                            const unsigned char *input,
-                                            unsigned char *output,
-                                            size_t output_max_len,
-                                            int *sensitive_ret);
-#endif
-
 #if defined(MBEDTLS_PKCS1_V21)
 /**
- * \brief This function is analogue to \c mbedtls_rsa_rsassa_pss_sign_ext().
+ * \brief This function is analogue to \c mbedtls_rsa_rsassa_pss_sign().
  *        The only difference between them is that this function is more flexible
  *        on the parameters of \p ctx that are set with \c mbedtls_rsa_set_padding().
  *
@@ -157,7 +106,7 @@ int mbedtls_rsa_rsaes_pkcs1_v15_decrypt_ext(mbedtls_rsa_context *ctx,
  *        - allows the hash_id of \p ctx to be MBEDTLS_MD_NONE,
  *          in which case it uses \p md_alg as the hash_id.
  *
- * \note  Refer to \c mbedtls_rsa_rsassa_pss_sign_ext() for a description
+ * \note  Refer to \c mbedtls_rsa_rsassa_pss_sign() for a description
  *        of the functioning and parameters of this function.
  */
 int mbedtls_rsa_rsassa_pss_sign_no_mode_check(mbedtls_rsa_context *ctx,
@@ -169,4 +118,71 @@ int mbedtls_rsa_rsassa_pss_sign_no_mode_check(mbedtls_rsa_context *ctx,
                                               unsigned char *sig);
 #endif /* MBEDTLS_PKCS1_V21 */
 
-#endif /* TF_PSA_CRYPTO_RSA_INTERNAL_H */
+/* This would normally be in rsa_invasive.h but it didn't exist before 3.6
+ * became an LTS, and I'd rather not add files in LTS if it can be avoided. */
+#if defined(MBEDTLS_TEST_HOOKS)
+#if defined(MBEDTLS_PKCS1_V15) && defined(MBEDTLS_RSA_C) && !defined(MBEDTLS_RSA_ALT)
+
+/** This function performs the unpadding part of a PKCS#1 v1.5 decryption
+ *  operation (EME-PKCS1-v1_5 decoding).
+ *
+ * \note The return value from this function is a sensitive value
+ *       (this is unusual). #MBEDTLS_ERR_RSA_OUTPUT_TOO_LARGE shouldn't happen
+ *       in a well-written application, but 0 vs #MBEDTLS_ERR_RSA_INVALID_PADDING
+ *       is often a situation that an attacker can provoke and leaking which
+ *       one is the result is precisely the information the attacker wants.
+ *
+ * \param input          The input buffer which is the payload inside PKCS#1v1.5
+ *                       encryption padding, called the "encoded message EM"
+ *                       by the terminology.
+ * \param ilen           The length of the payload in the \p input buffer.
+ * \param output         The buffer for the payload, called "message M" by the
+ *                       PKCS#1 terminology. This must be a writable buffer of
+ *                       length \p output_max_len bytes.
+ * \param olen           The address at which to store the length of
+ *                       the payload. This must not be \c NULL.
+ * \param output_max_len The length in bytes of the output buffer \p output.
+ *
+ * \return      \c 0 on success.
+ * \return      #MBEDTLS_ERR_RSA_OUTPUT_TOO_LARGE
+ *              The output buffer is too small for the unpadded payload.
+ * \return      #MBEDTLS_ERR_RSA_INVALID_PADDING
+ *              The input doesn't contain properly formatted padding.
+ */
+MBEDTLS_STATIC_TESTABLE int mbedtls_ct_rsaes_pkcs1_v15_unpadding(
+    unsigned char *input, size_t ilen,
+    unsigned char *output, size_t output_max_len, size_t *olen);
+#endif /* MBEDTLS_PKCS1_V15 && MBEDTLS_RSA_C && ! MBEDTLS_RSA_ALT */
+#endif /* MBEDTLS_TEST_HOOKS */
+
+#if defined(MBEDTLS_PKCS1_V15) && defined(MBEDTLS_RSA_C)
+/** Decompose sensitive return values out of a return code, in constant time.
+ *
+ * \param invalid_padding_in    The value of \p combined_ret that indicates
+ *                              invalid padding.
+ * \param invalid_padding_out   The value to set \p problem to in case of
+ *                              invalid padding.
+ * \param output_too_large_in   The value of \p combined_ret that indicates
+ *                              an insufficient output buffer size.
+ * \param output_too_large_out  The value to set \p problem to in case of
+ *                              an insufficient output buffer size.
+ * \param combined_ret          The value to decompose.
+ * \param[out] problem          On output:
+ *                              - \p invalid_padding_out,
+ *                                if \p combined_ret = \p invalid_padding_in;
+ *                              - \p output_too_large_out,
+ *                                if \p combined_ret = \p output_too_large_in;
+ *                              - otherwise \c 0.
+ *
+ * \return                      - \c 0 if \p combined_ret = \p invalid_padding_in
+ *                                or \p combined_ret = \p output_too_large_in;
+ *                              - otherwise \c combined_ret.
+ */
+int mbedtls_rsa_decrypt_decompose_ret(
+    int invalid_padding_in, int invalid_padding_out,
+    int output_too_large_in, int output_too_large_out,
+    int combined_ret,
+    int *problem);
+#endif
+
+#endif /* rsa_internal.h */

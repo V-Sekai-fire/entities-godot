@@ -6,7 +6,7 @@
  *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
  */
 
-#include "tf_psa_crypto_common.h"
+#include "common.h"
 
 #if defined(MBEDTLS_PSA_CRYPTO_C)
 
@@ -18,14 +18,14 @@
 #include "psa_crypto_hash.h"
 #include "mbedtls/psa_util.h"
 
-#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include "mbedtls/platform.h"
 
-#include <mbedtls/private/rsa.h>
-#include <mbedtls/private/error_common.h>
+#include <mbedtls/rsa.h>
+#include <mbedtls/error.h>
 #include "rsa_internal.h"
+#include "constant_time_internal.h"
 
 #if defined(MBEDTLS_PSA_BUILTIN_ALG_RSA_PKCS1V15_CRYPT) || \
     defined(MBEDTLS_PSA_BUILTIN_ALG_RSA_OAEP) || \
@@ -43,11 +43,18 @@
 static psa_status_t psa_check_rsa_key_byte_aligned(
     const mbedtls_rsa_context *rsa)
 {
-    if (mbedtls_mpi_bitlen(&rsa->N) % 8 != 0) {
-        return PSA_ERROR_NOT_SUPPORTED;
+    mbedtls_mpi n;
+    psa_status_t status;
+    mbedtls_mpi_init(&n);
+    status = mbedtls_to_psa_error(
+        mbedtls_rsa_export(rsa, &n, NULL, NULL, NULL, NULL));
+    if (status == PSA_SUCCESS) {
+        if (mbedtls_mpi_bitlen(&n) % 8 != 0) {
+            status = PSA_ERROR_NOT_SUPPORTED;
+        }
     }
-
-    return PSA_SUCCESS;
+    mbedtls_mpi_free(&n);
+    return status;
 }
 
 psa_status_t mbedtls_psa_rsa_load_representation(
@@ -198,6 +205,7 @@ psa_status_t mbedtls_psa_rsa_export_public_key(
                                             data_size,
                                             data_length);
     }
+
     mbedtls_rsa_free(rsa);
     mbedtls_free(rsa);
 
@@ -355,14 +363,13 @@ psa_status_t mbedtls_psa_rsa_sign_hash(
         ret = mbedtls_rsa_set_padding(rsa, MBEDTLS_RSA_PKCS_V21, md_alg);
 
         if (ret == 0) {
-            ret = mbedtls_rsa_rsassa_pss_sign_ext(rsa,
-                                                  mbedtls_psa_get_random,
-                                                  MBEDTLS_PSA_RANDOM_STATE,
-                                                  MBEDTLS_MD_NONE,
-                                                  (unsigned int) hash_length,
-                                                  hash,
-                                                  MBEDTLS_RSA_SALT_LEN_ANY,
-                                                  signature);
+            ret = mbedtls_rsa_rsassa_pss_sign(rsa,
+                                              mbedtls_psa_get_random,
+                                              MBEDTLS_PSA_RANDOM_STATE,
+                                              MBEDTLS_MD_NONE,
+                                              (unsigned int) hash_length,
+                                              hash,
+                                              signature);
         }
     } else
 #endif /* MBEDTLS_PSA_BUILTIN_ALG_RSA_PSS */
@@ -646,13 +653,22 @@ psa_status_t mbedtls_psa_asymmetric_decrypt(const psa_key_attributes_t *attribut
 
         if (alg == PSA_ALG_RSA_PKCS1V15_CRYPT) {
 #if defined(MBEDTLS_PSA_BUILTIN_ALG_RSA_PKCS1V15_CRYPT)
-            int sensitive_ret = 0;
-            int ret = mbedtls_rsa_rsaes_pkcs1_v15_decrypt_ext(
+            int combined_ret = mbedtls_rsa_rsaes_pkcs1_v15_decrypt(
                 rsa, mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE,
-                output_length, input, output, output_size, &sensitive_ret);
-            /* Some errors need translating, but the 2 possible non-zero values
-             * of sensitive_ret do not need translating. */
-            status = mbedtls_to_psa_error(ret) | sensitive_ret;
+                output_length, input, output, output_size);
+
+            /* Translate error codes from legacy to PSA.
+             * Success vs INVALID_PADDING vs OUTPUT_TOO_LARGE is sensitive
+             * (padding oracle attack), so we take care to translate that
+             * part in constant time.
+             */
+            int problem;
+            int public_ret = mbedtls_rsa_decrypt_decompose_ret(
+                MBEDTLS_ERR_RSA_INVALID_PADDING, PSA_ERROR_INVALID_PADDING,
+                MBEDTLS_ERR_RSA_OUTPUT_TOO_LARGE, PSA_ERROR_BUFFER_TOO_SMALL,
+                combined_ret, &problem);
+            status = mbedtls_to_psa_error(public_ret);
+            status |= problem;
 #else
             status = PSA_ERROR_NOT_SUPPORTED;
 #endif /* MBEDTLS_PSA_BUILTIN_ALG_RSA_PKCS1V15_CRYPT */

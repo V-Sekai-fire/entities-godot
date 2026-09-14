@@ -1,3 +1,14 @@
+# We lack a convenient means of gathering *all* the changes when specializations are passed, so
+#  a catch-all variable is the easiest workaround.
+everything:
+  - "**"
+
+# Files appropriate for pre-commit style checks — excludes thirdparty to avoid
+# hitting the OS argument list limit when thousands of vendored files are renamed.
+precommit:
+  - "**"
+  - "!**/thirdparty/**"
+
 # Determines if build actions should occur after static checks are ran. Broadly speaking, these
 #  files changing would result in SCons rebuilding the engine, or are otherwise pertinent to the
 #  buildsystem itself.
@@ -5,9 +16,6 @@ sources:
   - .github/{actions/*,workflows}/*.yml
   - "**/{SConstruct,SCsub,*.py}"
   - "**/*.{h,hpp,hh,hxx,c,cpp,cc,cxx,m,mm,inc,glsl}"
-  - core/extension/gdextension_interface.json
-  - misc/extension_api_validation/**
-  - modules/*/tests/**
   - modules/mono/**/*.{cs,csproj,sln,props,targets}
   - platform/android/java/{gradle*,**/*.{jar,java,kt,gradle}}
   - platform/web/{package{,-lock}.json,js/**/*.js}
@@ -19,16 +27,9 @@ clangd:
   - "**/*.{h,hpp,hxx,hh,c,cpp,cxx,cc}"
   - "!**/thirdparty/**"
   - "!**/*-so_wrap.{h,c}"
-  - "!modules/cassie/src/lean_ffi/**" # Lean 4 FFI shims; need lean/lean.h from the Lean toolchain, absent in the static-check env.
   - "!drivers/{apple*,core*,d3d12,metal,wasapi,windows,winmidi,xaudio2}/**"
   - "!editor/shader/shader_baker/shader_baker_export_plugin_platform_{d3d12,metal}.{h,cpp}"
   - "!modules/camera/camera_{android,macos,win}.{h,cpp}"
   - "!modules/openxr/extensions/platform/openxr_{android,metal}_extension.{h,cpp}"
-  # multiplayer_fabric is gated by a SCsub-provided CPPPATH (#thirdparty/webtransportd,
-  # #modules/sqlite/thirdparty) that clangd-tidy does not pick up without a fresh
-  # compile_commands.json. The sandbox/ subtree additionally builds with the RISC-V
-  # toolchain (see demo/abyssal_vr/sandbox/build.sh) against api.hpp from godot-sandbox.
-  - "!modules/multiplayer_fabric/**"
   - "!platform/{android,ios,macos,visionos,web,windows}/**"
   - "platform/{android,ios,macos,visionos,web,windows}/{api,export}/*.{h,hpp,hxx,hh,c,cpp,cxx,cc}"
-  - "!**/shaders/*_cpu.cpp" # slang `-target cpp` reference output; not built, includes a host-specific prelude.

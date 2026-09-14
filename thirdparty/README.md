@@ -106,51 +106,10 @@ Files extracted from upstream source:
 - `LICENSE`
 
 
-## cineform
-
-- Upstream: https://github.com/gopro/cineform-sdk
-- Version: git (11574d0295771edccadd17af14af74a539f924c7, 2024)
-- License: Apache-2.0 OR MIT
-
-Patches:
-
-- `0001-build-without-exceptions.patch`: the SDK signalled errors by throwing across
-  its C API and catching at each entry point, which Godot cannot compile because it
-  builds with exceptions disabled. The helpers return NULL and the callers check;
-  `GetPixelSize` returns 0, which is not a valid size, where it threw.
-
-The GoPro CineForm codec, used by `modules/cineform` to record Movie Maker output as a
-12-bit wavelet intermediate and to play it back.
-
-Files extracted from upstream source:
-
-- `Codec/`, `Common/`, `EncoderSDK/`, `DecoderSDK/`, `ConvertLib/` and `WarpLib/` folders
-- `LICENSE-APACHE`, `LICENSE-MIT` and `README.md`
-
-The examples are not included. `DecoderSDK/` and `ConvertLib/` are needed by
-`VideoStreamCineForm` only; a build with just the writer does not use them.
-
-Patches:
-
-- `Codec/lutpath.cpp`: `LPTSTR lpValueName` changed to `LPCTSTR`. Assigning a string literal
-  to a non-const pointer is an error in C++, and the file is built as C++.
-- `Codec/encoder.c`: five `MessageBox` calls removed. They opened a system modal licensing
-  dialog from inside the encoder, which would block a headless render and cannot be dismissed
-  by a shipped game. The error code each one accompanied is still set and returned.
-
-Build notes:
-
-- `modules/cineform/SCsub` drops `/fp:strict` for these files when building with MSVC. Under
-  that flag the C compiler does not fold floating point constant expressions, so the static
-  colour matrices fail with C2099.
-- The codec includes `<emmintrin.h>` unconditionally and has no NEON path, so
-  `modules/cineform/config.py` restricts the module to x86 architectures.
-
-
 ## certs
 
 - Upstream: Mozilla, via https://github.com/bagder/ca-bundle
-- Version: git (38fe30abb189fb714e8b1f1b354c6c4caffbe6dc, 2026)
+- Version: git (cc4096bef208d35e2884571046c75a726185c358, 2025)
 - License: MPL 2.0
 
 Files extracted from upstream source:
@@ -510,7 +469,7 @@ Patches:
 ## harfbuzz
 
 - Upstream: https://github.com/harfbuzz/harfbuzz
-- Version: 14.4.0 (36cb489cb02ce4b92099669ba9f9bea348eff93f, 2026)
+- Version: 14.2.0 (b0ffab42d473eb380ad0fcf42730e0f1868cbc97, 2026)
 - License: MIT
 
 Files extracted from upstream source:
@@ -552,23 +511,22 @@ Files generated from upstream source:
 ## jolt_physics
 
 - Upstream: https://github.com/jrouwe/JoltPhysics
-- Version: 5.6.0 (e77f175595e64cb44218cc9d9d56fc365ad0e36a, 2026)
+- Version: 5.5.0 (23dadd0e603f1b321142d4c74df07fce85064989, 2025)
 - License: MIT
 
 Files extracted from upstream source:
 
-- All files in `Jolt/`, except `Jolt/Jolt.cmake`, any files dependent on `ENABLE_OBJECT_STREAM` as seen in `Jolt/Jolt.cmake` and the `Jolt/Physics/Hair/`, `Jolt/Compute/` and `Jolt/Shaders/` folders.
+- All files in `Jolt/`, except `Jolt/Jolt.cmake` and any files dependent on `ENABLE_OBJECT_STREAM`, as seen in `Jolt/Jolt.cmake`
 - `LICENSE`
 
 Patches:
 
-- `0001-backport-upstream-commit-63f2f57.patch` (GH-121974)
-
-
-## jitter_buffer
-
-- Upstream: V-Sekai speech module (Lean 4 verified jitter buffer)
-- License: MIT
+- `0001-backport-upstream-commit-ee3725250.patch` (GH-115089)
+- `0002-backport-upstream-commit-bc7f1fb8c.patch` (GH-115305)
+- `0003-backport-upstream-commit-365a15367.patch` (GH-115305)
+- `0004-backport-upstream-commit-e0a6a9a16.patch` (GH-115327)
+- `0005-backport-upstream-commit-449b645.patch` (GH-117194)
+- `0006-backport-upstream-commit-63765d1.patch` (GH-118393)
 
 
 ## libbacktrace
@@ -647,16 +605,6 @@ Files extracted from upstream source:
 - `COPYING`
 
 
-## libsamplerate
-
-- Upstream: https://github.com/libsndfile/libsamplerate
-- Version: 0.2.2
-- License: BSD-2-Clause
-
-Sample rate converter used by the speech module for resampling between
-audio capture rate and Opus codec rate (48 kHz).
-
-
 ## libpng
 
 - Upstream: http://libpng.org/pub/png/libpng.html
@@ -697,26 +645,6 @@ Files extracted from upstream source:
 - `COPYING`
 
 
-## libwebm
-
-- Upstream: https://github.com/webmproject/libwebm
-- Version: git (6184f4484a82c4b0f7d34e2b1a2e2b34d5d0c9d4, 2024)
-- License: BSD-3-Clause
-
-Used by `modules/cineform` to write Matroska. Despite the name, `mkvmuxer` writes a general
-Matroska file: a track whose codec id is not one of the WebM set makes it emit a DocType of
-`matroska` rather than `webm`.
-
-Files extracted from upstream source:
-
-- `mkvmuxer/` and `mkvparser/` folders, as `mkvmuxer.cc` includes the parser
-- `common/hdr_util.*`, `common/webm_endian.*` and `common/webmids.h`
-- `LICENSE.TXT`, `AUTHORS.TXT` and `PATENTS.TXT`
-
-The vp9 header and level tools and the sample applications are not included, as only muxing
-is used.
-
-
 ## libwebp
 
 - Upstream: https://chromium.googlesource.com/webm/libwebp/
@@ -733,7 +661,6 @@ Patches:
 - `0001-msvc-node-debug-rename.patch` ([GH-75769](https://github.com/godotengine/godot/pull/75769))
 - `0002-msvc-arm64-fpstrict.patch` ([GH-94655](https://github.com/godotengine/godot/pull/94655))
 - `0003-clang-cl-sse2-sse41-avx2.patch` ([GH-92316](https://github.com/godotengine/godot/pull/92316))
-- `0004-emscripten-cppdefine.patch` ([GH-122412](https://github.com/godotengine/godot/pull/122412))
 
 
 ## linuxbsd_headers
@@ -744,39 +671,38 @@ See `linuxbsd_headers/README.md`.
 ## manifold
 
 - Upstream: https://github.com/elalish/manifold
-- Version: 3.5.2 (11235e6b8ebea2dbed8aec4285685aafd3d95667, 2026)
+- Version: 3.3.2 (798d83c8d7fabcddd23c1617097b95ba40f2597c, 2025)
 - License: Apache 2.0
 
 File extracted from upstream source:
 
-- `src/` and `include/`, except from `CMakeLists.txt`, `cross_section.h`
+- `src/` and `include/`, except from `CMakeLists.txt`, `cross_section.h` and `meshIO.{cpp,h}`
 - `AUTHORS`, `LICENSE`
-
-Patches:
-
-- `0001-missing-include.patch` ([GH-120018](https://github.com/godotengine/godot/pull/120018))
 
 
 ## mbedtls
 
 - Upstream: https://github.com/Mbed-TLS/mbedtls
-- Version: 4.1.1 (0a8fda272a5a0abef3b47c91bed37185d5a726b1, 2026)
+- Version: 3.6.7 (068ff080b369adfac81509f9b57b2afabaf82dc5, 2026)
 - License: Apache 2.0
-
-Update instructions:
-
-- If you are updating from git sources and not an official release tarball you must first
-  run the following scripts from the mbedTLS source directory:
-  - `scripts/make_generated_files.py`
-  - `tf-psa-crypto/scripts/generate_config_checks.py`
-  - `tf-psa-crypto/scripts/generate_driver_wrappers.py`
 
 File extracted from upstream release tarball:
 
-- Relevant headers and library files via the script in `thirdparty/mbedtls/extract_mbedtls_sources.py`
-- `LICENSE` (edited to keep only the Apache 2.0 variant)
-- Added 2 headers `godot_mbedtls_config.h` and `godot_psa_config.h` in `thirdparty/mbedtls/godot` for build configuration
-- Added `thirdparty/mbedtls/godot/godot_mbedtls_platform.cpp` to implement some mbedTLS platform functions using Godot-native APIs
+- All `.h` from `include/mbedtls/` to `thirdparty/mbedtls/include/mbedtls/`
+  and all `.h` from `include/psa/` to `thirdparty/mbedtls/include/psa/`
+- From `library/` to `thirdparty/mbedtls/library/`:
+  - All `.c` and `.h` files
+  - Except `bignum_mod.c`, `block_cipher.c`, `ecp_curves_new.c`, `lmots.c`,
+    `lms.c`
+- The `LICENSE` file (edited to keep only the Apache 2.0 variant)
+- Added 2 files `godot_core_mbedtls_platform.c` and `godot_core_mbedtls_config.h`
+  providing configuration for light bundling with core
+- Added 2 files `godot_module_mbedtls_config.h` and `threading_alt.h`
+  to customize the build configuration when bundling the full library
+
+Patches:
+
+- `0001-msvc-2019-psa-redeclaration.patch` ([GH-90535](https://github.com/godotengine/godot/pull/90535))
 
 
 ## metal-cpp
@@ -794,7 +720,7 @@ Update instructions:
 ## meshoptimizer
 
 - Upstream: https://github.com/zeux/meshoptimizer
-- Version: 1.2 (9d9890c73011d75920af614485296d1e03e95448, 2026)
+- Version: 1.1.1 (b22872835dbabc56a6e4a366ea9917f62b7daf1a, 2026)
 - License: MIT
 
 Files extracted from upstream repository:
@@ -881,16 +807,16 @@ Collection of single-file libraries used in Godot components.
   * License: MIT
   * Patches:
     - `FastNoiseLite-0001-namespace-warnings.patch` ([GH-88526](https://github.com/godotengine/godot/pull/88526))
-- `gamemode_client.h`
-  * Upstream: https://github.com/FeralInteractive/gamemode (`lib/gamemode_client.h`)
-  * Version: 1.8.2
-  * License: BSD-3-Clause
 - `ifaddrs-android.{cc,h}`
   * Upstream: https://chromium.googlesource.com/external/webrtc/stable/talk/+/master/base/ifaddrs-android.h
   * Version: git (5976650443d68ccfadf1dea24999ee459dd2819d, 2013)
   * License: BSD-3-Clause
   * Patches:
     - `ifaddrs-android-0001-complete-struct.patch` ([GH-34101](https://github.com/godotengine/godot/pull/34101))
+- `mikktspace.{c,h}`
+  * Upstream: https://archive.blender.org/wiki/index.php/Dev:Shading/Tangent_Space_Normal_Maps/
+  * Version: 1.0 (2011)
+  * License: zlib
 - `nvapi_minimal.h`
   * Upstream: http://download.nvidia.com/XFree86/nvapi-open-source-sdk
   * Version: R525
@@ -918,7 +844,7 @@ Collection of single-file libraries used in Godot components.
     - `polypartition-0002-shadow-warning.patch` ([GH-66808](https://github.com/godotengine/godot/pull/66808))
 - `qoa.{c,h}`
   * Upstream: https://github.com/phoboslab/qoa
-  * Version: git (1bf9bc04673df55dc554021b768006836f69d53a, 2026)
+  * Version: git (ae07b57deb98127a5b40916cb57775823d7437d2, 2025)
   * License: MIT
   * Modifications: Added implementation through `qoa.c`.
 - `r128.{c,h}`
@@ -963,22 +889,10 @@ Patches:
 - `0001-remove-unused-save-features.patch` ([GH-113965](https://github.com/godotengine/godot/issues/113965))
 
 
-## offset_allocator
-
-- Upstream: https://github.com/sebbbi/OffsetAllocator
-- Version: git (3610a7377088b1e8c8f1525f458c96038a4e6fc0, 2026)
-- License: MIT
-
-Files extracted from upstream source:
-
-- `offsetAllocator.cpp`, `offsetAllocator.hpp`
-- `LICENSE`
-
-
 ## openxr
 
 - Upstream: https://github.com/KhronosGroup/OpenXR-SDK
-- Version: 1.1.63 (f2448a8797c85814aa892efc1ab8707900fbcc78, 2026)
+- Version: 1.1.54 (c15d38cb4bb10a5b7e075f74493ff13896e2597a, 2025)
 - License: Apache 2.0
 
 Files extracted from upstream source:
@@ -1005,25 +919,10 @@ Exclude:
 Additional:
 - Update `openxrLoaderVersion` in `platform/android/java/app/config.gradle`
 
-Patches:
-
-- `0001-remove-try-catch.patch` ([GH-123123](https://github.com/godotengine/godot/pull/123123))
-
-## opus_speech
-
-- Upstream: https://github.com/xiph/opus
-- Version: 1.6.1
-- License: BSD-3-Clause
-
-Opus codec with OSCE (Opus Speech Coding Enhancement), DRED (Deep Redundancy),
-and Deep PLC (Packet Loss Concealment) via DNN. Used by the speech module for
-VoIP encoding/decoding. Named `opus_speech` to avoid conflict with any future
-engine-level Opus integration.
-
 
 ## pcre2
 
-- Upstream: https://pcre2project.github.io/pcre2/
+- Upstream: http://www.pcre.org
 - Version: 10.47 (f454e231fe5006dd7ff8f4693fd2b8eb94333429, 2025)
 - License: BSD-3-Clause
 
@@ -1048,16 +947,6 @@ Files extracted from upstream source:
 
 - `Recast/` folder without `CMakeLists.txt`
 - `License.txt`
-
-
-## rnnoise
-
-- Upstream: https://github.com/xiph/rnnoise
-- Version: 0.2
-- License: BSD-3-Clause
-
-Recurrent neural network-based noise suppression. Provides VAD (voice
-activity detection) and real-time noise reduction for the speech module.
 
 
 ## re-spirv
@@ -1213,7 +1102,7 @@ Patches:
 ## tinyexr
 
 - Upstream: https://github.com/syoyo/tinyexr
-- Version: 3.2.0 (6f470c9ab24bf3992bc512ce07e8ecb00d9bf105, 2026)
+- Version: 1.0.13 (4946b5d92e13bcc8102ac2c8efd129596a90bf75, 2026)
 - License: BSD-3-Clause
 
 Files extracted from upstream source:
@@ -1231,7 +1120,7 @@ Patches:
 ## ufbx
 
 - Upstream: https://github.com/ufbx/ufbx
-- Version: 0.23.0 (fcc5d6ba444cfd3eb80677dba5e37e493941abe5, 2026)
+- Version: 0.21.3 (83bc7cf44f76bc8622de63b809a42b5d557cd733, 2026)
 - License: MIT
 
 Files extracted from upstream source:

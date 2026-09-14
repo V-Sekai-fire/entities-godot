@@ -112,7 +112,6 @@ void ProjectManager::_notification(int p_what) {
 			_select_main_view(MAIN_VIEW_PROJECTS);
 			_update_list_placeholder();
 			_titlebar_resized();
-			_update_compact_mode(true);
 		} break;
 
 		case NOTIFICATION_TRANSLATION_CHANGED: {
@@ -124,8 +123,6 @@ void ProjectManager::_notification(int p_what) {
 			empty_list_message->set_text(vformat("[center][b]%s[/b] %s[/center]", line1, line2));
 
 			_titlebar_resized();
-
-			EditorHelpBit::clear_cache();
 		} break;
 
 		case NOTIFICATION_VISIBILITY_CHANGED: {
@@ -148,7 +145,6 @@ void ProjectManager::_notification(int p_what) {
 		} break;
 		case NOTIFICATION_RESIZED: {
 			project_list->resize_project_titles();
-			_update_compact_mode();
 		} break;
 	}
 }
@@ -184,22 +180,8 @@ void ProjectManager::_build_icon_type_cache(Ref<Theme> p_theme) {
 
 // Main layout.
 
-// Hides certain parts of the Project Manager when window width gets smaller than combined_minimum_size.
-void ProjectManager::_update_compact_mode(bool p_reset_threshold) {
-	if (p_reset_threshold) {
-		project_list_sidebar->show();
-		compact_mode_threshold = root_container->get_combined_minimum_size().width;
-	}
-
-	bool compact_mode = get_size().width < compact_mode_threshold;
-	project_list_sidebar->set_visible(!compact_mode);
-}
-
 void ProjectManager::_update_size_limits() {
-	const Size2 default_minimum_size = Size2(720, 450) * EDSCALE;
-	const Size2 display_size = DisplayServer::get_singleton()->screen_get_usable_rect(DisplayServerEnums::SCREEN_OF_MAIN_WINDOW).size;
-	const real_t smallest_display_dimension = display_size.width < display_size.height ? display_size.width : display_size.height;
-	const Size2 minimum_size = default_minimum_size.minf(smallest_display_dimension);
+	const Size2 minimum_size = Size2(720, 450) * EDSCALE;
 
 	// Define a minimum window size to prevent UI elements from overlapping or being cut off.
 	Window *w = Object::cast_to<Window>(SceneTree::get_singleton()->get_root());
@@ -329,11 +311,6 @@ void ProjectManager::_update_theme(bool p_skip_creation) {
 			asset_library->add_theme_style_override(SceneStringName(panel), memnew(StyleBoxEmpty));
 		}
 	}
-
-#if defined(MODULE_GDSCRIPT_ENABLED) || defined(MODULE_MONO_ENABLED)
-	EditorHelpHighlighter::get_singleton()->clear_cache();
-#endif
-
 #ifdef ANDROID_ENABLED
 	DisplayServer::get_singleton()->window_set_color(theme->get_color("background", EditorStringName(Editor)));
 #endif
@@ -495,12 +472,6 @@ void ProjectManager::_dim_window() {
 // Quick settings.
 
 void ProjectManager::_show_quick_settings() {
-	if (!EditorPropertyNameProcessor::get_singleton()) {
-		EditorPropertyNameProcessor *epnp = memnew(EditorPropertyNameProcessor);
-		add_child(epnp);
-
-		EditorHelp::generate_doc();
-	}
 	quick_settings_dialog->popup_centered(Size2(640, 200) * EDSCALE);
 }
 
@@ -624,10 +595,6 @@ void ProjectManager::_open_selected_projects() {
 			args.push_back("--verbose");
 		}
 
-		if (ask_upgrade_tool->is_pressed()) {
-			args.push_back("--run-upgrade-tool");
-		}
-
 		Error err = OS::get_singleton()->create_instance(args);
 		if (err != OK) {
 			loading_label->hide();
@@ -668,11 +635,9 @@ void ProjectManager::_open_selected_projects_check_warnings() {
 
 	ask_update_label->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_LEFT); // Reset in case of previous center align.
 	ask_update_backup->set_pressed(false);
-	ask_upgrade_tool->set_pressed(false);
 	full_convert_button->hide();
 	migration_guide_button->hide();
 	ask_update_backup->hide();
-	ask_upgrade_tool->hide();
 
 	ask_update_settings->get_ok_button()->set_text("OK");
 
@@ -719,10 +684,7 @@ void ProjectManager::_open_selected_projects_check_warnings() {
 				i--;
 			} else if (ProjectList::project_feature_looks_like_version(feature)) {
 				ask_update_backup->show();
-				if (project.control->is_older_version()) {
-					ask_upgrade_tool->show();
-					migration_guide_button->show();
-				}
+				migration_guide_button->show();
 				version_convert_feature = feature;
 				warning_message += vformat(TTR("Warning: This project was last edited in Godot %s. Opening will change it to Godot %s.\n\n"), Variant(feature), Variant(GODOT_VERSION_BRANCH));
 				unsupported_features.remove_at(i);
@@ -783,7 +745,6 @@ void ProjectManager::_open_selected_projects_with_migration() {
 	}
 #endif
 	_open_selected_projects();
-	ask_upgrade_tool->set_pressed(false);
 }
 
 void ProjectManager::_install_project(const String &p_zip_path, const String &p_title) {
@@ -1641,7 +1602,6 @@ ProjectManager::ProjectManager() {
 			project_list->connect(ProjectList::SIGNAL_SELECTION_CHANGED, callable_mp(this, &ProjectManager::_update_project_buttons));
 			project_list->connect(ProjectList::SIGNAL_PROJECT_ASK_OPEN, callable_mp(this, &ProjectManager::_open_selected_projects_check_recovery_mode));
 			project_list->connect(ProjectList::SIGNAL_MENU_OPTION_SELECTED, callable_mp(this, &ProjectManager::_project_list_menu_option));
-			project_list->connect(SceneStringName(minimum_size_changed), callable_mp(this, &ProjectManager::_update_compact_mode).bind(true));
 
 			// Empty project list placeholder.
 			{
@@ -1693,8 +1653,8 @@ ProjectManager::ProjectManager() {
 			}
 
 			// The side bar with the edit, run, rename, etc. buttons.
-			project_list_sidebar = memnew(VBoxContainer);
-			project_list_sidebar->set_custom_minimum_size(Size2(120, 120) * EDSCALE);
+			VBoxContainer *project_list_sidebar = memnew(VBoxContainer);
+			project_list_sidebar->set_custom_minimum_size(Size2(120, 120));
 			project_list_hbox->add_child(project_list_sidebar);
 
 			project_list_sidebar->add_child(memnew(HSeparator));
@@ -1822,7 +1782,6 @@ ProjectManager::ProjectManager() {
 		scan_dir->connect("dir_selected", callable_mp(project_list, &ProjectList::find_projects));
 
 		erase_missing_ask = memnew(ConfirmationDialog);
-		erase_missing_ask->set_flag(Window::FLAG_RESIZE_DISABLED, true);
 		erase_missing_ask->set_ok_button_text(TTRC("Remove All"));
 		erase_missing_ask->get_ok_button()->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_erase_missing_projects_confirm));
 		add_child(erase_missing_ask);
@@ -1846,13 +1805,11 @@ ProjectManager::ProjectManager() {
 		//erase_ask_vb->add_child(delete_project_contents);
 
 		multi_open_ask = memnew(ConfirmationDialog);
-		multi_open_ask->set_flag(Window::FLAG_RESIZE_DISABLED, true);
 		multi_open_ask->set_ok_button_text(TTRC("Edit"));
 		multi_open_ask->get_ok_button()->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_open_selected_projects));
 		add_child(multi_open_ask);
 
 		multi_run_ask = memnew(ConfirmationDialog);
-		multi_run_ask->set_flag(Window::FLAG_RESIZE_DISABLED, true);
 		multi_run_ask->set_ok_button_text(TTRC("Run"));
 		multi_run_ask->get_ok_button()->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_run_project_confirm));
 		add_child(multi_run_ask);
@@ -1879,11 +1836,6 @@ ProjectManager::ProjectManager() {
 		ask_update_backup->set_text(TTRC("Backup project first"));
 		ask_update_backup->set_h_size_flags(SIZE_SHRINK_CENTER);
 		ask_update_vb->add_child(ask_update_backup);
-		ask_upgrade_tool = memnew(CheckBox);
-		ask_upgrade_tool->set_text(TTRC("Upgrade All Project Files"));
-		ask_upgrade_tool->set_tooltip_text(TTRC("Automatically runs the upgrade tool. This may take a while to finish. The project will be restarted once in the process."));
-		ask_upgrade_tool->set_h_size_flags(SIZE_SHRINK_CENTER);
-		ask_update_vb->add_child(ask_upgrade_tool);
 		ask_update_settings->get_ok_button()->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_open_selected_projects_with_migration));
 		int ed_swap_cancel_ok = EDITOR_GET("interface/editor/appearance/accept_dialog_cancel_ok_buttons");
 		if (ed_swap_cancel_ok == 0) {
@@ -2032,8 +1984,6 @@ ProjectManager::ProjectManager() {
 ProjectManager::~ProjectManager() {
 	singleton = nullptr;
 	EditorInspector::cleanup_plugins();
-
-	EditorHelp::cleanup_doc();
 
 #if defined(MODULE_GDSCRIPT_ENABLED) || defined(MODULE_MONO_ENABLED)
 	EditorHelpHighlighter::free_singleton();

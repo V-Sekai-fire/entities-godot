@@ -21,7 +21,7 @@
  * By defining the macros ourselves we gain access to those declarations without
  * requiring -march on the command line.
  *
- * `arm_neon.h` is included by tf_psa_crypto_common.h, so we put these defines
+ * `arm_neon.h` is included by common.h, so we put these defines
  * at the top of this file, before any includes. This is necessary with
  * Clang <=15.x. With Clang 16.0 and above, these macro definitions are
  * no longer required, but they're harmless. See
@@ -39,7 +39,7 @@
 
 #endif /* defined(__clang__) &&  (__clang_major__ >= 4) */
 
-#include "tf_psa_crypto_common.h"
+#include "common.h"
 
 #if defined(MBEDTLS_AESCE_C)
 

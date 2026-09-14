@@ -721,6 +721,7 @@ class CanvasItemEditorViewport : public Control {
 	void _remove_preview();
 
 	bool _is_any_texture_selected() const;
+	void _add_node_to_scene(Node *p_parent, Node *p_child, const Vector2 &p_target_position);
 	void _create_texture_node(Node *p_parent, Node *p_child, const String &p_path, const Point2 &p_point);
 	void _create_audio_node(Node *p_parent, const String &p_path, const Point2 &p_point);
 	bool _create_instance(Node *p_parent, const String &p_path, const Point2 &p_point);

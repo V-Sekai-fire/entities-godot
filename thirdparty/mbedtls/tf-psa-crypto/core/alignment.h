@@ -8,8 +8,8 @@
  *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
  */
 
-#ifndef TF_PSA_CRYPTO_ALIGNMENT_H
-#define TF_PSA_CRYPTO_ALIGNMENT_H
+#ifndef MBEDTLS_LIBRARY_ALIGNMENT_H
+#define MBEDTLS_LIBRARY_ALIGNMENT_H
 
 #include <stdint.h>
 #include <string.h>
@@ -52,6 +52,7 @@
  * According to that document, this is only supported on certain architectures.
  */
 #define UINT_UNALIGNED
+
 /* Some products, like Zephyr, defines __packed as a macro for attribute(packed) and
  * that does not work with typedefs, so if __packed is defined, undef it for the
  * typedefs and restore it afterwards.
@@ -61,13 +62,16 @@
 #undef __packed
 #define MBEDTLS_IAR_PACKED_MACRO_USED
 #endif
+
 typedef uint16_t __packed mbedtls_uint16_unaligned_t;
 typedef uint32_t __packed mbedtls_uint32_unaligned_t;
 typedef uint64_t __packed mbedtls_uint64_unaligned_t;
+
 #ifdef MBEDTLS_IAR_PACKED_MACRO_USED
 #undef MBEDTLS_IAR_PACKED_MACRO_USED
 #pragma pop_macro("__packed")
 #endif
+
 #elif defined(MBEDTLS_COMPILER_IS_GCC) && (MBEDTLS_GCC_VERSION >= 40504) && \
     ((MBEDTLS_GCC_VERSION < 60300) || (!defined(MBEDTLS_EFFICIENT_UNALIGNED_ACCESS)))
 /*
@@ -697,4 +701,4 @@ static const uint16_t mbedtls_byte_order_detector = { 0x100 };
         }                                                                        \
     }
 
-#endif /* TF_PSA_CRYPTO_ALIGNMENT_H */
+#endif /* MBEDTLS_LIBRARY_ALIGNMENT_H */

@@ -9,29 +9,33 @@
  *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
  */
 
-#include "tf_psa_crypto_common.h"
+#include "common.h"
 
 #if defined(MBEDTLS_CHACHA20_C)
 
-#include "chacha20_neon.h"
-
-#include "mbedtls/private/chacha20.h"
+#include "mbedtls/chacha20.h"
 #include "mbedtls/platform_util.h"
-#include "mbedtls/private/error_common.h"
+#include "mbedtls/error.h"
 
 #include <stddef.h>
 #include <string.h>
 
+#include "chacha20_internal.h"
+
 #include "mbedtls/platform.h"
 
-#define CHACHA20_CTR_INDEX (12U)
-#define CHACHA20_MAX_BLOCKS UINT32_MAX
-#define CHACHA20_COUNTER_EXHAUSTED (MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES + 1U)
-
-#if MBEDTLS_CHACHA20_NEON_MULTIBLOCK == 0
+#if !defined(MBEDTLS_CHACHA20_ALT)
 
 #define ROTL32(value, amount) \
     ((uint32_t) ((value) << (amount)) | ((value) >> (32 - (amount))))
+
+#define CHACHA20_CTR_INDEX (12U)
+
+#define CHACHA20_BLOCK_SIZE_BYTES (4U * 16U)
+
+#define CHACHA20_MAX_BLOCKS UINT32_MAX
+
+#define CHACHA20_COUNTER_EXHAUSTED (CHACHA20_BLOCK_SIZE_BYTES + 1U)
 
 /**
  * \brief           ChaCha20 quarter round operation.
@@ -110,7 +114,7 @@ static void chacha20_block(const uint32_t initial_state[16],
 
     memcpy(working_state,
            initial_state,
-           MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES);
+           CHACHA20_BLOCK_SIZE_BYTES);
 
     for (i = 0U; i < 10U; i++) {
         chacha20_inner_block(working_state);
@@ -142,14 +146,13 @@ static void chacha20_block(const uint32_t initial_state[16],
     mbedtls_platform_zeroize(working_state, sizeof(working_state));
 }
 
-#endif /* MBEDTLS_CHACHA20_NEON_MULTIBLOCK == 0 */
-
 void mbedtls_chacha20_init(mbedtls_chacha20_context *ctx)
 {
-    mbedtls_platform_zeroize(ctx, sizeof(mbedtls_chacha20_context));
+    mbedtls_platform_zeroize(ctx->state, sizeof(ctx->state));
+    mbedtls_platform_zeroize(ctx->keystream8, sizeof(ctx->keystream8));
 
     /* Initially, there's no keystream bytes available */
-    ctx->keystream_bytes_used = MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES;
+    ctx->keystream_bytes_used = CHACHA20_BLOCK_SIZE_BYTES;
 }
 
 void mbedtls_chacha20_free(mbedtls_chacha20_context *ctx)
@@ -163,30 +166,20 @@ int mbedtls_chacha20_setkey(mbedtls_chacha20_context *ctx,
                             const unsigned char key[32])
 {
     /* ChaCha20 constants - the string "expand 32-byte k" */
-    static const char EXPAND_32_BYTE_K[16]
-    MBEDTLS_ATTRIBUTE_UNTERMINATED_STRING = "expand 32-byte k";
-    if (MBEDTLS_IS_BIG_ENDIAN) {
-        ctx->state[0] = MBEDTLS_GET_UINT32_LE(EXPAND_32_BYTE_K, 0);
-        ctx->state[1] = MBEDTLS_GET_UINT32_LE(EXPAND_32_BYTE_K, 4);
-        ctx->state[2] = MBEDTLS_GET_UINT32_LE(EXPAND_32_BYTE_K, 8);
-        ctx->state[3] = MBEDTLS_GET_UINT32_LE(EXPAND_32_BYTE_K, 12);
-    } else {
-        memcpy(ctx->state, EXPAND_32_BYTE_K, 16);
-    }
+    ctx->state[0] = 0x61707865;
+    ctx->state[1] = 0x3320646e;
+    ctx->state[2] = 0x79622d32;
+    ctx->state[3] = 0x6b206574;
 
     /* Set key */
-    if (MBEDTLS_IS_BIG_ENDIAN) {
-        ctx->state[4]  = MBEDTLS_GET_UINT32_LE(key, 0);
-        ctx->state[5]  = MBEDTLS_GET_UINT32_LE(key, 4);
-        ctx->state[6]  = MBEDTLS_GET_UINT32_LE(key, 8);
-        ctx->state[7]  = MBEDTLS_GET_UINT32_LE(key, 12);
-        ctx->state[8]  = MBEDTLS_GET_UINT32_LE(key, 16);
-        ctx->state[9]  = MBEDTLS_GET_UINT32_LE(key, 20);
-        ctx->state[10] = MBEDTLS_GET_UINT32_LE(key, 24);
-        ctx->state[11] = MBEDTLS_GET_UINT32_LE(key, 28);
-    } else {
-        memcpy(&ctx->state[4], key, 32);
-    }
+    ctx->state[4]  = MBEDTLS_GET_UINT32_LE(key, 0);
+    ctx->state[5]  = MBEDTLS_GET_UINT32_LE(key, 4);
+    ctx->state[6]  = MBEDTLS_GET_UINT32_LE(key, 8);
+    ctx->state[7]  = MBEDTLS_GET_UINT32_LE(key, 12);
+    ctx->state[8]  = MBEDTLS_GET_UINT32_LE(key, 16);
+    ctx->state[9]  = MBEDTLS_GET_UINT32_LE(key, 20);
+    ctx->state[10] = MBEDTLS_GET_UINT32_LE(key, 24);
+    ctx->state[11] = MBEDTLS_GET_UINT32_LE(key, 28);
 
     return 0;
 }
@@ -199,18 +192,14 @@ int mbedtls_chacha20_starts(mbedtls_chacha20_context *ctx,
     ctx->state[CHACHA20_CTR_INDEX] = counter;
 
     /* Nonce */
-    if (MBEDTLS_IS_BIG_ENDIAN) {
-        ctx->state[13] = MBEDTLS_GET_UINT32_LE(nonce, 0);
-        ctx->state[14] = MBEDTLS_GET_UINT32_LE(nonce, 4);
-        ctx->state[15] = MBEDTLS_GET_UINT32_LE(nonce, 8);
-    } else {
-        memcpy(&ctx->state[13], nonce, 12);
-    }
+    ctx->state[13] = MBEDTLS_GET_UINT32_LE(nonce, 0);
+    ctx->state[14] = MBEDTLS_GET_UINT32_LE(nonce, 4);
+    ctx->state[15] = MBEDTLS_GET_UINT32_LE(nonce, 8);
 
     mbedtls_platform_zeroize(ctx->keystream8, sizeof(ctx->keystream8));
 
     /* Initially, there's no keystream bytes available */
-    ctx->keystream_bytes_used = MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES;
+    ctx->keystream_bytes_used = CHACHA20_BLOCK_SIZE_BYTES;
 
     return 0;
 }
@@ -231,9 +220,9 @@ int mbedtls_chacha20_check_counter_wrap(const mbedtls_chacha20_context *ctx,
     }
 #endif
 
-    if (ctx->keystream_bytes_used < MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES) {
+    if (ctx->keystream_bytes_used < CHACHA20_BLOCK_SIZE_BYTES) {
         available_keystream =
-            MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES - ctx->keystream_bytes_used;
+            CHACHA20_BLOCK_SIZE_BYTES - ctx->keystream_bytes_used;
 
         if (size <= available_keystream) {
             return 0;
@@ -246,9 +235,9 @@ int mbedtls_chacha20_check_counter_wrap(const mbedtls_chacha20_context *ctx,
         size -= available_keystream;
     }
 
-    needed_blocks = (size / MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES);
+    needed_blocks = (size / CHACHA20_BLOCK_SIZE_BYTES);
 
-    if (size % MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES != 0U) {
+    if (size % CHACHA20_BLOCK_SIZE_BYTES != 0U) {
         needed_blocks++;
     }
 
@@ -259,8 +248,6 @@ int mbedtls_chacha20_check_counter_wrap(const mbedtls_chacha20_context *ctx,
 
     return 0;
 }
-
-#if MBEDTLS_CHACHA20_NEON_MULTIBLOCK == 0
 
 int mbedtls_chacha20_update(mbedtls_chacha20_context *ctx,
                             size_t size,
@@ -276,7 +263,7 @@ int mbedtls_chacha20_update(mbedtls_chacha20_context *ctx,
     }
 
     /* Use leftover keystream bytes, if available */
-    while (ctx->keystream_bytes_used < MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES && size > 0) {
+    while (size > 0U && ctx->keystream_bytes_used < CHACHA20_BLOCK_SIZE_BYTES) {
         output[offset] = input[offset]
                          ^ ctx->keystream8[ctx->keystream_bytes_used];
 
@@ -284,22 +271,22 @@ int mbedtls_chacha20_update(mbedtls_chacha20_context *ctx,
         offset++;
         size--;
 
-        if (ctx->keystream_bytes_used == MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES &&
+        if (ctx->keystream_bytes_used == CHACHA20_BLOCK_SIZE_BYTES &&
             ctx->state[CHACHA20_CTR_INDEX] == 0U) {
             ctx->keystream_bytes_used = CHACHA20_COUNTER_EXHAUSTED;
         }
     }
 
     /* Process full blocks */
-    while (size >= MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES) {
+    while (size >= CHACHA20_BLOCK_SIZE_BYTES) {
         /* Generate new keystream block and increment counter */
         chacha20_block(ctx->state, ctx->keystream8);
         ctx->state[CHACHA20_CTR_INDEX]++;
 
         mbedtls_xor(output + offset, input + offset, ctx->keystream8, 64U);
 
-        offset += MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES;
-        size   -= MBEDTLS_CHACHA20_BLOCK_SIZE_BYTES;
+        offset += CHACHA20_BLOCK_SIZE_BYTES;
+        size   -= CHACHA20_BLOCK_SIZE_BYTES;
 
         if (ctx->state[CHACHA20_CTR_INDEX] == 0U) {
             ctx->keystream_bytes_used = CHACHA20_COUNTER_EXHAUSTED;
@@ -320,8 +307,6 @@ int mbedtls_chacha20_update(mbedtls_chacha20_context *ctx,
 
     return 0;
 }
-
-#endif /* MBEDTLS_CHACHA20_NEON_MULTIBLOCK == 0 */
 
 int mbedtls_chacha20_crypt(const unsigned char key[32],
                            const unsigned char nonce[12],
@@ -351,6 +336,8 @@ cleanup:
     mbedtls_chacha20_free(&ctx);
     return ret;
 }
+
+#endif /* !MBEDTLS_CHACHA20_ALT */
 
 #if defined(MBEDTLS_SELF_TEST)
 

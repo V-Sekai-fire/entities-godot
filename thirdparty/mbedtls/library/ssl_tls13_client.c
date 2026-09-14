@@ -5,7 +5,7 @@
  *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
  */
 
-#include "ssl_misc.h"
+#include "common.h"
 
 #if defined(MBEDTLS_SSL_CLI_C) && defined(MBEDTLS_SSL_PROTO_TLS1_3)
 
@@ -15,6 +15,7 @@
 #include "mbedtls/error.h"
 #include "mbedtls/platform.h"
 
+#include "ssl_misc.h"
 #include "ssl_client.h"
 #include "ssl_tls13_keys.h"
 #include "ssl_debug_helpers.h"
@@ -158,7 +159,7 @@ static int ssl_tls13_parse_alpn_ext(mbedtls_ssl_context *ssl,
 
     /* Check that the server chosen protocol was in our list and save it */
     MBEDTLS_SSL_CHK_BUF_READ_PTR(p, protocol_name_list_end, protocol_name_len);
-    for (const char *const *alpn = ssl->conf->alpn_list; *alpn != NULL; alpn++) {
+    for (const char **alpn = ssl->conf->alpn_list; *alpn != NULL; alpn++) {
         if (protocol_name_len == strlen(*alpn) &&
             memcmp(p, *alpn, protocol_name_len) == 0) {
             ssl->alpn_chosen = *alpn;
@@ -216,7 +217,7 @@ static int ssl_tls13_get_default_group_id(mbedtls_ssl_context *ssl,
 
 
 #if defined(PSA_WANT_ALG_ECDH) || defined(PSA_WANT_ALG_FFDH)
-    const uint16_t *group_list = ssl->conf->group_list;
+    const uint16_t *group_list = mbedtls_ssl_get_groups(ssl);
     /* Pick first available ECDHE group compatible with TLS 1.3 */
     if (group_list == NULL) {
         return MBEDTLS_ERR_SSL_BAD_CONFIG;
@@ -382,7 +383,7 @@ static int ssl_tls13_parse_hrr_key_share_ext(mbedtls_ssl_context *ssl,
     int selected_group;
     int found = 0;
 
-    const uint16_t *group_list = ssl->conf->group_list;
+    const uint16_t *group_list = mbedtls_ssl_get_groups(ssl);
     if (group_list == NULL) {
         return MBEDTLS_ERR_SSL_BAD_CONFIG;
     }
@@ -1144,6 +1145,11 @@ int mbedtls_ssl_tls13_write_client_hello_exts(mbedtls_ssl_context *ssl,
     size_t ext_len;
 
     *out_len = 0;
+
+    ret = mbedtls_ssl_tls13_crypto_init(ssl);
+    if (ret != 0) {
+        return ret;
+    }
 
     /* Write supported_versions extension
      *
@@ -2282,8 +2288,8 @@ static int ssl_tls13_process_encrypted_extensions(mbedtls_ssl_context *ssl)
     if (mbedtls_ssl_tls13_key_exchange_mode_with_psk(ssl)) {
         mbedtls_ssl_handshake_set_state(ssl, MBEDTLS_SSL_SERVER_FINISHED);
 
-        /* Since we're not using a certificate, set verify_result to skipped */
-        ssl->session_negotiate->verify_result = MBEDTLS_X509_BADCERT_SKIP_VERIFY;
+        /* Since we're not using a certificate, set verify_result to success */
+        ssl->session_negotiate->verify_result = 0;
     } else {
         mbedtls_ssl_handshake_set_state(ssl, MBEDTLS_SSL_CERTIFICATE_REQUEST);
     }

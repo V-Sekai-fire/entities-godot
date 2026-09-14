@@ -1028,6 +1028,11 @@
     ((PSA_EXPORT_KEY_PAIR_MAX_SIZE > PSA_EXPORT_PUBLIC_KEY_MAX_SIZE) ? \
      PSA_EXPORT_KEY_PAIR_MAX_SIZE : PSA_EXPORT_PUBLIC_KEY_MAX_SIZE)
 
+/* This is our old custom name from before it was in the spec,
+ * keep it around in case users were relying on it. */
+#define PSA_EXPORT_KEY_PAIR_OR_PUBLIC_MAX_SIZE \
+    PSA_EXPORT_ASYMMETRIC_KEY_MAX_SIZE
+
 /** Sufficient output buffer size for psa_raw_key_agreement().
  *
  * This macro returns a compile-time constant if its arguments are
