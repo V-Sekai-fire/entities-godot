@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="Pixal3DPipeline" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Loaded pixal3d image-to-mesh pipeline, kept resident across [method generate_glb] calls.
+	</brief_description>
+	<description>
+		Holds the [code skip-lint]t2_pipeline[/code] handle so multiple parts of a character workflow (body, head, hair) share one loaded weight set. Compare with [method Pixal3DModel.image_to_glb], which loads and frees per call.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="load">
+			<return type="bool" />
+			<param index="0" name="opts" type="Dictionary" />
+			<description>
+				Load the trellis2 pipeline with the GGUF checkpoints in [param opts]. Required keys: [code skip-lint]dino_gguf[/code], [code skip-lint]ss_flow_gguf[/code], [code skip-lint]ss_dec_gguf[/code]. Optional keys: [code skip-lint]slat_flow_gguf[/code], [code skip-lint]slat_hr_flow_gguf[/code], [code skip-lint]shape_dec_gguf[/code], [code skip-lint]shape_enc_gguf[/code], [code skip-lint]tex_dec_gguf[/code], [code skip-lint]tex_flow_gguf[/code], [code skip-lint]tex_flow_hr_gguf[/code]. Returns [code]true[/code] on success; on failure pushes the reason through [method @GlobalScope.printerr] and leaves the pipeline unloaded.
+			</description>
+		</method>
+		<method name="is_loaded" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if [method load] has succeeded and [method unload] has not been called since.
+			</description>
+		</method>
+		<method name="caps" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the capability bitmask reported by the loaded pipeline. Bits: [code skip-lint]T2_CAP_COARSE[/code] (1), [code skip-lint]T2_CAP_512[/code] (2), [code skip-lint]T2_CAP_1024[/code] (4), [code skip-lint]T2_CAP_TEXTURE[/code] (8). Zero when not loaded.
+			</description>
+		</method>
+		<method name="backend" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the ggml backend the loaded pipeline is running on, e.g. [code]metal[/code] or [code]cpu[/code]. Empty when not loaded.
+			</description>
+		</method>
+		<method name="generate_glb" qualifiers="const">
+			<return type="PackedByteArray" />
+			<param index="0" name="image_bytes" type="PackedByteArray" />
+			<param index="1" name="gen_opts" type="Dictionary" />
+			<description>
+				Generate a GLB from [param image_bytes] against the loaded pipeline. [param gen_opts] carries generation knobs only, not GGUF paths: [code skip-lint]pipeline_type[/code] (0 auto, 1 coarse, 2 512-fine, 3 1024-cascade), [code skip-lint]background_mode[/code] (0 auto, 1 keep, 2 black, 3 white), [code skip-lint]seed[/code], [code skip-lint]steps[/code] (default 25), [code skip-lint]guidance[/code] (default 3.0), [code skip-lint]texture_steps[/code] (default 0), [code skip-lint]texture_size[/code] (default 1024), [code skip-lint]component_filter[/code] (default -1).
+				Returns an empty [PackedByteArray] on any error; the reason is pushed through [method @GlobalScope.printerr].
+			</description>
+		</method>
+		<method name="unload">
+			<return type="void" />
+			<description>
+				Release the loaded pipeline. Safe to call more than once. The destructor also calls this.
+			</description>
+		</method>
+	</methods>
+</class>
