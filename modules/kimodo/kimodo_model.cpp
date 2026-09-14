@@ -35,8 +35,9 @@
 #include "core/string/print_string.h"
 #include "core/variant/typed_array.h"
 
-#include <cstring>
 #include <kimodo/kimodo_capi.h>
+
+#include <cstring>
 
 int KimodoModel::get_abi_version() const {
 	return (int)kimodo_abi_version();
