@@ -16,6 +16,19 @@
 			<return type="String" />
 			<param index="0" name="status" type="int" />
 			<description>
+				Returns the skin-tokens status enum as a string. Until upstream ships a status-to-string helper, the value is the enum ordinal rendered decimal.
+			</description>
+		</method>
+		<method name="rig_file" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="bundle_path" type="String" />
+			<param index="1" name="mesh_path" type="String" />
+			<param index="2" name="output_path" type="String" />
+			<param index="3" name="opts" type="Dictionary" />
+			<description>
+				Rig an unrigged GLB at [param mesh_path] using the skin-tokens bundle at [param bundle_path], writing the rigged GLB to [param output_path].
+				Optional [param opts] keys: [code skip-lint]device[/code] (0 auto, 1 CPU, 2 Vulkan), [code skip-lint]seed[/code], [code skip-lint]top_k[/code], [code skip-lint]top_p[/code], [code skip-lint]temperature[/code], [code skip-lint]repetition_penalty[/code], [code skip-lint]beams[/code], [code skip-lint]max_tokens[/code], [code skip-lint]geometric_only[/code].
+				Returns the [code skip-lint]st_status[/code] enum: 0 on success; any other value is a failure whose reason is pushed through [method @GlobalScope.printerr] before this method returns.
 			</description>
 		</method>
 	</methods>
