@@ -1,6 +1,32 @@
 /**************************************************************************/
 /*  test_mcp_properties.h                                                 */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #pragma once
 
@@ -22,17 +48,17 @@ constexpr int CASES = 256;
 constexpr uint64_t SEED = 0x9E3779B97F4A7C15ULL; // fixed, so a failure reproduces
 
 // Generated values carry the units the commands actually move: positions and
-// bounds are metres, rotations are degrees, weights are unitless 0-1.
+// bounds are meters, rotations are degrees, weights are unitless 0-1.
 static Variant random_value(RandomPCG &r, int p_kind) {
 	switch (p_kind % 8) {
 		case 0:
 			return (int64_t)r.rand(1000000) - 500000;
 		case 1:
-			return (double)r.randf() * 100.0 - 50.0; // metres
+			return (double)r.randf() * 100.0 - 50.0; // meters
 		case 2:
-			return Vector2(r.randf() * 20.0 - 10.0, r.randf() * 20.0 - 10.0); // metres
+			return Vector2(r.randf() * 20.0 - 10.0, r.randf() * 20.0 - 10.0); // meters
 		case 3:
-			return Vector3(r.randf() * 20.0 - 10.0, r.randf() * 20.0 - 10.0, r.randf() * 20.0 - 10.0); // metres
+			return Vector3(r.randf() * 20.0 - 10.0, r.randf() * 20.0 - 10.0, r.randf() * 20.0 - 10.0); // meters
 		case 4:
 			return Color(r.randf(), r.randf(), r.randf(), r.randf()); // unitless 0-1
 		case 5:
@@ -57,7 +83,7 @@ TEST_CASE("[MCP][Property] every JSON encoding decodes back to the value it came
 	}
 
 	SUBCASE("falsifiability: a tampered encoding must fail the same check") {
-		// One metre moved on x. If the property cannot catch that, it cannot
+		// One meter moved on x. If the property cannot catch that, it cannot
 		// catch a real encoding bug either.
 		const Vector3 original = Vector3(1.0, 2.0, 3.0);
 		Dictionary encoded = commands->to_json(original);
@@ -72,7 +98,7 @@ TEST_CASE("[MCP][Property] a transform survives the native-JSON encoding intact"
 	RandomPCG rng(SEED + 1);
 
 	for (int i = 0; i < CASES; i++) {
-		// Translations in metres, spread over a room-sized volume.
+		// Translations in meters, spread over a room-sized volume.
 		const Transform3D original = Transform3D(
 				Basis(Vector3(0, 1, 0), rng.randf() * Math::TAU),
 				Vector3(rng.randf() * 6.0 - 3.0, rng.randf() * 3.0, rng.randf() * 6.0 - 3.0));
@@ -86,7 +112,7 @@ TEST_CASE("[MCP][Property] a transform survives the native-JSON encoding intact"
 	SUBCASE("falsifiability: a shifted origin must be caught") {
 		const Transform3D original;
 		Transform3D moved = original;
-		moved.origin.x += 0.001; // one millimetre, about a credit card's thickness
+		moved.origin.x += 0.001; // one millimeter, about a credit card's thickness
 		CHECK_FALSE(moved.origin.is_equal_approx(original.origin));
 	}
 }
@@ -178,7 +204,7 @@ TEST_CASE("[MCP][Property] a malformed body is answered, never dropped") {
 		}
 	}
 
-	SUBCASE("falsifiability: unparseable input really does produce the parse error code") {
+	SUBCASE("falsifiability: unparsable input really does produce the parse error code") {
 		const Dictionary out = server->route("POST", "/mcp", Dictionary(), "{ this is not json");
 		const Dictionary body = JSON::parse_string(out["body"]);
 		const Dictionary error = body["error"];
