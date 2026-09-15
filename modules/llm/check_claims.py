@@ -1,0 +1,614 @@
+#!/usr/bin/env python3
+"""Verify the falsifiable claims in turboquant-godot/CLAUDE.md.
+
+Exits non-zero on drift. Unchecked items are named and counted rather than
+omitted, because a silent skip reads exactly like a pass.
+
+    python3 modules/llm/check_claims.py                 # structural claims
+    python3 modules/llm/check_claims.py --hash          # also hash the 16.8 GB model
+    python3 modules/llm/check_claims.py --base UPSTREAM # re-derive the vendored base commit
+    python3 modules/llm/check_claims.py --self-test     # negative control
+
+The negative control is not optional decoration: a gate that has never been
+shown to fail is certifying nothing.
+"""
+
+import argparse
+import hashlib
+import os
+import re
+import subprocess
+import sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+LC = os.path.join(REPO, "thirdparty", "llama_cpp")
+
+BASE_COMMIT = "89482bd66"
+MODEL_BYTES = 16810714560
+MODEL_SHA256 = "9d9b864f8a378721e9a78f87dec3161621217795843982d09764237ce7b86210"
+MODEL_PATH = os.path.expanduser("~/models/qwen3.8-27b-mtp/Qwen3.8-27B-heretic-ara-Q4_K_M-MTP.gguf")
+MTP_UPSTREAM = "25558268"
+
+# Files TurboQuant does not touch, used to fingerprint the vendored base.
+# include/llama.h and src/llama-model-loader.cpp are deliberately absent: they
+# ARE fork-modified, and including them yields a false negative.
+CLEAN_FILES = [
+    "src/llama-arch.cpp",
+    "src/models/qwen35.cpp",
+    "common/speculative.cpp",
+    "common/common.h",
+    "common/chat.cpp",
+    "common/sampling.cpp",
+    "src/llama-vocab.cpp",
+    "src/llama-batch.cpp",
+    "src/llama-hparams.cpp",
+]
+
+TURBO_TYPES = [("GGML_TYPE_TURBO2_0", 43), ("GGML_TYPE_TURBO3_0", 44), ("GGML_TYPE_TURBO4_0", 47)]
+
+
+def arch_blocks(text, arch):
+    """Every `case LLM_ARCH_<arch>:` block, up to the next case label."""
+    out = []
+    for m in re.finditer(r"case\s+LLM_ARCH_%s\s*:" % re.escape(arch), text):
+        nxt = re.search(r"case\s+LLM_ARCH_\w+\s*:", text[m.end() :])
+        out.append(text[m.end() : m.end() + (nxt.start() if nxt else 4000)])
+    return out
+
+
+# --- checks: each takes content, returns (ok, detail) so the negative control
+# --- can feed them deliberately broken input.
+
+
+def check_turbo_types(ggml_h):
+    missing = [n for n, i in TURBO_TYPES if not re.search(r"%s\s*=\s*%d" % (n, i), ggml_h)]
+    return (not missing, "all three present" if not missing else "missing/renumbered: %s" % ", ".join(missing))
+
+
+def check_gap_hparams(model_cpp):
+    """Gap 1: QWEN35 must not read the nextn hparam (claim: MTP absent)."""
+    blocks = arch_blocks(model_cpp, "QWEN35")
+    if not blocks:
+        return False, "no LLM_ARCH_QWEN35 case found -- arch missing entirely"
+    hit = any("LLM_KV_NEXTN_PREDICT_LAYERS" in b for b in blocks)
+    return (not hit, "absent as claimed" if not hit else "PRESENT -- MTP hparam has landed, CLAUDE.md is stale")
+
+
+def check_gap_tensors(model_cpp):
+    """Gap 2: QWEN35 must not create nextn.* tensors."""
+    blocks = arch_blocks(model_cpp, "QWEN35")
+    if not blocks:
+        return False, "no LLM_ARCH_QWEN35 case found"
+    hit = any(re.search(r"LLM_TENSOR_NEXTN|layer\.nextn", b) for b in blocks)
+    return (not hit, "absent as claimed" if not hit else "PRESENT -- nextn tensors now loaded, CLAUDE.md is stale")
+
+
+def check_gap_graph(qwen35_cpp):
+    """Gap 3: qwen35.cpp must have no MTP graph."""
+    hit = re.search(r"nextn|\bmtp\b|MTP", qwen35_cpp, re.IGNORECASE)
+    return (not hit, "absent as claimed" if not hit else "PRESENT -- MTP graph has landed, CLAUDE.md is stale")
+
+
+def check_gap_spectype(common_h, arg_cpp):
+    """Gap 4: no draft-mtp speculative type or flag value."""
+    in_enum = "DRAFT_MTP" in common_h or "COMMON_SPECULATIVE_TYPE_MTP" in common_h
+    in_flag = "draft-mtp" in arg_cpp
+    hit = in_enum or in_flag
+    where = ", ".join([w for w, h in (("common.h enum", in_enum), ("arg.cpp flag", in_flag)) if h])
+    return (not hit, "absent as claimed" if not hit else "PRESENT in %s -- CLAUDE.md is stale" % where)
+
+
+def check_model_size(size):
+    return size == MODEL_BYTES, "%d bytes" % size if size == MODEL_BYTES else "%d bytes, expected %d" % (
+        size,
+        MODEL_BYTES,
+    )
+
+
+def check_model_hash(digest):
+    return digest == MODEL_SHA256, digest[:16] + "..." if digest == MODEL_SHA256 else "got %s..." % digest[:16]
+
+
+def check_base(upstream, vendored, expected=BASE_COMMIT):
+    """Re-derive the base by blob-fingerprinting clean files against upstream."""
+
+    def git(*a):
+        return subprocess.run(["git", "-C", upstream] + list(a), capture_output=True, text=True).stdout.strip()
+
+    if not git("rev-parse", "--git-dir"):
+        return False, "%s is not a git repository" % upstream
+    mismatched = []
+    for f in CLEAN_FILES:
+        p = os.path.join(vendored, f)
+        if not os.path.exists(p):
+            return False, "vendored file missing: %s" % f
+        local = subprocess.run(["git", "hash-object", p], capture_output=True, text=True).stdout.strip()
+        if git("rev-parse", "%s:%s" % (expected, f)) != local:
+            mismatched.append(f)
+    if mismatched:
+        return False, "%d/%d clean files differ at %s: %s" % (
+            len(mismatched),
+            len(CLEAN_FILES),
+            expected,
+            ", ".join(mismatched[:3]),
+        )
+    return True, "all %d clean files match %s" % (len(CLEAN_FILES), expected)
+
+
+NEXTN_SUFFIXES = ["eh_proj", "enorm", "hnorm", "shared_head_norm"]
+BLOCK_TENSORS = ["attn_q", "attn_k", "attn_v", "attn_output", "ffn_down", "ffn_gate", "ffn_up"]
+
+
+def check_mtp_head(arch, nextn_layers, block_count, names):
+    """The GGUF must carry a complete MTP block, not just the nextn projections.
+
+    A third-party requant can keep the four nextn.* tensors and drop the MTP
+    layer's own attention/FFN weights, which loads fine and then produces a head
+    that cannot draft. Checking only for 'nextn' would pass that file.
+    """
+    if arch != "qwen35":
+        return False, "architecture is %r, expected qwen35" % arch
+    if not nextn_layers or nextn_layers < 1:
+        return False, "nextn_predict_layers = %r" % nextn_layers
+    if not block_count:
+        return False, "no block_count in metadata"
+
+    idx = block_count - 1  # MTP layer is the last block
+    have = set(names)
+    missing_nextn = [s for s in NEXTN_SUFFIXES if "blk.%d.nextn.%s.weight" % (idx, s) not in have]
+    if missing_nextn:
+        return False, "blk.%d missing nextn: %s" % (idx, ", ".join(missing_nextn))
+    missing_block = [s for s in BLOCK_TENSORS if "blk.%d.%s.weight" % (idx, s) not in have]
+    if missing_block:
+        return False, "blk.%d has nextn but is not a full block, missing: %s" % (idx, ", ".join(missing_block))
+    return True, "blk.%d complete: %d nextn + %d block tensors" % (idx, len(NEXTN_SUFFIXES), len(BLOCK_TENSORS))
+
+
+def read_gguf_mtp(path, _unused=None):
+    """Extract (arch, nextn_layers, block_count, tensor names) from a GGUF.
+
+    Deliberately parses the header directly instead of importing the vendored
+    gguf-py. That library is part of the subtree and moves with it -- a subtree
+    pull renamed GGML_MAX_DIMS and broke this check, which is a gate failing for
+    a reason that has nothing to do with what it is gating.
+    """
+    import struct
+
+    # value type ids from the GGUF spec
+    U8, I8, U16, I16, U32, I32, F32, BOOL, STR, ARR, U64, I64, F64 = range(13)
+    FIXED = {
+        U8: "<B",
+        I8: "<b",
+        U16: "<H",
+        I16: "<h",
+        U32: "<I",
+        I32: "<i",
+        F32: "<f",
+        BOOL: "<?",
+        U64: "<Q",
+        I64: "<q",
+        F64: "<d",
+    }
+
+    with open(path, "rb") as fh:
+        blob = fh.read(64 << 20)  # header lives well inside the first chunk
+
+    if blob[:4] != b"GGUF":
+        raise ValueError("not a GGUF file (bad magic)")
+    pos = 4
+    _version, n_tensors, n_kv = struct.unpack_from("<IQQ", blob, pos)
+    pos += 20
+
+    def take(fmt):
+        nonlocal pos
+        v = struct.unpack_from(fmt, blob, pos)[0]
+        pos += struct.calcsize(fmt)
+        return v
+
+    def take_str():
+        nonlocal pos
+        n = take("<Q")
+        s = blob[pos : pos + n].decode("utf-8", "replace")
+        pos += n
+        return s
+
+    def take_val(t):
+        nonlocal pos
+        if t == STR:
+            return take_str()
+        if t == ARR:
+            et = take("<I")
+            n = take("<Q")
+            return [take_val(et) for _ in range(n)]
+        if t in FIXED:
+            return take(FIXED[t])
+        raise ValueError("unknown GGUF value type %d" % t)
+
+    kv = {}
+    for _ in range(n_kv):
+        k = take_str()
+        kv[k] = take_val(take("<I"))
+
+    names = []
+    for _ in range(n_tensors):
+        names.append(take_str())
+        nd = take("<I")
+        pos += 8 * nd  # dims
+        pos += 4 + 8  # ggml type + offset
+
+    arch = kv.get("general.architecture")
+    return (arch, kv.get("%s.nextn_predict_layers" % arch), kv.get("%s.block_count" % arch), names)
+
+
+def declared_mtp_state(claude_text):
+    """The stage CLAUDE.md declares. Machine-read so prose cannot drift from it."""
+    m = re.search(r"gate:mtp-state=(absent|present)", claude_text)
+    return m.group(1) if m else None
+
+
+def check_mtp_state(model_cpp, qwen35_cpp, common_h, arg_cpp, declared):
+    """Observed MTP support must match the declared stage, and must be all-or-nothing.
+
+    This replaces four independent 'gap is absent' assertions, which would have
+    flipped to failure the moment the rebase succeeded, and which could not see
+    a half-landed rebase (tensors loaded but no graph) at all.
+    """
+    if declared not in ("absent", "present"):
+        return False, "CLAUDE.md declares no gate:mtp-state=absent|present marker"
+
+    if not arch_blocks(model_cpp, "QWEN35"):
+        return False, "no LLM_ARCH_QWEN35 case found -- arch missing entirely"
+
+    # Signals are deliberately NOT scoped to the `case LLM_ARCH_QWEN35:` block.
+    # Upstream made MTP generic (hparams.n_layer_nextn, layer.nextn.*, and an
+    # LLAMA_CONTEXT_TYPE_MTP context), so arch-scoped proxies reported a false
+    # PARTIAL once the real support landed. A plain global search for "nextn"
+    # is no good either: the pre-MTP tree already carried nextn tensors for
+    # GLM4_MOE and DeepSeek2 marked "preserved but unused". These three each
+    # discriminate: all were absent before MTP and present after.
+    obs = {
+        "spec": ("DRAFT_MTP" in common_h or "COMMON_SPECULATIVE_TYPE_MTP" in common_h or "draft-mtp" in arg_cpp),
+        "graph": bool(re.search(r"nextn|\bmtp\b", qwen35_cpp, re.IGNORECASE)),
+        "context": "LLAMA_CONTEXT_TYPE_MTP" in model_cpp,
+    }
+    present = [k for k, v in obs.items() if v]
+    absent = [k for k, v in obs.items() if not v]
+
+    if present and absent:
+        return False, "PARTIAL rebase -- present: %s / absent: %s" % (
+            ",".join(sorted(present)),
+            ",".join(sorted(absent)),
+        )
+    actual = "present" if present else "absent"
+    if actual != declared:
+        return False, "tree is %s but CLAUDE.md declares %s" % (actual, declared)
+    return True, "all four %s, matches declared stage" % actual
+
+
+def parse_gitrepo(text):
+    """Parse the [subrepo] section of a .gitrepo file."""
+    out = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith(";") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        out[k.strip()] = v.strip()
+    return out
+
+
+# Orgs we own and may push to. Everything else is fetch-only, no matter how
+# closely we work with it -- being a member is not authority.
+OWNED_ORGS = ["v-sekai-fire", "v-sekai-multiplayer-fabric", "weftspun"]
+
+
+def check_remote_authority(push_urls):
+    """No remote outside an owned org may have a live push URL.
+
+    Fetching from anyone is fine. Pushing is not, and a disabled push URL is
+    the guard, because a note in a document does not stop a push.
+    """
+    offenders = []
+    for repo, name, url in push_urls:
+        if url.startswith("DISABLED"):
+            continue
+        low = url.lower()
+        if not any(("/%s/" % o) in low or (":%s/" % o) in low for o in OWNED_ORGS):
+            offenders.append("%s:%s -> %s" % (repo, name, url))
+    if offenders:
+        return False, "push URL outside owned orgs: %s" % "; ".join(offenders[:3])
+    return True, "%d push URLs, all owned or disabled" % len(push_urls)
+
+
+def read_push_urls(repo_root):
+    """(repo, remote, push URL) for this repo and any sibling repos beside it."""
+    roots = [repo_root]
+    parent = os.path.dirname(repo_root)
+    if os.path.isdir(parent):
+        for entry in sorted(os.listdir(parent)):
+            p = os.path.join(parent, entry)
+            if p != repo_root and os.path.isdir(os.path.join(p, ".git")):
+                roots.append(p)
+    out = []
+    for r in roots:
+        res = subprocess.run(["git", "-C", r, "remote", "-v"], capture_output=True, text=True)
+        for line in res.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and parts[2] == "(push)":
+                out.append((os.path.basename(r), parts[0], parts[1]))
+    return out
+
+
+def check_subtree_doc(split, remotes, gitrepo_exists, claude_text):
+    """CLAUDE.md must restate the subtree split point that git itself records.
+
+    git subtree keeps no metadata file; the split commit lives in the merge
+    commit message. That message is the artifact, so the prose defers to it.
+    """
+    if gitrepo_exists:
+        return False, ".gitrepo still present -- tree is still a git-subrepo, not a subtree"
+    if not split:
+        return False, "no git-subtree-split found for thirdparty/llama_cpp"
+    if split not in claude_text:
+        return False, "CLAUDE.md does not state the split commit %s" % split[:12]
+    if not any("llama-cpp-turboquant" in r for r in remotes):
+        return False, "no git remote points at llama-cpp-turboquant"
+    return True, "split %s, remote present, .gitrepo gone" % split[:12]
+
+
+def read_subtree_state(repo_root, prefix="thirdparty/llama_cpp"):
+    """(split commit, remote URLs, whether .gitrepo still exists)."""
+
+    def git(*a):
+        return subprocess.run(["git", "-C", repo_root] + list(a), capture_output=True, text=True).stdout
+
+    split = None
+    for line in git("log", "--grep=git-subtree-dir", "--format=%b").splitlines():
+        line = line.strip()
+        if line.startswith("git-subtree-dir:") and line.split(":", 1)[1].strip() != prefix:
+            split = None
+        elif line.startswith("git-subtree-split:") and split is None:
+            split = line.split(":", 1)[1].strip()
+            break
+    remotes = list(git("remote", "-v").splitlines())
+    return split, remotes, os.path.exists(os.path.join(repo_root, prefix, ".gitrepo"))
+
+
+def check_mtp_upstream(upstream, commit=MTP_UPSTREAM):
+    """The MTP fix exists upstream and is an ancestor of master."""
+
+    def git(*a):
+        r = subprocess.run(["git", "-C", upstream] + list(a), capture_output=True, text=True)
+        return r.returncode, r.stdout.strip()
+
+    rc, subj = git("log", "-1", "--format=%s", commit)
+    if rc != 0:
+        return False, "commit %s not found in %s" % (commit, upstream)
+    if "MTP" not in subj:
+        return False, "%s is not the MTP commit: %r" % (commit, subj[:60])
+    rc, _ = git("merge-base", "--is-ancestor", commit, "master")
+    if rc != 0:
+        return False, "%s is NOT an ancestor of master" % commit
+    return True, "%s ancestor of master: %s" % (commit, subj[:44])
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for blk in iter(lambda: fh.read(16 << 20), b""):
+            h.update(blk)
+    return h.hexdigest()
+
+
+class Missing(Exception):
+    """A required input is absent. An unmet precondition is a FAIL, not a skip."""
+
+
+def read(path):
+    if not os.path.exists(path):
+        raise Missing(path)
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return fh.read()
+
+
+def guard(name, fn):
+    """Run a check, turning a missing input into a clean FAIL rather than a crash."""
+    try:
+        return name, fn()
+    except Missing as e:
+        return name, (False, "required file missing: %s" % e)
+    except Exception as e:  # noqa: BLE001 - a broken check must fail, not vanish
+        return name, (False, "check raised %s: %s" % (type(e).__name__, e))
+
+
+def self_test():
+    """Negative control: every check must fail on deliberately broken input."""
+    cases = [
+        ("turbo types", lambda: check_turbo_types("GGML_TYPE_TURBO2_0 = 99,")),
+        (
+            "gap: hparams",
+            lambda: check_gap_hparams(
+                "case LLM_ARCH_QWEN35: { ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, x); } case LLM_ARCH_FOO:"
+            ),
+        ),
+        (
+            "gap: tensors",
+            lambda: check_gap_tensors(
+                "case LLM_ARCH_QWEN35: { layer.nextn.eh_proj = create_tensor(); } case LLM_ARCH_FOO:"
+            ),
+        ),
+        ("gap: graph", lambda: check_gap_graph("void build_mtp_head() { nextn(); }")),
+        ("gap: spec-type", lambda: check_gap_spectype("COMMON_SPECULATIVE_TYPE_DRAFT_MTP,", "")),
+        ("gap: spec-type flag", lambda: check_gap_spectype("", '"[none|draft-mtp]"')),
+        ("model size", lambda: check_model_size(MODEL_BYTES - 1)),
+        ("model hash", lambda: check_model_hash("0" * 64)),
+        ("arch missing", lambda: check_gap_hparams("case LLM_ARCH_LLAMA:")),
+        ("mtp upstream: bad repo", lambda: check_mtp_upstream("/nonexistent-repo-path")),
+        (
+            "subtree: .gitrepo still there",
+            lambda: check_subtree_doc(
+                "abc123", ["turboquant https://github.com/TheTom/llama-cpp-turboquant"], True, "abc123"
+            ),
+        ),
+        (
+            "subtree: no split recorded",
+            lambda: check_subtree_doc(None, ["turboquant https://github.com/TheTom/llama-cpp-turboquant"], False, "x"),
+        ),
+        (
+            "subtree: doc drift",
+            lambda: check_subtree_doc(
+                "abc123def456",
+                ["turboquant https://github.com/TheTom/llama-cpp-turboquant"],
+                False,
+                "CLAUDE.md that never states the split",
+            ),
+        ),
+        (
+            "subtree: remote missing",
+            lambda: check_subtree_doc("abc123def456", ["origin https://example.com/other"], False, "abc123def456"),
+        ),
+        ("guard: missing file is a FAIL", lambda: guard("x", lambda: read("/nonexistent/path/file"))[1]),
+        # Being a member of an org is not authority over it.
+        (
+            "authority: upstream push URL",
+            lambda: check_remote_authority([("r", "upstream", "https://github.com/godotengine/godot")]),
+        ),
+        (
+            "authority: collaborator fork",
+            lambda: check_remote_authority([("r", "turboquant", "https://github.com/TheTom/llama-cpp-turboquant.git")]),
+        ),
+        ("authority: ssh form", lambda: check_remote_authority([("r", "x", "git@github.com:sudoingX/qwen38-mtp.git")])),
+        (
+            "authority: lookalike org",
+            lambda: check_remote_authority([("r", "x", "https://github.com/v-sekai-fire-evil/turboquant-godot")]),
+        ),
+        # The state gate must fail in BOTH directions and on partial rebases,
+        # otherwise it is a one-way assertion that rots the moment work lands.
+        (
+            "state: declared absent, tree present",
+            lambda: check_mtp_state(
+                "case LLM_ARCH_QWEN35: { LLM_KV_NEXTN_PREDICT_LAYERS layer.nextn } case LLM_ARCH_X:",
+                "nextn graph",
+                "DRAFT_MTP",
+                "draft-mtp",
+                "absent",
+            ),
+        ),
+        (
+            "state: declared present, tree absent",
+            lambda: check_mtp_state("case LLM_ARCH_QWEN35: { plain } case LLM_ARCH_X:", "", "", "", "present"),
+        ),
+        (
+            "state: partial rebase",
+            lambda: check_mtp_state(
+                "case LLM_ARCH_QWEN35: { LLM_KV_NEXTN_PREDICT_LAYERS layer.nextn } case LLM_ARCH_X:",
+                "",
+                "",
+                "",
+                "present",
+            ),
+        ),
+        (
+            "state: no marker declared",
+            lambda: check_mtp_state("case LLM_ARCH_QWEN35: { plain } case LLM_ARCH_X:", "", "", "", None),
+        ),
+        # The head check must reject a requant that kept nextn.* but dropped the
+        # MTP layer's own weights -- that file loads and then cannot draft.
+        (
+            "head: nextn without full block",
+            lambda: check_mtp_head("qwen35", 1, 65, ["blk.64.nextn.%s.weight" % s for s in NEXTN_SUFFIXES]),
+        ),
+        (
+            "head: nextn tensors stripped",
+            lambda: check_mtp_head("qwen35", 1, 65, ["blk.64.%s.weight" % s for s in BLOCK_TENSORS]),
+        ),
+        ("head: wrong architecture", lambda: check_mtp_head("llama", 1, 65, [])),
+        ("head: no nextn layers", lambda: check_mtp_head("qwen35", 0, 65, [])),
+    ]
+    bad = 0
+    for name, fn in cases:
+        ok, detail = fn()
+        if ok:
+            print("  NEGATIVE CONTROL FAILED  %-22s returned pass on broken input" % name)
+            bad += 1
+        else:
+            print("  ok  %-22s correctly failed: %s" % (name, detail[:52]))
+    print("\n%s: %d/%d checks reject broken input" % ("PASS" if not bad else "FAIL", len(cases) - bad, len(cases)))
+    return 1 if bad else 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--hash", action="store_true", help="hash the model (slow, ~16.8 GB)")
+    ap.add_argument("--base", metavar="UPSTREAM", help="path to an upstream llama.cpp clone")
+    ap.add_argument("--model", default=MODEL_PATH)
+    ap.add_argument("--self-test", action="store_true")
+    args = ap.parse_args()
+
+    if args.self_test:
+        return self_test()
+
+    results, unchecked = [], []
+
+    results.append(guard("push remotes are owned", lambda: check_remote_authority(read_push_urls(REPO))))
+
+    results.append(
+        guard(
+            "subtree doc matches git",
+            lambda: check_subtree_doc(*read_subtree_state(REPO), claude_text=read(os.path.join(REPO, "CLAUDE.md"))),
+        )
+    )
+
+    results.append(guard("turbo cache types", lambda: check_turbo_types(read(os.path.join(LC, "ggml/include/ggml.h")))))
+
+    results.append(
+        guard(
+            "MTP state vs declared stage",
+            lambda: check_mtp_state(
+                read(os.path.join(LC, "src/llama-model.cpp")),
+                read(os.path.join(LC, "src/models/qwen35.cpp")),
+                read(os.path.join(LC, "common/common.h")),
+                read(os.path.join(LC, "common/arg.cpp")),
+                declared_mtp_state(read(os.path.join(REPO, "CLAUDE.md"))),
+            ),
+        )
+    )
+
+    if os.path.exists(args.model):
+        results.append(("model size", check_model_size(os.path.getsize(args.model))))
+        try:
+            results.append(("model MTP head", check_mtp_head(*read_gguf_mtp(args.model, os.path.join(LC, "gguf-py")))))
+        except Exception as e:
+            results.append(("model MTP head", (False, "could not read GGUF: %s" % e)))
+        if args.hash:
+            results.append(("model sha256", check_model_hash(sha256(args.model))))
+        else:
+            unchecked.append("model sha256 (pass --hash)")
+    else:
+        results.append(("model present", (False, "not found: %s" % args.model)))
+
+    # The blob-fingerprint base check is deliberately gone. It existed only to
+    # recover a base commit that git-subrepo's squash had thrown away. git
+    # subtree records the split commit, so provenance is now read rather than
+    # inferred, and the fingerprint became wrong by construction: the TurboQuant
+    # branch interleaves upstream and turbo commits and is continuously rebased,
+    # so no single upstream commit matches every clean file. A check that cannot
+    # pass is not a strict check, it is a broken one.
+    if args.base:
+        results.append(guard("upstream MTP fix", lambda: check_mtp_upstream(args.base)))
+    else:
+        unchecked.append("upstream MTP fix %s (pass --base UPSTREAM_CLONE)" % MTP_UPSTREAM)
+
+    failed = 0
+    for name, (ok, detail) in results:
+        print("%-4s %-28s %s" % ("ok" if ok else "FAIL", name, detail))
+        failed += not ok
+    for u in unchecked:
+        print("%-4s %s" % ("--", u))
+
+    print("\n%d checked, %d failed, %d unchecked" % (len(results), failed, len(unchecked)))
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
