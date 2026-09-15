@@ -32,7 +32,7 @@
 		<signal name="transparency_batches_ready">
 			<param index="0" name="batches" type="Array" />
 			<description>
-				Emitted after a repack. [code]batches[/code] is an [Array] of per-mesh descriptor [Dictionary]s consumed by the compositor effect.
+				Emitted after a repack. [code skip-lint]batches[/code] is an [Array] of per-mesh descriptor [Dictionary]s consumed by the compositor effect.
 			</description>
 		</signal>
 	</signals>
