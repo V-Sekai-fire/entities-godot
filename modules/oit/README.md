@@ -79,7 +79,7 @@ non-MSAA.
 ## Known limitations
 
 * Ghosting on low-alpha layers is inherent to weighted-blended order-independent transparency — expected
-  behaviour, not a bug.
+  behavior, not a bug.
 * Path A duplicates transparent vertex data on the GPU (see Path B above).
 * No editor gizmo yet for the geometry relay.
 
