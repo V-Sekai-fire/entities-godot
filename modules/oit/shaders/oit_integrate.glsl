@@ -7,7 +7,9 @@
 // AVBOIT integration: one workgroup per (x, y) column, Hillis-Steele
 // prefix sum along Z, single workgroup avoids cross-workgroup barriers.
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 128) in;
+// One workgroup per (x, y), threads along local_x drive the Z prefix sum.
+// Metal caps local_size_z below 128 on Apple Silicon, so Z lives on local_x.
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
 layout(r32ui, set = 0, binding = 0) uniform restrict readonly uimage3D extinction_buffer;
 layout(rgba8, set = 0, binding = 1) uniform restrict writeonly image3D integrated_buffer;
@@ -21,7 +23,7 @@ shared float shared_extinction[256];
 
 void main() {
 	ivec2 xy = ivec2(gl_WorkGroupID.xy);
-	uint z = gl_LocalInvocationID.z;
+	uint z = gl_LocalInvocationID.x;
 
 	if (xy.x >= int(params.froxel_dims.x) || xy.y >= int(params.froxel_dims.y)) {
 		return;
