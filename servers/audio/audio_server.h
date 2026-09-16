@@ -39,6 +39,7 @@
 #include "servers/audio/audio_server_constants.h"
 #include "servers/audio/audio_server_enums.h"
 #include "servers/audio/audio_server_types.h" // IWYU pragma: keep. Included to have a dedicated file to move stuff over.
+#include "servers/audio/spatial_audio_server.h"
 
 class AudioSample;
 class AudioStream;
@@ -115,12 +116,14 @@ private:
 		float volume_db = 0.0f;
 		StringName send;
 		int index_cache = 0;
+		AuSE::BusType type = AuSE::BUS_TYPE_CONVENTIONAL;
 	};
 
 	struct AudioStreamPlaybackBusDetails {
 		bool bus_active[AuSC::MAX_BUSES_PER_PLAYBACK] = {};
 		StringName bus[AuSC::MAX_BUSES_PER_PLAYBACK];
 		AudioFrame volume[AuSC::MAX_BUSES_PER_PLAYBACK][AuSC::MAX_CHANNELS_PER_BUS];
+		AudioSourceId audio_source_id = AudioSourceId(-1);
 	};
 
 	struct AudioStreamPlaybackListNode {
@@ -157,6 +160,7 @@ private:
 		AudioStreamPlaybackBusDetails *prev_bus_details = nullptr;
 		// The next few samples are stored here so we have some time to fade audio out if it ends abruptly at the beginning of the next mix.
 		AudioFrame lookahead[AuSC::LOOKAHEAD_BUFFER_SIZE];
+		AudioSourceId source_id = AudioSourceId(-1);
 	};
 
 	SafeList<AudioStreamPlaybackListNode *> playback_list;
@@ -185,7 +189,7 @@ private:
 	void init_channels_and_buffers();
 
 	void _mix_step();
-	void _mix_step_for_channel(AudioFrame *p_out_buf, AudioFrame *p_source_buf, AudioFrame p_vol_start, AudioFrame p_vol_final, float p_attenuation_filter_cutoff_hz, float p_highshelf_gain, AudioFilterSW::Processor *p_processor_l, AudioFilterSW::Processor *p_processor_r);
+	void _mix_step_for_channel(AudioFrame *p_out_buf, AudioFrame *p_source_buf, AudioFrame p_vol_start, AudioFrame p_vol_final, float p_attenuation_filter_cutoff_hz, float p_highshelf_gain, AudioFilterSW::Processor *p_processor_l, AudioFilterSW::Processor *p_processor_r, AudioSourceId p_audio_source_id = AudioSourceId(-1), int p_channel_idx = 0, AuSE::BusType p_bus_type = AuSE::BUS_TYPE_CONVENTIONAL);
 
 	// Should only be called on the main thread.
 	AudioStreamPlaybackListNode *_find_playback_list_node(Ref<AudioStreamPlayback> p_playback);
@@ -288,7 +292,7 @@ public:
 	// Convenience method.
 	void start_playback_stream(Ref<AudioStreamPlayback> p_playback, const StringName &p_bus, Vector<AudioFrame> p_volume_db_vector, float p_start_time = 0, float p_pitch_scale = 1);
 	// Expose all parameters.
-	void start_playback_stream(Ref<AudioStreamPlayback> p_playback, const HashMap<StringName, Vector<AudioFrame>> &p_bus_volumes, float p_start_time = 0, float p_pitch_scale = 1, float p_highshelf_gain = 0, float p_attenuation_cutoff_hz = 0);
+	void start_playback_stream(Ref<AudioStreamPlayback> p_playback, const HashMap<StringName, Vector<AudioFrame>> &p_bus_volumes, float p_start_time = 0, float p_pitch_scale = 1, float p_highshelf_gain = 0, float p_attenuation_cutoff_hz = 0, AudioSourceId p_source_id = AudioSourceId(-1));
 	void stop_playback_stream(Ref<AudioStreamPlayback> p_playback);
 
 	void set_playback_bus_exclusive(Ref<AudioStreamPlayback> p_playback, const StringName &p_bus, Vector<AudioFrame> p_volumes);
@@ -296,7 +300,10 @@ public:
 	void set_playback_all_bus_volumes_linear(Ref<AudioStreamPlayback> p_playback, Vector<AudioFrame> p_volumes);
 	void set_playback_pitch_scale(Ref<AudioStreamPlayback> p_playback, float p_pitch_scale);
 	void set_playback_paused(Ref<AudioStreamPlayback> p_playback, bool p_paused);
-	void set_playback_highshelf_params(Ref<AudioStreamPlayback> p_playback, float p_gain, float p_attenuation_cutoff_hz);
+	void set_playback_highshelf_params(Ref<AudioStreamPlayback> p_playback, float p_gain, float p_attenuation_cutoff_hz, AudioSourceId p_source_id = AudioSourceId(-1));
+
+	void set_bus_type(int p_bus, AuSE::BusType p_type);
+	AuSE::BusType get_bus_type(int p_bus) const;
 
 	bool is_playback_active(Ref<AudioStreamPlayback> p_playback);
 	float get_playback_position(Ref<AudioStreamPlayback> p_playback);
@@ -381,3 +388,4 @@ public:
 
 VARIANT_ENUM_CAST_EXT(AuSE::SpeakerMode, AudioServer::SpeakerMode);
 VARIANT_ENUM_CAST_EXT(AuSE::PlaybackType, AudioServer::PlaybackType);
+VARIANT_ENUM_CAST_EXT(AuSE::BusType, AudioServer::BusType);

@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/io/resource.h"
+#include "servers/audio/audio_server_enums.h"
 
 class AudioEffect;
 
@@ -54,6 +55,7 @@ class AudioBusLayout : public Resource {
 
 		float volume_db = 0.0f;
 		StringName send;
+		AuSE::BusType type = AuSE::BUS_TYPE_CONVENTIONAL;
 
 		Bus() {}
 	};
