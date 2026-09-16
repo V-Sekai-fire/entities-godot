@@ -38,8 +38,8 @@
 #include "editor/editor_string_names.h"
 #include "scene/3d/mesh_instance_3d.h"
 #include "scene/main/scene_tree.h"
-#include "servers/resonanceaudio/resonance_audio_material_map.h"
-#include "servers/resonanceaudio/reverb_probe_gi.h"
+#include "servers/resonance_audio/resonance_audio_material_map.h"
+#include "servers/resonance_audio/reverb_probe_gi.h"
 
 static void _collect_vertices(Node *p_node, Vector<Vector3> &r_vertices, Vector<int> &r_indices, AABB &r_bounds) {
 	MeshInstance3D *mi = Object::cast_to<MeshInstance3D>(p_node);

@@ -78,11 +78,11 @@
 #include "servers/rendering/storage/render_data_extension.h"
 #include "servers/rendering/storage/render_scene_buffers.h"
 #include "servers/rendering/storage/render_scene_data.h"
-#include "servers/resonanceaudio/reverb_bake_data.h"
+#include "servers/resonance_audio/reverb_bake_data.h"
 #ifndef _3D_DISABLED
-#include "servers/resonanceaudio/resonance_audio_material_map.h"
-#include "servers/resonanceaudio/resonance_audio_room.h"
-#include "servers/resonanceaudio/reverb_probe_gi.h"
+#include "servers/resonance_audio/resonance_audio_material_map.h"
+#include "servers/resonance_audio/resonance_audio_room.h"
+#include "servers/resonance_audio/reverb_probe_gi.h"
 #endif // _3D_DISABLED
 #include "servers/text/text_server.h"
 #include "servers/text/text_server_dummy.h"

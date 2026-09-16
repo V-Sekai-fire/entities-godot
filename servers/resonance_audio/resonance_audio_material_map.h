@@ -31,7 +31,7 @@
 #pragma once
 
 #include "core/io/resource.h"
-#include "servers/resonanceaudio/reverb_probe_gi.h"
+#include "servers/resonance_audio/reverb_probe_gi.h"
 
 class ResonanceAudioMaterialMap : public Resource {
 	GDCLASS(ResonanceAudioMaterialMap, Resource);

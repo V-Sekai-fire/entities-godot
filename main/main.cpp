@@ -80,7 +80,7 @@
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server.h"
 #include "servers/rendering/rendering_server_default.h"
-#include "servers/resonanceaudio/resonance_audio_wrapper.h"
+#include "servers/resonance_audio/resonance_audio_wrapper.h"
 #include "servers/text/text_server.h"
 #include "servers/text/text_server_dummy.h"
 

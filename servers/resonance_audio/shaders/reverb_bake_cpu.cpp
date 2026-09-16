@@ -34,7 +34,7 @@
 using namespace SLANG_PRELUDE_NAMESPACE;
 #endif
 
-#line 12 "E:/multiplayer-fabric-godot/servers/resonanceaudio/shaders/reverb_bake.slang"
+#line 12 "E:/multiplayer-fabric-godot/servers/resonance_audio/shaders/reverb_bake.slang"
 struct BakeParams_0 {
 	uint32_t ray_count_0;
 	uint32_t max_bounces_0;
@@ -363,7 +363,7 @@ static Vector<float, 3> floor_0(Vector<float, 3> x_8) {
 	return result_7;
 }
 
-#line 93 "E:/multiplayer-fabric-godot/servers/resonanceaudio/shaders/reverb_bake.slang"
+#line 93 "E:/multiplayer-fabric-godot/servers/resonance_audio/shaders/reverb_bake.slang"
 static uint32_t pcg_hash_0(uint32_t state_0) {
 #line 94
 	uint32_t s_0 = state_0 * 747796405U + 2891336453U;

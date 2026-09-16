@@ -31,7 +31,7 @@
 #pragma once
 
 #include "scene/3d/node_3d.h"
-#include "servers/resonanceaudio/reverb_bake_data.h"
+#include "servers/resonance_audio/reverb_bake_data.h"
 
 class RenderingDevice;
 class ResonanceAudioMaterialMap;

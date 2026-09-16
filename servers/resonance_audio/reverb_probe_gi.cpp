@@ -41,9 +41,9 @@
 #endif // REAL_T_IS_DOUBLE
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server.h"
-#include "servers/resonanceaudio/resonance_audio_material_map.h"
-#include "servers/resonanceaudio/resonance_audio_wrapper.h"
-#include "servers/resonanceaudio/shaders/reverb_bake.spv.gen.h"
+#include "servers/resonance_audio/resonance_audio_material_map.h"
+#include "servers/resonance_audio/resonance_audio_wrapper.h"
+#include "servers/resonance_audio/shaders/reverb_bake.spv.gen.h"
 
 #define _USE_MATH_DEFINES
 #include "platforms/common/room_effects_utils.h"

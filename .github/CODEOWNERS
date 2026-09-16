@@ -302,4 +302,4 @@ SCsub                                         @godotengine/buildsystem
 # V-Sekai Resonance Audio
 
 /modules/speech/                              @fire
-/servers/resonanceaudio/                      @fire
+/servers/resonance_audio/                      @fire
