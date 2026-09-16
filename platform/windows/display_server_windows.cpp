@@ -387,6 +387,30 @@ void DisplayServerWindows::_register_raw_input_devices(DisplayServerEnums::Windo
 	}
 }
 
+String DisplayServerWindows::_get_app_id() const {
+	static String appname;
+	if (appname.is_empty()) {
+		if (Engine::get_singleton()->is_editor_hint()) {
+			appname = "Godot.GodotEditor." + String(GODOT_VERSION_FULL_CONFIG);
+		} else {
+			String name = GLOBAL_GET("application/config/name");
+			String version = GLOBAL_GET("application/config/version");
+			if (version.is_empty()) {
+				version = "0";
+			}
+			String clean_app_name = name.to_pascal_case();
+			for (int i = 0; i < clean_app_name.length(); i++) {
+				if (!is_ascii_alphanumeric_char(clean_app_name[i]) && clean_app_name[i] != '_' && clean_app_name[i] != '.') {
+					clean_app_name[i] = '_';
+				}
+			}
+			clean_app_name = clean_app_name.substr(0, 120 - version.length()).trim_suffix(".");
+			appname = "Godot." + clean_app_name + "." + version;
+		}
+	}
+	return appname;
+}
+
 void DisplayServerWindows::initialize_tts() const {
 	const_cast<DisplayServerWindows *>(this)->tts = memnew(TTS_Windows);
 }
@@ -7806,7 +7830,7 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Dis
 	}
 	native_menu = memnew(NativeMenuWindows);
 
-	has_winrt_queue = WinRTUtils::create_queue();
+	has_winrt_queue = WinRTUtils::create_queue(_get_app_id());
 
 	// Enforce default keep screen on value.
 	screen_set_keep_on(GLOBAL_GET("display/window/energy_saving/keep_screen_on"));

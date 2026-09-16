@@ -551,6 +551,7 @@ class DisplayServerWindows : public DisplayServer {
 	HWND _find_window_from_process_id(ProcessID p_pid, HWND p_current_hwnd);
 
 	void initialize_tts() const;
+	String _get_app_id() const;
 	void process_raw_input();
 	Vector2 _get_raw_mouse_motion(const RAWINPUT &p_raw, DisplayServerEnums::WindowID p_window_id);
 	void _process_raw_mouse_motion(const Vector2 &p_relative, bool p_left_button_down, DisplayServerEnums::WindowID p_window_id);
