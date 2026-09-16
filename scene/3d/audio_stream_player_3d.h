@@ -34,6 +34,7 @@
 #include "scene/3d/node_3d.h"
 #include "servers/audio/audio_server_constants.h"
 #include "servers/audio/audio_server_enums.h"
+#include "servers/audio/spatial_audio_server.h"
 
 #ifndef PHYSICS_3D_DISABLED
 class Area3D;
@@ -117,6 +118,7 @@ private:
 	bool was_further_than_max_distance_last_frame = false;
 
 	Ref<VelocityTracker3D> velocity_tracker;
+	AudioSourceId audio_source_id = AudioSourceId(-1);
 
 	DopplerTracking doppler_tracking = DOPPLER_TRACKING_DISABLED;
 
