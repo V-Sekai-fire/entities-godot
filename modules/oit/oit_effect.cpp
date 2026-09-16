@@ -97,7 +97,7 @@ void OITEffect::configure(const Vector2i &p_screen_size, int p_slice_count, cons
 	extinction_fmt.mipmaps = 1;
 	extinction_fmt.texture_type = RD::TEXTURE_TYPE_3D;
 	extinction_fmt.format = RD::DATA_FORMAT_R32_UINT;
-	extinction_fmt.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+	extinction_fmt.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_STORAGE_ATOMIC_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
 	extinction_buffer = rd->texture_create(extinction_fmt, RD::TextureView());
 
 	RD::TextureFormat transmittance_fmt = extinction_fmt;
