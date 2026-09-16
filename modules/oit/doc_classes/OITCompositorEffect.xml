@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="OITCompositorEffect" inherits="CompositorEffect" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Adaptive volumetric-boundary order-independent transparency effect.
+	</brief_description>
+	<description>
+		Voxelises transparent extinction into a 3D view-space buffer, integrates transmittance along Z, and modulates each transparent surface's alpha by the accumulated transmittance at its position, following Drobot 2025.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="far_plane" type="float" setter="set_far_plane" getter="get_far_plane" default="500.0">
+			Far plane used to fit the log-Z slice curve.
+		</member>
+		<member name="linearization_factor" type="float" setter="set_linearization_factor" getter="get_linearization_factor" default="0.5">
+			Log-Z curve shape parameter.
+		</member>
+		<member name="near_plane" type="float" setter="set_near_plane" getter="get_near_plane" default="0.1">
+			Near plane used to fit the log-Z slice curve.
+		</member>
+		<member name="slice_count" type="int" setter="set_slice_count" getter="get_slice_count" default="128">
+			Z slices in the 3D extinction buffer.
+		</member>
+		<member name="tile_size" type="Vector2i" setter="set_tile_size" getter="get_tile_size" default="Vector2i(6, 6)">
+			Screen-space tile size used for the voxelisation splat.
+		</member>
+	</members>
+</class>
