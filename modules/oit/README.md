@@ -62,10 +62,27 @@ to run on. Concretely that constrains:
 
 Forward+ runs the same shader path with the wider budget of a desktop card.
 
+## Layout
+
+- `shaders/oit_voxelize.glsl` — compute shader, one thread per candidate
+  transparent fragment. `imageAtomicAdd`s the extinction contribution into
+  the R32_UINT froxel buffer at the froxel that owns the fragment's view
+  position.
+- `shaders/oit_integrate.glsl` — compute shader, one workgroup per (x, y)
+  column, walks the Z stack with a Hillis-Steele prefix sum in shared
+  memory and writes the transmittance-at-slice into an RGBA8 3D buffer.
+- `shaders/oit_lookup_inc.glsl` — scene-shader include: `oit_apply(world_pos,
+  alpha)` samples the transmittance buffer and modulates the fragment's
+  alpha. The Forward+ and Mobile scene shaders call it before writing
+  `gl_FragColor`.
+- `oit_settings.{h,cpp}` — project settings under `rendering/oit/*`.
+- `register_types.{h,cpp}` — module init.
+
 ## State
 
-This is the scaffold on top of which the paper's algorithm is being built.
-The voxelise / integrate compute pipelines and the Mobile / Forward+
-transparent shader patch that samples the integrated extinction land in
-follow-up commits; the project settings register cleanly against `master`
-first so the surface area is reviewable in isolation.
+The GLSL and settings compile against the tree — the SCsub emits the two
+compute headers into `bin/obj/modules/oit/shaders/*.glsl.gen.h`. The C++
+RD-pipeline wiring (buffer allocation, pipeline compilation, dispatch)
+and the RenderForwardMobile / RenderForwardClustered hook points are the
+next two commits; nothing calls the shaders yet, and `rendering/oit/enabled`
+has no visible effect until they land.
