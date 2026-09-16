@@ -54,8 +54,19 @@ if "-std=gnu++17" in env_metal["CXXFLAGS"]:
     env_metal["CXXFLAGS"].remove("-std=gnu++17")
 env_metal.Append(CXXFLAGS=["-std=gnu++20"])
 
-# Enable module support
-env_metal.Append(CCFLAGS=["-fmodules", "-fcxx-modules"])
+# Clang modules break on the MacOSX 26.x SDK (Darwin submodule fails to build);
+# read the SDK version off the sysroot so this works under osxcross too.
+import os as _os
+import re as _re
+
+_sdk_major = 0
+_sdk_path = env.subst("$MACOS_SDK_PATH") or _os.environ.get("SDKROOT", "")
+_m = _re.search(r"MacOSX(\d+)", _sdk_path)
+if _m:
+    _sdk_major = int(_m.group(1))
+
+if _sdk_major and _sdk_major < 26:
+    env_metal.Append(CCFLAGS=["-fmodules", "-fcxx-modules"])
 
 # Driver source files
 
