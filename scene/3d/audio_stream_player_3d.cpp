@@ -266,17 +266,28 @@ void AudioStreamPlayer3D::_notification(int p_what) {
 	internal->notification(p_what);
 	switch (p_what) {
 		case NOTIFICATION_ENTER_TREE: {
+			if (SpatialAudioServer::get_singleton()) {
+				audio_source_id = SpatialAudioServer::get_singleton()->create_source();
+				SpatialAudioServer::get_singleton()->set_source_transform(audio_source_id, get_global_transform());
+			}
 			velocity_tracker->reset(get_global_transform().origin);
 			AudioServer::get_singleton()->add_listener_changed_callback(_listener_changed_cb, this);
 		} break;
 
 		case NOTIFICATION_EXIT_TREE: {
 			AudioServer::get_singleton()->remove_listener_changed_callback(_listener_changed_cb, this);
+			if (SpatialAudioServer::get_singleton()) {
+				SpatialAudioServer::get_singleton()->destroy_source(audio_source_id);
+				audio_source_id = AudioSourceId(-1);
+			}
 		} break;
 
 		case NOTIFICATION_TRANSFORM_CHANGED: {
 			if (doppler_tracking != DOPPLER_TRACKING_DISABLED) {
 				velocity_tracker->update_position(get_global_transform().origin);
+			}
+			if (SpatialAudioServer::get_singleton() && audio_source_id.get_id() != -1) {
+				SpatialAudioServer::get_singleton()->set_source_transform(audio_source_id, get_global_transform());
 			}
 		} break;
 
@@ -292,7 +303,7 @@ void AudioStreamPlayer3D::_notification(int p_what) {
 				internal->active.set();
 				HashMap<StringName, Vector<AudioFrame>> bus_map;
 				bus_map[_get_actual_bus()] = volume_vector;
-				AudioServer::get_singleton()->start_playback_stream(setplayback, bus_map, setplay.get(), actual_pitch_scale, linear_attenuation, attenuation_filter_cutoff_hz);
+				AudioServer::get_singleton()->start_playback_stream(setplayback, bus_map, setplay.get(), actual_pitch_scale, linear_attenuation, attenuation_filter_cutoff_hz, audio_source_id);
 				setplayback.unref();
 				setplay.set(-1);
 			}
