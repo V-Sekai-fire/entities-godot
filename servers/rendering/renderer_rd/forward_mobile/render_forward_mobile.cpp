@@ -50,6 +50,9 @@
 #ifdef MODULE_TEXTURE_STREAMING_ENABLED
 #include "modules/texture_streaming/texture_streaming.h"
 #endif
+#ifdef MODULE_OIT_ENABLED
+#include "modules/oit/oit_effect.h"
+#endif
 
 #define PRELOAD_PIPELINES_ON_SURFACE_CACHE_CONSTRUCTION 1
 
@@ -970,6 +973,10 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 
 	_fill_instance_data(RENDER_LIST_OPAQUE);
 	_fill_instance_data(RENDER_LIST_ALPHA);
+
+#ifdef MODULE_OIT_ENABLED
+	_oit_prepass(p_render_data);
+#endif
 
 	if (p_render_data->render_info) {
 		p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE][RSE::VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME] = p_render_data->instances->size();
@@ -3686,4 +3693,101 @@ RenderForwardMobile::~RenderForwardMobile() {
 		RD::get_singleton()->free_rid(scene_state.lightmap_capture_buffer);
 		memdelete_arr(scene_state.lightmap_captures);
 	}
+
+#ifdef MODULE_OIT_ENABLED
+	if (oit_params_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(oit_params_buffer);
+	}
+	if (oit_splat_count_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(oit_splat_count_buffer);
+	}
+	if (oit_splat_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(oit_splat_buffer);
+	}
+	if (oit_effect) {
+		memdelete(oit_effect);
+		oit_effect = nullptr;
+	}
+#endif
 }
+
+#ifdef MODULE_OIT_ENABLED
+void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
+	if (!GLOBAL_GET("rendering/oit/enabled")) {
+		return;
+	}
+	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
+	if (rb.is_null()) {
+		return;
+	}
+	Size2i internal = rb->get_internal_size();
+	if (internal.x <= 0 || internal.y <= 0) {
+		return;
+	}
+
+	int slice_count = int(GLOBAL_GET("rendering/oit/slice_count"));
+	Vector2i tile_size = GLOBAL_GET("rendering/oit/tile_size");
+
+	if (oit_effect == nullptr) {
+		oit_effect = memnew(OITEffect);
+	}
+	oit_effect->configure(internal, slice_count, tile_size);
+
+	struct OITParams {
+		float view_matrix[16];
+		float slice_curve[4];
+		uint32_t froxel_dims[4];
+		float tile_size[4];
+	};
+	OITParams params;
+	Projection view = p_render_data->scene_data->cam_transform.affine_inverse();
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 4; j++) {
+			params.view_matrix[i * 4 + j] = view.columns[i][j];
+		}
+	}
+	params.slice_curve[0] = float(GLOBAL_GET("rendering/oit/near_plane"));
+	params.slice_curve[1] = float(GLOBAL_GET("rendering/oit/far_plane"));
+	params.slice_curve[2] = float(GLOBAL_GET("rendering/oit/linearization_factor"));
+	params.slice_curve[3] = float(slice_count);
+	Vector3i dims = oit_effect->get_froxel_dims();
+	params.froxel_dims[0] = dims.x;
+	params.froxel_dims[1] = dims.y;
+	params.froxel_dims[2] = dims.z;
+	params.froxel_dims[3] = 0;
+	params.tile_size[0] = tile_size.x;
+	params.tile_size[1] = tile_size.y;
+	params.tile_size[2] = 0.0f;
+	params.tile_size[3] = 0.0f;
+
+	if (!oit_params_buffer.is_valid()) {
+		oit_params_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(OITParams));
+	}
+	RD::get_singleton()->buffer_update(oit_params_buffer, 0, sizeof(OITParams), &params);
+
+	uint32_t splat_count_data[4] = { 0, 0, 0, 0 };
+	if (!oit_splat_count_buffer.is_valid()) {
+		oit_splat_count_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(splat_count_data));
+	}
+	RD::get_singleton()->buffer_update(oit_splat_count_buffer, 0, sizeof(splat_count_data), splat_count_data);
+
+	if (!oit_splat_buffer.is_valid()) {
+		oit_splat_buffer = RD::get_singleton()->storage_buffer_create(16);
+	}
+
+	oit_effect->voxelize(oit_splat_buffer, oit_splat_count_buffer, oit_params_buffer, 0);
+
+	struct IntegrateParams {
+		uint32_t froxel_dims[4];
+	};
+	IntegrateParams ip;
+	ip.froxel_dims[0] = dims.x;
+	ip.froxel_dims[1] = dims.y;
+	ip.froxel_dims[2] = dims.z;
+	ip.froxel_dims[3] = 0;
+	RID integrate_params = RD::get_singleton()->uniform_buffer_create(sizeof(IntegrateParams));
+	RD::get_singleton()->buffer_update(integrate_params, 0, sizeof(IntegrateParams), &ip);
+	oit_effect->integrate(integrate_params);
+	RD::get_singleton()->free_rid(integrate_params);
+}
+#endif
