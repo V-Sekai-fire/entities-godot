@@ -750,6 +750,21 @@ inline uint64_t pick_seed(uint64_t caller_seed) {
 	if (caller_seed != 0) {
 		return caller_seed;
 	}
+#if defined(_MSC_VER)
+	{
+		char *env = nullptr;
+		size_t env_len = 0;
+		if (_dupenv_s(&env, &env_len, "PROPERTY_SEED") == 0 && env != nullptr) {
+			char *end = nullptr;
+			uint64_t parsed = std::strtoull(env, &end, 0);
+			bool ok = end != env && *end == '\0' && parsed != 0;
+			std::free(env);
+			if (ok) {
+				return parsed;
+			}
+		}
+	}
+#else
 	if (const char *env = std::getenv("PROPERTY_SEED")) {
 		char *end = nullptr;
 		uint64_t parsed = std::strtoull(env, &end, 0);
@@ -757,6 +772,7 @@ inline uint64_t pick_seed(uint64_t caller_seed) {
 			return parsed;
 		}
 	}
+#endif
 	std::random_device rd;
 	uint64_t s = (static_cast<uint64_t>(rd()) << 32) ^ static_cast<uint64_t>(rd());
 	if (s == 0) {
