@@ -267,7 +267,8 @@ void AudioServer::_mix_step() {
 				if (prev_bus_idx != -1) {
 					prev_channel_vol = playback->prev_bus_details->volume[prev_bus_idx][channel_idx];
 				}
-				_mix_step_for_channel(channel_buf, buf, prev_channel_vol, channel_vol, playback->attenuation_filter_cutoff_hz.get(), playback->highshelf_gain.get(), &playback->filter_process[channel_idx * 2], &playback->filter_process[channel_idx * 2 + 1]);
+				AuSE::BusType bus_type = (bus_idx >= 0 && bus_idx < buses.size()) ? buses[bus_idx]->type : AuSE::BUS_TYPE_CONVENTIONAL;
+				_mix_step_for_channel(channel_buf, buf, prev_channel_vol, channel_vol, playback->attenuation_filter_cutoff_hz.get(), playback->highshelf_gain.get(), &playback->filter_process[channel_idx * 2], &playback->filter_process[channel_idx * 2 + 1], playback->source_id, channel_idx, bus_type);
 			}
 		}
 
@@ -293,7 +294,8 @@ void AudioServer::_mix_step() {
 				AudioFrame *channel_buf = thread_get_channel_mix_buffer(bus_idx, channel_idx);
 				AudioFrame prev_channel_vol = playback->prev_bus_details->volume[idx][channel_idx];
 				// Fade out to silence. This could be replaced with an exponential fadeout of the samples from the lookahead buffer for more punchy results.
-				_mix_step_for_channel(channel_buf, buf, prev_channel_vol, AudioFrame(0, 0), playback->attenuation_filter_cutoff_hz.get(), playback->highshelf_gain.get(), &playback->filter_process[channel_idx * 2], &playback->filter_process[channel_idx * 2 + 1]);
+				AuSE::BusType bus_type = (bus_idx >= 0 && bus_idx < buses.size()) ? buses[bus_idx]->type : AuSE::BUS_TYPE_CONVENTIONAL;
+				_mix_step_for_channel(channel_buf, buf, prev_channel_vol, AudioFrame(0, 0), playback->attenuation_filter_cutoff_hz.get(), playback->highshelf_gain.get(), &playback->filter_process[channel_idx * 2], &playback->filter_process[channel_idx * 2 + 1], playback->source_id, channel_idx, bus_type);
 			}
 		}
 
@@ -330,6 +332,21 @@ void AudioServer::_mix_step() {
 	// Now that all of the buses have their audio sources mixed into them, we can process the effects and bus sends.
 	for (int i = buses.size() - 1; i >= 0; i--) {
 		Bus *bus = buses[i];
+
+		// Spatial buses pull the spatialized listener buffer from SpatialAudioServer into each channel.
+		if (bus->type == AuSE::BUS_TYPE_SPATIAL_3D && SpatialAudioServer::get_singleton()) {
+			for (int k = 0; k < bus->channels.size(); k++) {
+				AudioFrame *buf = bus->channels.write[k].buffer.ptrw();
+				if (buf && SpatialAudioServer::get_singleton()->pull_listener_buffer(k, buffer_size, buf)) {
+					bus->channels.write[k].active = true;
+					bus->channels.write[k].used = true;
+				} else if (buf) {
+					for (uint32_t j = 0; j < buffer_size; j++) {
+						buf[j] = AudioFrame(0, 0);
+					}
+				}
+			}
+		}
 
 		for (int k = 0; k < bus->channels.size(); k++) {
 			if (bus->channels[k].active && !bus->channels[k].used) {
@@ -454,7 +471,14 @@ void AudioServer::_mix_step() {
 	to_mix = buffer_size;
 }
 
-void AudioServer::_mix_step_for_channel(AudioFrame *p_out_buf, AudioFrame *p_source_buf, AudioFrame p_vol_start, AudioFrame p_vol_final, float p_attenuation_filter_cutoff_hz, float p_highshelf_gain, AudioFilterSW::Processor *p_processor_l, AudioFilterSW::Processor *p_processor_r) {
+void AudioServer::_mix_step_for_channel(AudioFrame *p_out_buf, AudioFrame *p_source_buf, AudioFrame p_vol_start, AudioFrame p_vol_final, float p_attenuation_filter_cutoff_hz, float p_highshelf_gain, AudioFilterSW::Processor *p_processor_l, AudioFilterSW::Processor *p_processor_r, AudioSourceId p_audio_source_id, int p_channel_idx, AuSE::BusType p_bus_type) {
+	// Spatial buses: hand the source buffer to SpatialAudioServer, which owns spatialization and reverb.
+	// The bus output is pulled back into channel buffers in _mix_step.
+	if (p_bus_type == AuSE::BUS_TYPE_SPATIAL_3D && SpatialAudioServer::get_singleton() && p_audio_source_id.get_id() != -1) {
+		SpatialAudioServer::get_singleton()->push_source_buffer(p_audio_source_id, p_channel_idx, buffer_size, p_source_buf);
+		return;
+	}
+
 	// TODO: In the future it could be nice to replace all of these hardcoded effects with something a bit cleaner and more flexible, but for now this is what we do to support 3D audio players.
 	if (p_highshelf_gain != 0) {
 		AudioFilterSW filter;
@@ -1049,12 +1073,13 @@ void AudioServer::start_playback_stream(Ref<AudioStreamPlayback> p_playback, con
 	start_playback_stream(p_playback, map, p_start_time, p_pitch_scale);
 }
 
-void AudioServer::start_playback_stream(Ref<AudioStreamPlayback> p_playback, const HashMap<StringName, Vector<AudioFrame>> &p_bus_volumes, float p_start_time, float p_pitch_scale, float p_highshelf_gain, float p_attenuation_cutoff_hz) {
+void AudioServer::start_playback_stream(Ref<AudioStreamPlayback> p_playback, const HashMap<StringName, Vector<AudioFrame>> &p_bus_volumes, float p_start_time, float p_pitch_scale, float p_highshelf_gain, float p_attenuation_cutoff_hz, AudioSourceId p_source_id) {
 	ERR_FAIL_COND(p_playback.is_null());
 
 	AudioStreamPlaybackListNode *playback_node = new AudioStreamPlaybackListNode();
 	playback_node->stream_playback = p_playback;
 	playback_node->stream_playback->start(p_start_time);
+	playback_node->source_id = p_source_id;
 
 	AudioStreamPlaybackBusDetails *new_bus_details = new AudioStreamPlaybackBusDetails();
 	int idx = 0;
@@ -1235,7 +1260,7 @@ void AudioServer::set_playback_paused(Ref<AudioStreamPlayback> p_playback, bool 
 	} while (!playback_node->state.compare_exchange_strong(old_state, new_state));
 }
 
-void AudioServer::set_playback_highshelf_params(Ref<AudioStreamPlayback> p_playback, float p_gain, float p_attenuation_cutoff_hz) {
+void AudioServer::set_playback_highshelf_params(Ref<AudioStreamPlayback> p_playback, float p_gain, float p_attenuation_cutoff_hz, AudioSourceId p_source_id) {
 	ERR_FAIL_COND(p_playback.is_null());
 
 	AudioStreamPlaybackListNode *playback_node = _find_playback_list_node(p_playback);
@@ -1245,6 +1270,19 @@ void AudioServer::set_playback_highshelf_params(Ref<AudioStreamPlayback> p_playb
 
 	playback_node->attenuation_filter_cutoff_hz.set(p_attenuation_cutoff_hz);
 	playback_node->highshelf_gain.set(p_gain);
+	if (p_source_id.get_id() != -1) {
+		playback_node->source_id = p_source_id;
+	}
+}
+
+void AudioServer::set_bus_type(int p_bus, AuSE::BusType p_type) {
+	ERR_FAIL_INDEX(p_bus, buses.size());
+	buses[p_bus]->type = p_type;
+}
+
+AuSE::BusType AudioServer::get_bus_type(int p_bus) const {
+	ERR_FAIL_INDEX_V(p_bus, buses.size(), AuSE::BUS_TYPE_CONVENTIONAL);
+	return buses[p_bus]->type;
 }
 
 bool AudioServer::is_playback_active(Ref<AudioStreamPlayback> p_playback) {
@@ -1353,6 +1391,7 @@ void AudioServer::init() {
 #endif
 
 	GLOBAL_DEF_RST(PropertyInfo(Variant::INT, "audio/video/video_delay_compensation_ms", PROPERTY_HINT_RANGE, "-1000,1000,1,suffix:ms"), 0);
+	GLOBAL_DEF_RST("audio/enable_spatial_audio", true);
 }
 
 void AudioServer::update() {
@@ -1598,6 +1637,7 @@ void AudioServer::set_bus_layout(const Ref<AudioBusLayout> &p_bus_layout) {
 		bus->mute = p_bus_layout->buses[i].mute;
 		bus->bypass = p_bus_layout->buses[i].bypass;
 		bus->volume_db = p_bus_layout->buses[i].volume_db;
+		bus->type = p_bus_layout->buses[i].type;
 
 		AudioDriver::get_singleton()->set_sample_bus_solo(i, bus->solo);
 		AudioDriver::get_singleton()->set_sample_bus_mute(i, bus->mute);
@@ -1647,6 +1687,7 @@ Ref<AudioBusLayout> AudioServer::generate_bus_layout() const {
 		state->buses.write[i].solo = buses[i]->solo;
 		state->buses.write[i].bypass = buses[i]->bypass;
 		state->buses.write[i].volume_db = buses[i]->volume_db;
+		state->buses.write[i].type = buses[i]->type;
 		for (int j = 0; j < buses[i]->effects.size(); j++) {
 			AudioBusLayout::Bus::Effect fx;
 			fx.effect = buses[i]->effects[j].effect;
@@ -1875,6 +1916,9 @@ void AudioServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_bus_send", "bus_idx", "send"), &AudioServer::set_bus_send);
 	ClassDB::bind_method(D_METHOD("get_bus_send", "bus_idx"), &AudioServer::get_bus_send);
 
+	ClassDB::bind_method(D_METHOD("set_bus_type", "bus_idx", "type"), &AudioServer::set_bus_type);
+	ClassDB::bind_method(D_METHOD("get_bus_type", "bus_idx"), &AudioServer::get_bus_type);
+
 	ClassDB::bind_method(D_METHOD("set_bus_solo", "bus_idx", "enable"), &AudioServer::set_bus_solo);
 	ClassDB::bind_method(D_METHOD("is_bus_solo", "bus_idx"), &AudioServer::is_bus_solo);
 
@@ -1954,6 +1998,9 @@ void AudioServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(AuSE::PLAYBACK_TYPE_STREAM);
 	BIND_ENUM_CONSTANT(AuSE::PLAYBACK_TYPE_SAMPLE);
 	BIND_ENUM_CONSTANT(AuSE::PLAYBACK_TYPE_MAX);
+
+	BIND_ENUM_CONSTANT(AuSE::BUS_TYPE_CONVENTIONAL);
+	BIND_ENUM_CONSTANT(AuSE::BUS_TYPE_SPATIAL_3D);
 }
 
 AudioServer::AudioServer() {
