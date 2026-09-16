@@ -11,3 +11,5 @@ module_obj = []
 env_oit.add_source_files(module_obj, "*.cpp")
 
 env.modules_sources += module_obj
+
+SConscript("shaders/SCsub")
