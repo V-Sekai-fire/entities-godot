@@ -694,7 +694,11 @@ bool ReverbProbeGI::_bake_gpu(const PackedVector3Array &p_probes, const Vector<V
 		gains_w[pi] = 0.045f * CLAMP(enclosure * 4.0f, 0.01f, 1.0f);
 	}
 
-	// Cleanup.
+	// Cleanup. Free uniform sets before their backing buffers — freeing a
+	// buffer that a uniform set still references invalidates the set, and the
+	// subsequent free_rid on the set then reports "Attempted to free invalid ID".
+	rd->free_rid(uniform_set1);
+	rd->free_rid(uniform_set0);
 	rd->free_rid(accum_buf);
 	rd->free_rid(sorted_tri_buf);
 	rd->free_rid(cluster_aabb_buf);
@@ -705,8 +709,6 @@ bool ReverbProbeGI::_bake_gpu(const PackedVector3Array &p_probes, const Vector<V
 	rd->free_rid(tri_buf);
 	rd->free_rid(vertex_buf);
 	rd->free_rid(params_buf);
-	rd->free_rid(uniform_set1);
-	rd->free_rid(uniform_set0);
 
 	return true;
 }
