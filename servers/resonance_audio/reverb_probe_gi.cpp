@@ -264,6 +264,11 @@ static void _bake_probe_task(void *p_userdata, uint32_t p_index) {
 }
 
 void ReverbProbeGI::_ensure_gpu_resources() {
+#ifndef RD_ENABLED
+	// RenderingServer has no create_local_rendering_device() when RD is off;
+	// _bake_gpu will bail on the null _gpu_rd and callers fall back to CPU.
+	return;
+#else
 	if (_gpu_rd) {
 		return;
 	}
@@ -287,6 +292,7 @@ void ReverbProbeGI::_ensure_gpu_resources() {
 		return;
 	}
 	_gpu_pipeline = _gpu_rd->compute_pipeline_create(_gpu_shader);
+#endif // RD_ENABLED
 }
 
 void ReverbProbeGI::_free_gpu_resources() {
@@ -305,6 +311,9 @@ void ReverbProbeGI::_free_gpu_resources() {
 }
 
 bool ReverbProbeGI::_bake_gpu(const PackedVector3Array &p_probes, const Vector<Vector3> &p_vertices, const Vector<int> &p_indices, const Vector<int> &p_tri_materials, const AABB &p_bounds, int p_ray_count, int p_max_bounces, PackedFloat32Array &r_rt60, PackedFloat32Array &r_gains) {
+#ifndef RD_ENABLED
+	return false;
+#else
 	static constexpr int NUM_BANDS = 9;
 
 	_ensure_gpu_resources();
@@ -720,6 +729,7 @@ bool ReverbProbeGI::_bake_gpu(const PackedVector3Array &p_probes, const Vector<V
 	rd->free_rid(params_buf);
 
 	return true;
+#endif // RD_ENABLED
 }
 
 ReverbProbeGI::BakeError ReverbProbeGI::bake(Node *p_from_node, const PackedVector3Array &p_probe_positions, int p_ray_count, int p_max_bounces) {
