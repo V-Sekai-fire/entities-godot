@@ -54,11 +54,23 @@ protected:
 private:
 	static RenderForwardMobile *singleton;
 
+	// Persistent fallbacks bound into the scene shader's RENDER_PASS_UNIFORM_SET
+	// so bindings 26/27 always resolve even without a live OIT effect. The
+	// dummy transmittance stays (1,1,1,1) and the dummy params carry
+	// froxel_dims.w = 0, which makes the scene shader's oit_apply short
+	// circuit and pass alpha through unchanged.
+	RID oit_default_transmittance;
+	RID oit_default_transmittance_sampler;
+	RID oit_default_params_buffer;
+	void _oit_ensure_defaults();
+	void _oit_free_defaults();
+
 #ifdef MODULE_OIT_ENABLED
 	OITEffect *oit_effect = nullptr;
 	RID oit_params_buffer;
 	RID oit_splat_count_buffer;
 	RID oit_splat_buffer;
+	RID oit_scene_params_buffer;
 	void _oit_prepass(RenderDataRD *p_render_data);
 #endif
 
