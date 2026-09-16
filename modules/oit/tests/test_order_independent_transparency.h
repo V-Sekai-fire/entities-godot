@@ -37,7 +37,6 @@
 #include "core/config/project_settings.h"
 #include "core/object/class_db.h"
 #include "scene/resources/compositor.h"
-
 #include "tests/test_macros.h"
 
 #include <thirdparty/witness-cpp/include/witness/ladder.h>
