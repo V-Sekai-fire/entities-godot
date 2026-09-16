@@ -157,11 +157,22 @@ void ReverbProbeGI::_update_reverb_from_listener() {
 	float gain;
 
 	if (bake_data->lookup_reverb(listener_pos, rt60, gain)) {
-		static int debug_count = 0;
-		if (debug_count < 5 || debug_count % 300 == 0) {
-			print_line(vformat("ReverbProbeGI: pos=(%.1f,%.1f,%.1f) rt60_1k=%.3f gain=%.4f", listener_pos.x, listener_pos.y, listener_pos.z, rt60[5], gain));
+		if (OS::get_singleton()->is_stdout_verbose()) {
+			static int debug_count = 0;
+			static ObjectID seen_a;
+			static ObjectID seen_b;
+			ObjectID id = get_instance_id();
+			if (seen_a.is_null()) {
+				seen_a = id;
+			} else if (id != seen_a && seen_b.is_null()) {
+				seen_b = id;
+				WARN_PRINT(vformat("ReverbProbeGI: a second instance %d is running alongside %d — expect the reverb bus to swap between two sources each tick.", (uint64_t)id, (uint64_t)seen_a));
+			}
+			if (debug_count < 5 || debug_count % 300 == 0) {
+				print_line(vformat("ReverbProbeGI[%d]: pos=(%.1f,%.1f,%.1f) rt60_1k=%.3f gain=%.4f", (uint64_t)id, listener_pos.x, listener_pos.y, listener_pos.z, rt60[5], gain));
+			}
+			debug_count++;
 		}
-		debug_count++;
 		server->set_reverb_properties(rt60, gain);
 	}
 }
