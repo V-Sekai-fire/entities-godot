@@ -472,8 +472,7 @@ void AudioServer::_mix_step() {
 }
 
 void AudioServer::_mix_step_for_channel(AudioFrame *p_out_buf, AudioFrame *p_source_buf, AudioFrame p_vol_start, AudioFrame p_vol_final, float p_attenuation_filter_cutoff_hz, float p_highshelf_gain, AudioFilterSW::Processor *p_processor_l, AudioFilterSW::Processor *p_processor_r, AudioSourceId p_audio_source_id, int p_channel_idx, AuSE::BusType p_bus_type) {
-	// Spatial buses: hand the source buffer to SpatialAudioServer, which owns spatialization and reverb.
-	// The bus output is pulled back into channel buffers in _mix_step.
+	// Spatial buses hand the source buffer off to SpatialAudioServer; _mix_step pulls the spatialized output back into channel buffers.
 	if (p_bus_type == AuSE::BUS_TYPE_SPATIAL_3D && SpatialAudioServer::get_singleton() && p_audio_source_id.get_id() != -1) {
 		SpatialAudioServer::get_singleton()->push_source_buffer(p_audio_source_id, p_channel_idx, buffer_size, p_source_buf);
 		return;
