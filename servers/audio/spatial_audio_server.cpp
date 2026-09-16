@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  audio_server_enums.h                                                  */
+/*  spatial_audio_server.cpp                                              */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,35 +28,6 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#include "spatial_audio_server.h"
 
-namespace AudioServerEnums {
-
-//re-expose this here, as AudioDriver is not exposed to script
-enum SpeakerMode {
-	SPEAKER_MODE_STEREO,
-	SPEAKER_SURROUND_31,
-	SPEAKER_SURROUND_51,
-	SPEAKER_SURROUND_71,
-};
-
-enum PlaybackType {
-	PLAYBACK_TYPE_DEFAULT,
-	PLAYBACK_TYPE_STREAM,
-	PLAYBACK_TYPE_SAMPLE,
-	PLAYBACK_TYPE_MAX
-};
-
-enum BusType {
-	BUS_TYPE_CONVENTIONAL = 0,
-	BUS_TYPE_SPATIAL_3D = 1,
-};
-
-#ifndef DISABLE_DEPRECATED
-// Graveyard.
-#endif
-
-} // namespace AudioServerEnums
-
-// Alias to make it easier to use.
-#define AuSE AudioServerEnums
+SpatialAudioServer *SpatialAudioServer::singleton = nullptr;
