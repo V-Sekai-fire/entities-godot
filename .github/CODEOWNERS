@@ -280,6 +280,7 @@
 /servers/physics_2d/                          @godotengine/physics
 /servers/physics_3d/                          @godotengine/physics
 /servers/rendering/                           @godotengine/rendering
+/servers/resonance_audio/                     @fire
 /servers/text/                                @godotengine/gui-nodes
 /servers/xr/                                  @godotengine/xr
 
