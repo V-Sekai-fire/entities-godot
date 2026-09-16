@@ -35,6 +35,12 @@
 #include "servers/rendering/renderer_rd/forward_mobile/scene_shader_forward_mobile.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 
+#include "modules/modules_enabled.gen.h"
+
+#ifdef MODULE_OIT_ENABLED
+class OITEffect;
+#endif
+
 #define RB_SCOPE_MOBILE SNAME("mobile")
 
 namespace RendererSceneRenderImplementation {
@@ -47,6 +53,14 @@ protected:
 
 private:
 	static RenderForwardMobile *singleton;
+
+#ifdef MODULE_OIT_ENABLED
+	OITEffect *oit_effect = nullptr;
+	RID oit_params_buffer;
+	RID oit_splat_count_buffer;
+	RID oit_splat_buffer;
+	void _oit_prepass(RenderDataRD *p_render_data);
+#endif
 
 	/* Scene Shader */
 
