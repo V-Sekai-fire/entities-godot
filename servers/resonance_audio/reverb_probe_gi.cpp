@@ -296,6 +296,7 @@ void ReverbProbeGI::_ensure_gpu_resources() {
 }
 
 void ReverbProbeGI::_free_gpu_resources() {
+#ifdef RD_ENABLED
 	if (_gpu_rd) {
 		if (_gpu_pipeline.is_valid()) {
 			_gpu_rd->free_rid(_gpu_pipeline);
@@ -308,6 +309,7 @@ void ReverbProbeGI::_free_gpu_resources() {
 		memdelete(_gpu_rd);
 		_gpu_rd = nullptr;
 	}
+#endif // RD_ENABLED
 }
 
 bool ReverbProbeGI::_bake_gpu(const PackedVector3Array &p_probes, const Vector<Vector3> &p_vertices, const Vector<int> &p_indices, const Vector<int> &p_tri_materials, const AABB &p_bounds, int p_ray_count, int p_max_bounces, PackedFloat32Array &r_rt60, PackedFloat32Array &r_gains) {
