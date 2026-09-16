@@ -127,4 +127,34 @@ TEST_CASE("[OIT][Witness] slice indices are always in range") {
 	CHECK(trial.outcome == witness::Outcome::PROVABLY_NONE);
 }
 
+TEST_CASE("[OIT][Witness] falsification control: constant slice function is caught") {
+	witness::Generator<DepthPair> gen = [](witness::RNG &r, const witness::Level &) -> DepthPair {
+		DepthPair p;
+		p.near_plane = 0.1f;
+		p.far_plane = 100.0f;
+		p.linearization = 0.5f;
+		p.slice_count = 128;
+		p.z0 = float(r.float_range(0.1, 100.0));
+		p.z1 = p.z0 + float(r.float_range(0.5, 90.0));
+		return p;
+	};
+	// Predicate uses a KNOWN-BROKEN slice function (always returns 0) but
+	// pretends the "correct" values are (0, s1_real). Monotonicity holds
+	// iff s1 >= 0, which is trivially true for the broken function.
+	// The USEFUL falsification check is the reverse: assert that when
+	// z1 > z0 we get s1 > s0 STRICTLY at large enough gaps. A constant
+	// function violates this for any input pair, so the ladder MUST
+	// return FOUND.
+	std::function<bool(const DepthPair &)> broken_predicate = [](const DepthPair &p) -> bool {
+		uint32_t broken_s0 = 42;
+		uint32_t broken_s1 = 42;
+		if (p.z1 - p.z0 > 5.0f) {
+			return broken_s1 > broken_s0;
+		}
+		return true;
+	};
+	witness::Trial trial = witness::resolve<DepthPair>("oit-falsification-control", gen, broken_predicate);
+	CHECK(trial.outcome == witness::Outcome::FOUND);
+}
+
 } // namespace TestOIT
