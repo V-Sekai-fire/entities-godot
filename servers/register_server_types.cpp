@@ -38,6 +38,11 @@
 #include "servers/audio/audio_effect.h"
 #include "servers/audio/audio_frame.h"
 #include "servers/audio/audio_server.h"
+#include "servers/resonance_audio/resonance_audio_material_map.h"
+#include "servers/resonance_audio/resonance_audio_room.h"
+#include "servers/resonance_audio/resonance_audio_wrapper.h"
+#include "servers/resonance_audio/reverb_bake_data.h"
+#include "servers/resonance_audio/reverb_probe_gi.h"
 #include "servers/audio/effects/audio_effect_amplify.h"
 #include "servers/audio/effects/audio_effect_capture.h"
 #include "servers/audio/effects/audio_effect_chorus.h"
@@ -175,6 +180,11 @@ void register_server_types() {
 	GDREGISTER_ABSTRACT_CLASS(RenderingServer);
 
 	GDREGISTER_CLASS(AudioServer);
+	GDREGISTER_CLASS(ResonanceAudioServer);
+	GDREGISTER_CLASS(ResonanceAudioMaterialMap);
+	GDREGISTER_CLASS(ResonanceAudioRoom);
+	GDREGISTER_CLASS(ReverbBakeData);
+	GDREGISTER_CLASS(ReverbProbeGI);
 	GDREGISTER_NATIVE_STRUCT(AudioFrame, "float left;float right");
 
 	GDREGISTER_CLASS(NativeMenu);
