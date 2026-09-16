@@ -70,6 +70,7 @@ private:
 	RID oit_params_buffer;
 	RID oit_splat_count_buffer;
 	RID oit_splat_buffer;
+	uint32_t oit_splat_buffer_capacity = 0;
 	RID oit_scene_params_buffer;
 	void _oit_prepass(RenderDataRD *p_render_data);
 #endif

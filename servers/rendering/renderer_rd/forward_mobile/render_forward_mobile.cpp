@@ -3856,17 +3856,50 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
 	}
 	RD::get_singleton()->buffer_update(oit_params_buffer, 0, sizeof(OITParams), &params);
 
-	uint32_t splat_count_data[4] = { 0, 0, 0, 0 };
+	// Gather one splat per transparent surface at the AABB center. Alpha is
+	// a placeholder 0.5 — proper per-material alpha extraction needs the
+	// material UBO walk, which the follow-up commit adds. This still gives
+	// visible extinction accumulation where transparent surfaces overlap.
+	Vector<float> splat_scratch;
+	uint32_t splat_count = 0;
+	{
+		const RenderList &rl = render_list[RENDER_LIST_ALPHA];
+		int element_count = rl.elements.size();
+		splat_scratch.resize(element_count * 4);
+		float *w = splat_scratch.ptrw();
+		for (int i = 0; i < element_count; i++) {
+			const GeometryInstanceSurfaceDataCache *surf = rl.elements[i];
+			if (!surf || !surf->owner) {
+				continue;
+			}
+			Vector3 center = surf->owner->transformed_aabb.get_center();
+			w[splat_count * 4 + 0] = float(center.x);
+			w[splat_count * 4 + 1] = float(center.y);
+			w[splat_count * 4 + 2] = float(center.z);
+			w[splat_count * 4 + 3] = 0.5f;
+			splat_count++;
+		}
+	}
+
+	uint32_t splat_count_data[4] = { splat_count, 0, 0, 0 };
 	if (!oit_splat_count_buffer.is_valid()) {
 		oit_splat_count_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(splat_count_data));
 	}
 	RD::get_singleton()->buffer_update(oit_splat_count_buffer, 0, sizeof(splat_count_data), splat_count_data);
 
-	if (!oit_splat_buffer.is_valid()) {
-		oit_splat_buffer = RD::get_singleton()->storage_buffer_create(16);
+	uint32_t required_bytes = MAX((uint32_t)16, splat_count * (uint32_t)16);
+	if (!oit_splat_buffer.is_valid() || required_bytes > oit_splat_buffer_capacity) {
+		if (oit_splat_buffer.is_valid()) {
+			RD::get_singleton()->free_rid(oit_splat_buffer);
+		}
+		oit_splat_buffer_capacity = MAX(required_bytes, oit_splat_buffer_capacity * 2);
+		oit_splat_buffer = RD::get_singleton()->storage_buffer_create(oit_splat_buffer_capacity);
+	}
+	if (splat_count > 0) {
+		RD::get_singleton()->buffer_update(oit_splat_buffer, 0, splat_count * 16, splat_scratch.ptr());
 	}
 
-	oit_effect->voxelize(oit_splat_buffer, oit_splat_count_buffer, oit_params_buffer, 0);
+	oit_effect->voxelize(oit_splat_buffer, oit_splat_count_buffer, oit_params_buffer, splat_count);
 
 	struct IntegrateParams {
 		uint32_t froxel_dims[4];
