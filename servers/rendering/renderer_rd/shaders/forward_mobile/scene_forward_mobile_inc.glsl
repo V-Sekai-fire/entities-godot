@@ -433,6 +433,34 @@ layout(set = 1, binding = 25, std430) buffer restrict MaterialFeedbackBuffer {
 material_feedback;
 #endif
 
+layout(set = 1, binding = 26) uniform sampler3D oit_transmittance;
+
+layout(set = 1, binding = 27, std140) uniform OITParams {
+	vec4 slice_curve;
+	uvec4 froxel_dims;
+}
+oit_params;
+
+float oit_apply(vec3 view_pos, float alpha) {
+	if (oit_params.froxel_dims.w == 0u) {
+		return alpha;
+	}
+	float view_z = -view_pos.z;
+	if (view_z <= 0.0) {
+		return alpha;
+	}
+	vec2 ndc = view_pos.xy / max(-view_pos.z, 0.001);
+	vec2 uv = ndc * 0.5 + 0.5;
+	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
+		return alpha;
+	}
+	float k = max(oit_params.slice_curve.z, 0.001);
+	float linear_z = clamp((view_z - oit_params.slice_curve.x) / max(oit_params.slice_curve.y - oit_params.slice_curve.x, 0.001), 0.0, 1.0);
+	float slice_uv = log(1.0 + k * linear_z) / log(1.0 + k);
+	float transmittance = texture(oit_transmittance, vec3(uv, slice_uv)).r;
+	return alpha * transmittance;
+}
+
 /* Set 2 Skeleton & Instancing (can change per item) */
 
 layout(set = 2, binding = 0, std430) restrict readonly buffer Transforms {

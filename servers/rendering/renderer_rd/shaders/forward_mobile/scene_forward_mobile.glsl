@@ -1261,6 +1261,7 @@ void main() {
 	hvec2 anisotropy_flow = hvec2(anisotropy_flow_highp);
 	half ao = half(ao_highp);
 	half ao_light_affect = half(ao_light_affect_highp);
+	alpha_highp = oit_apply(vertex_interp, alpha_highp);
 	half alpha = half(alpha_highp);
 	half normal_map_depth = half(normal_map_depth_highp);
 	half sss_strength = half(sss_strength_highp);

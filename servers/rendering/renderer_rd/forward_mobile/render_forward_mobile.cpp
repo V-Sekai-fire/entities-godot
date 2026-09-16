@@ -746,6 +746,34 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 	}
 #endif // MODULE_TEXTURE_STREAMING_ENABLED
 
+	{
+		RD::Uniform u;
+		u.binding = 26;
+		u.uniform_type = RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
+		RID transmittance = oit_default_transmittance;
+#ifdef MODULE_OIT_ENABLED
+		if (p_render_list == RENDER_LIST_ALPHA && oit_effect && oit_effect->is_configured()) {
+			transmittance = oit_effect->get_transmittance_texture();
+		}
+#endif
+		u.append_id(oit_default_transmittance_sampler);
+		u.append_id(transmittance);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.binding = 27;
+		u.uniform_type = RD::UNIFORM_TYPE_UNIFORM_BUFFER;
+		RID params = oit_default_params_buffer;
+#ifdef MODULE_OIT_ENABLED
+		if (p_render_list == RENDER_LIST_ALPHA && oit_scene_params_buffer.is_valid() && oit_effect && oit_effect->is_configured()) {
+			params = oit_scene_params_buffer;
+		}
+#endif
+		u.append_id(params);
+		uniforms.push_back(u);
+	}
+
 	return UniformSetCacheRD::get_singleton()->get_cache_vec(scene_shader.get_default_shader_rd(is_multiview), RENDER_PASS_UNIFORM_SET, uniforms);
 }
 
@@ -3601,6 +3629,63 @@ void RenderForwardMobile::_update_shader_quality_settings() {
 	base_uniforms_changed(); //also need this
 }
 
+void RenderForwardMobile::_oit_ensure_defaults() {
+	if (oit_default_transmittance.is_valid()) {
+		return;
+	}
+	RenderingDevice *rd = RD::get_singleton();
+
+	RD::TextureFormat tf;
+	tf.width = 1;
+	tf.height = 1;
+	tf.depth = 1;
+	tf.array_layers = 1;
+	tf.mipmaps = 1;
+	tf.texture_type = RD::TEXTURE_TYPE_3D;
+	tf.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+	tf.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT;
+	Vector<uint8_t> white_pixel;
+	white_pixel.push_back(255);
+	white_pixel.push_back(255);
+	white_pixel.push_back(255);
+	white_pixel.push_back(255);
+	Vector<Vector<uint8_t>> initial_data;
+	initial_data.push_back(white_pixel);
+	oit_default_transmittance = rd->texture_create(tf, RD::TextureView(), initial_data);
+
+	RD::SamplerState sampler_state;
+	sampler_state.mag_filter = RD::SAMPLER_FILTER_LINEAR;
+	sampler_state.min_filter = RD::SAMPLER_FILTER_LINEAR;
+	sampler_state.repeat_u = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
+	sampler_state.repeat_v = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
+	sampler_state.repeat_w = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
+	oit_default_transmittance_sampler = rd->sampler_create(sampler_state);
+
+	struct SceneOITParams {
+		float slice_curve[4];
+		uint32_t froxel_dims[4];
+	};
+	SceneOITParams zero_params = {};
+	oit_default_params_buffer = rd->uniform_buffer_create(sizeof(SceneOITParams));
+	rd->buffer_update(oit_default_params_buffer, 0, sizeof(SceneOITParams), &zero_params);
+}
+
+void RenderForwardMobile::_oit_free_defaults() {
+	RenderingDevice *rd = RD::get_singleton();
+	if (oit_default_transmittance.is_valid()) {
+		rd->free_rid(oit_default_transmittance);
+		oit_default_transmittance = RID();
+	}
+	if (oit_default_transmittance_sampler.is_valid()) {
+		rd->free_rid(oit_default_transmittance_sampler);
+		oit_default_transmittance_sampler = RID();
+	}
+	if (oit_default_params_buffer.is_valid()) {
+		rd->free_rid(oit_default_params_buffer);
+		oit_default_params_buffer = RID();
+	}
+}
+
 RenderForwardMobile::RenderForwardMobile() {
 	singleton = this;
 
@@ -3665,6 +3750,8 @@ RenderForwardMobile::RenderForwardMobile() {
 
 	scene_shader.init(defines);
 
+	_oit_ensure_defaults();
+
 	_update_shader_quality_settings();
 	_update_global_pipeline_data_requirements_from_project();
 
@@ -3704,11 +3791,15 @@ RenderForwardMobile::~RenderForwardMobile() {
 	if (oit_splat_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(oit_splat_buffer);
 	}
+	if (oit_scene_params_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(oit_scene_params_buffer);
+	}
 	if (oit_effect) {
 		memdelete(oit_effect);
 		oit_effect = nullptr;
 	}
 #endif
+	_oit_free_defaults();
 }
 
 #ifdef MODULE_OIT_ENABLED
@@ -3789,5 +3880,24 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
 	RD::get_singleton()->buffer_update(integrate_params, 0, sizeof(IntegrateParams), &ip);
 	oit_effect->integrate(integrate_params);
 	RD::get_singleton()->free_rid(integrate_params);
+
+	// Scene-shader UBO — read by oit_apply in scene_forward_mobile.
+	struct SceneOITParams {
+		float slice_curve[4];
+		uint32_t froxel_dims[4];
+	};
+	SceneOITParams sp;
+	sp.slice_curve[0] = params.slice_curve[0];
+	sp.slice_curve[1] = params.slice_curve[1];
+	sp.slice_curve[2] = params.slice_curve[2];
+	sp.slice_curve[3] = params.slice_curve[3];
+	sp.froxel_dims[0] = dims.x;
+	sp.froxel_dims[1] = dims.y;
+	sp.froxel_dims[2] = dims.z;
+	sp.froxel_dims[3] = 1;
+	if (!oit_scene_params_buffer.is_valid()) {
+		oit_scene_params_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(SceneOITParams));
+	}
+	RD::get_singleton()->buffer_update(oit_scene_params_buffer, 0, sizeof(SceneOITParams), &sp);
 }
 #endif
