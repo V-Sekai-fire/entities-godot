@@ -34,12 +34,11 @@
 #include "order_independent_transparency_debug_overlay.h"
 #include "order_independent_transparency_renderer.h"
 
-#include "scene/resources/compositor.h"
-
 #include "core/object/ref_counted.h"
 #include "core/templates/vector.h"
 #include "core/variant/array.h"
 #include "core/variant/dictionary.h"
+#include "scene/resources/compositor.h"
 
 class OrderIndependentTransparencyCompositorEffect : public CompositorEffect {
 	GDCLASS(OrderIndependentTransparencyCompositorEffect, CompositorEffect);
