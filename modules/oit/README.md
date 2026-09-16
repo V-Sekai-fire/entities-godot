@@ -19,7 +19,7 @@ Following slide 47 of the paper:
 6. Render transparency in any order — each surface looks up the integrated
    extinction at its 3D position and multiplies its own alpha by the
    transmittance to that point.
-7. Composite the normalised transparency against the opaque background.
+7. Composite the normalized transparency against the opaque background.
 
 ## Project settings
 
@@ -34,11 +34,12 @@ All under `rendering/oit/`:
 | `far_plane`            | float   | 500.0     | Frustum far for slice curve fit            |
 | `linearization_factor` | float   | 0.5       | Log-Z curve shape                          |
 
-## Wiring a scene
+## Wiring
 
-1. Attach an `OITCompositorEffect` to the camera environment's `Compositor`
-   resource, in its `compositor_effects` list.
-2. Enable `rendering/oit/enabled` in the project settings.
+Enable `rendering/oit/enabled` in project settings. The technique hooks into
+the Forward+ transparent pass directly — there is no per-camera opt-in and
+no `CompositorEffect` to attach. The Mobile and GL Compatibility renderers
+have no OIT path and ignore the setting.
 
 ## State
 
