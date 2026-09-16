@@ -62,11 +62,13 @@
 #include "servers/display/native_menu.h"
 #include "servers/movie_writer/movie_writer.h"
 #include "servers/movie_writer/movie_writer_pngwav.h"
-#include "servers/resonance_audio/resonance_audio_material_map.h"
-#include "servers/resonance_audio/resonance_audio_room.h"
 #include "servers/resonance_audio/resonance_audio_wrapper.h"
 #include "servers/resonance_audio/reverb_bake_data.h"
+#ifndef _3D_DISABLED
+#include "servers/resonance_audio/resonance_audio_material_map.h"
+#include "servers/resonance_audio/resonance_audio_room.h"
 #include "servers/resonance_audio/reverb_probe_gi.h"
+#endif // _3D_DISABLED
 #ifdef RD_ENABLED
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_data_rd.h"
@@ -181,10 +183,12 @@ void register_server_types() {
 
 	GDREGISTER_CLASS(AudioServer);
 	GDREGISTER_CLASS(ResonanceAudioServer);
+	GDREGISTER_CLASS(ReverbBakeData);
+#ifndef _3D_DISABLED
 	GDREGISTER_CLASS(ResonanceAudioMaterialMap);
 	GDREGISTER_CLASS(ResonanceAudioRoom);
-	GDREGISTER_CLASS(ReverbBakeData);
 	GDREGISTER_CLASS(ReverbProbeGI);
+#endif // _3D_DISABLED
 	GDREGISTER_NATIVE_STRUCT(AudioFrame, "float left;float right");
 
 	GDREGISTER_CLASS(NativeMenu);
