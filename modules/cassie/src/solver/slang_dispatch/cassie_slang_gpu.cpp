@@ -65,6 +65,10 @@
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server.h"
 
+// The Web target builds without RD_ENABLED and without RenderingDevice, so
+// the dispatcher compiles to an unavailable stub there.
+#ifdef RD_ENABLED
+
 namespace cassie_slang_gpu {
 
 namespace {
@@ -1327,3 +1331,58 @@ bool CassieSlangGpu::solve_sparse_gpu_mas3_shared(
 }
 
 } // namespace cassie_slang_gpu
+
+#else // RD_ENABLED
+
+namespace cassie_slang_gpu {
+
+CassieSlangGpu::CassieSlangGpu() {}
+CassieSlangGpu::~CassieSlangGpu() {}
+void CassieSlangGpu::_destroy() {}
+bool CassieSlangGpu::_load_pipeline(int, const String &) {
+	return false;
+}
+bool CassieSlangGpu::spmv(int, int, const int32_t *, const int32_t *, int, const float *, const float *, float *) {
+	return false;
+}
+CsrHandle CassieSlangGpu::upload_matrix(int, int, const int32_t *, const int32_t *, int, const float *) {
+	return CsrHandle();
+}
+void CassieSlangGpu::free_matrix(CsrHandle &) {}
+bool CassieSlangGpu::spmv_uploaded(const CsrHandle &, const float *, float *) {
+	return false;
+}
+bool CassieSlangGpu::spmv_batched_benchmark(const CsrHandle &, const float *, float *, int) {
+	return false;
+}
+bool CassieSlangGpu::saxpby(int, float, float, const float *, const float *, float *) {
+	return false;
+}
+String resolve_spv_dir() {
+	return String();
+}
+CassieSlangGpu::CgPcgHandle CassieSlangGpu::upload_cg_state(int, const int32_t *, const int32_t *, int, const float *, const float *, const float *, float) {
+	return CgPcgHandle();
+}
+void CassieSlangGpu::free_cg_state(CgPcgHandle &) {}
+bool CassieSlangGpu::solve_sparse_gpu(const CgPcgHandle &, const float *, int, float *, float *) {
+	return false;
+}
+CassieSlangGpu::CgPcg3Handle CassieSlangGpu::upload_cg3_state(int, const int32_t *, const int32_t *, int, const float *, const float *, const float *) {
+	return CgPcg3Handle();
+}
+void CassieSlangGpu::free_cg3_state(CgPcg3Handle &) {}
+void CassieSlangGpu::update_cg3_rhs(const CgPcg3Handle &, const float *) {}
+bool CassieSlangGpu::solve_sparse_gpu_jacobi3(const CgPcg3Handle &, const float *, int, float *, float *) {
+	return false;
+}
+bool CassieSlangGpu::solve_sparse_gpu_mas3(const CgPcg3Handle &, const float *, int, MasApplyFn, void *, float *, float *) {
+	return false;
+}
+bool CassieSlangGpu::solve_sparse_gpu_mas3_shared(const CgPcg3Handle &, const float *, int, MasApplyOnListFn, void *, float *, float *) {
+	return false;
+}
+
+} // namespace cassie_slang_gpu
+
+#endif // RD_ENABLED
