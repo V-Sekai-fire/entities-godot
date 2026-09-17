@@ -126,11 +126,11 @@ TEST_CASE("[Cassie][SlangDispatch] saxpby matches textbook reference fma") {
 }
 
 TEST_CASE("[Cassie][SlangDispatch][GPU] spmv matches CPU oracle when RD available") {
-	// Skip cleanly when no local RD can be created (headless CI without
-	// Vulkan, or non-graphics test runner).
+	// The --test harness runs on the mock DisplayServer, so no local RD exists
+	// here; the GPU path is exercised by entities-cassie-flow-project at runtime.
 	cassie_slang_gpu::CassieSlangGpu gpu;
 	if (!gpu.is_available()) {
-		MESSAGE("[Cassie][SlangDispatch][GPU] local RenderingDevice unavailable — skipping.");
+		MESSAGE("[Cassie][SlangDispatch][GPU] unexercised: no local RenderingDevice under --test (mock DisplayServer); covered by entities-cassie-flow-project.");
 		return;
 	}
 
@@ -200,7 +200,7 @@ TEST_CASE("[Cassie][SlangDispatch][GPU] persistent CSR upload + spmv_uploaded ma
 	// is the path harmonic-deform's per-frame CG iters take.
 	cassie_slang_gpu::CassieSlangGpu gpu;
 	if (!gpu.is_available()) {
-		MESSAGE("[Cassie][SlangDispatch][GPU] local RenderingDevice unavailable — skipping.");
+		MESSAGE("[Cassie][SlangDispatch][GPU] unexercised: no local RenderingDevice under --test (mock DisplayServer); covered by entities-cassie-flow-project.");
 		return;
 	}
 
@@ -283,8 +283,8 @@ TEST_CASE("[Cassie][SlangDispatch][Bench] GPU spmv dispatch overhead vs CPU") {
 	// necessary. If it's at or below, the modular dispatch is viable.
 	cassie_slang_gpu::CassieSlangGpu gpu;
 	if (!gpu.is_available()) {
-		MESSAGE("[Cassie][SlangDispatch][Bench] local RenderingDevice unavailable — "
-				"skipping. Run without --headless to exercise the GPU path.");
+		MESSAGE("[Cassie][SlangDispatch][Bench] unexercised: no local RenderingDevice under "
+				"--test (mock DisplayServer); covered by entities-cassie-flow-project.");
 		return;
 	}
 
@@ -388,8 +388,8 @@ TEST_CASE("[Cassie][SlangDispatch][Bench] GPU spmv dispatch overhead vs CPU") {
 TEST_CASE("[Cassie][SlangDispatch][MasMultiLevel] identity L_II → z = num_levels × r") {
 	cassie_mas_gpu::CassieMasGpu mas;
 	if (!mas.is_available()) {
-		MESSAGE("[Cassie][SlangDispatch][MasMultiLevel] local RenderingDevice unavailable — "
-				"skipping. Run without --headless to exercise the GPU path.");
+		MESSAGE("[Cassie][SlangDispatch][MasMultiLevel] unexercised: no local RenderingDevice under "
+				"--test (mock DisplayServer); covered by entities-cassie-flow-project.");
 		return;
 	}
 
