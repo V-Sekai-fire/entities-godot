@@ -3280,7 +3280,7 @@
 			[b]Note:[/b] This property is only read when the project starts. To adjust the automatic LOD threshold at runtime, set [member Viewport.mesh_lod_threshold] on the root [Viewport].
 		</member>
 		<member name="rendering/oit/enabled" type="bool" setter="" getter="" default="false">
-			If [code]true[/code], the Mobile renderer composites transparent surfaces with [b]Mix[/b] blending through a froxel transmittance grid so their draw order no longer matters. Other blend modes and other renderers keep sorted blending.
+			If [code]true[/code], the Forward+ and Mobile renderers composite transparent surfaces with [b]Mix[/b] blending through a froxel transmittance grid so their draw order no longer matters. Other blend modes and the Compatibility renderer keep sorted blending. Under MSAA, Forward+ accumulates at the full sample count while Mobile accumulates at one sample against the resolved depth, so transparent edges lose MSAA on Mobile only.
 		</member>
 		<member name="rendering/oit/far_plane" type="float" setter="" getter="" default="500.0">
 			The view-space depth at which the last froxel slice ends.

@@ -53,6 +53,8 @@ class OITEffect {
 	enum ResolveVariant {
 		RESOLVE_VARIANT_MONO,
 		RESOLVE_VARIANT_MULTIVIEW,
+		RESOLVE_VARIANT_MULTISAMPLE,
+		RESOLVE_VARIANT_MULTIVIEW_MULTISAMPLE,
 		RESOLVE_VARIANT_MAX
 	};
 
@@ -62,6 +64,7 @@ class OITEffect {
 
 	Vector2i accumulation_size;
 	uint32_t accumulation_view_count = 0;
+	RD::TextureSamples accumulation_samples = RD::TEXTURE_SAMPLES_1;
 	RID accumulation_depth;
 	RID accumulated_color;
 	RID accumulated_extinction;
@@ -88,7 +91,7 @@ public:
 	void clear_extinction();
 	void voxelize(RID p_splat_buffer, RID p_splat_count_buffer, RID p_params_buffer, uint32_t p_splat_count);
 	void integrate(RID p_params_buffer);
-	void configure_accumulation(const Vector2i &p_size, RID p_depth_texture, uint32_t p_view_count);
+	void configure_accumulation(const Vector2i &p_size, RID p_depth_texture, uint32_t p_view_count, RD::TextureSamples p_samples = RD::TEXTURE_SAMPLES_1);
 	void resolve(RD::DrawListID p_draw_list, RD::FramebufferFormatID p_framebuffer_format);
 
 	RID get_extinction_buffer() const { return extinction_buffer; }

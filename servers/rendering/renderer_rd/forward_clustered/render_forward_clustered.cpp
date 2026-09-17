@@ -31,6 +31,7 @@
 #include "render_forward_clustered.h"
 
 #include "core/config/project_settings.h"
+#include "servers/rendering/renderer_rd/effects/oit.h"
 #include "servers/rendering/renderer_rd/environment/fog.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
@@ -433,7 +434,7 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 		pipeline_specialization.multimesh_has_custom_data = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_HAS_CUSTOM_DATA);
 		pipeline_specialization.material_feedback = p_params->use_material_feedback && surf->material->material_feedback_rid.is_valid();
 
-		if constexpr (p_pass_mode == PASS_MODE_COLOR) {
+		if constexpr (p_pass_mode == PASS_MODE_COLOR || p_pass_mode == PASS_MODE_OIT_ACCUMULATE) {
 			pipeline_specialization.use_light_soft_shadows = element_info.uses_softshadow;
 			pipeline_specialization.use_light_projector = element_info.uses_projector;
 			pipeline_specialization.use_directional_soft_shadows = p_params->use_directional_soft_shadow;
@@ -490,6 +491,15 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 				// Note, SDF is prepared in world space, this shouldn't be a multiview buffer even when stereoscopic rendering is used.
 				ERR_FAIL_COND_MSG(p_params->view_count > 1, "Multiview not supported for SDF pass");
 				pipeline_key.version = SceneShaderForwardClustered::PIPELINE_VERSION_DEPTH_PASS_WITH_SDF;
+			} break;
+			case PASS_MODE_OIT_SPLAT: {
+				pipeline_key.version = p_params->view_count > 1 ? SceneShaderForwardClustered::PIPELINE_VERSION_OIT_SPLAT_PASS_MULTIVIEW : SceneShaderForwardClustered::PIPELINE_VERSION_OIT_SPLAT_PASS;
+			} break;
+			case PASS_MODE_OIT_ACCUMULATE: {
+				if (!element_info.uses_lightmap) {
+					pipeline_specialization.use_forward_gi = element_info.uses_forward_gi;
+				}
+				pipeline_key.version = p_params->view_count > 1 ? SceneShaderForwardClustered::PIPELINE_VERSION_OIT_ACCUMULATE_PASS_MULTIVIEW : SceneShaderForwardClustered::PIPELINE_VERSION_OIT_ACCUMULATE_PASS;
 			} break;
 		}
 
@@ -682,6 +692,12 @@ void RenderForwardClustered::_render_list(RenderingDevice::DrawListID p_draw_lis
 		} break;
 		case PASS_MODE_SDF: {
 			_render_list_template<PASS_MODE_SDF>(p_draw_list, p_framebuffer_Format, p_params, p_from_element, p_to_element);
+		} break;
+		case PASS_MODE_OIT_SPLAT: {
+			_render_list_template<PASS_MODE_OIT_SPLAT>(p_draw_list, p_framebuffer_Format, p_params, p_from_element, p_to_element);
+		} break;
+		case PASS_MODE_OIT_ACCUMULATE: {
+			_render_list_template<PASS_MODE_OIT_ACCUMULATE>(p_draw_list, p_framebuffer_Format, p_params, p_from_element, p_to_element);
 		} break;
 		default: {
 			// Unknown pass mode.
@@ -2000,6 +2016,20 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	render_list[RENDER_LIST_MOTION].sort_by_key();
 	render_list[RENDER_LIST_ALPHA].sort_by_reverse_depth_and_priority();
 
+	uint32_t oit_accumulate_count = 0; // Leading alpha elements composited through the OIT resolve instead of blending.
+	oit_frame_active = false;
+	if (GLOBAL_GET("rendering/oit/enabled")) {
+		if (rb_data.is_valid() && !is_reflection_probe) {
+			oit_frame_active = true;
+			oit_accumulate_count = _oit_partition_alpha_list();
+			scene_shader.enable_advanced_shader_group(is_multiview);
+		}
+	} else if (oit_effect) {
+		// Otherwise the alpha pass keeps sampling the last integrated transmittance.
+		memdelete(oit_effect);
+		oit_effect = nullptr;
+	}
+
 	int *render_info = p_render_data->render_info ? p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE] : (int *)nullptr;
 	_fill_instance_data(RENDER_LIST_OPAQUE, render_info);
 	_fill_instance_data(RENDER_LIST_MOTION, render_info);
@@ -2285,6 +2315,10 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 
 	RID rp_uniform_set = _setup_render_pass_uniform_set(RENDER_LIST_OPAQUE, p_render_data, is_multiview, radiance_texture, samplers, opaque_pass_uniform_buffer_index, true);
 
+	if (oit_frame_active) {
+		_oit_prepass(p_render_data, base_specialization, radiance_texture, samplers, reverse_cull, is_multiview, opaque_pass_uniform_buffer_index);
+	}
+
 	{
 		bool render_motion_pass = !render_list[RENDER_LIST_MOTION].elements.is_empty();
 
@@ -2508,7 +2542,21 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 
 		RID alpha_framebuffer = rb_data.is_valid() ? rb_data->get_color_pass_fb(transparent_color_pass_flags) : color_only_framebuffer;
 		RenderListParameters render_list_params(render_list[RENDER_LIST_ALPHA].elements.ptr(), render_list[RENDER_LIST_ALPHA].element_info.ptr(), render_list[RENDER_LIST_ALPHA].elements.size(), reverse_cull, PASS_MODE_COLOR, transparent_color_pass_flags, rb_data.is_null(), p_render_data->directional_light_soft_shadows, rp_uniform_set, get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_WIREFRAME, Vector2(), p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, p_render_data->scene_data->view_count, 0, base_specialization, !is_reflection_probe);
-		_render_list_with_draw_list(&render_list_params, alpha_framebuffer, RD::DRAW_DEFAULT_ALL, Vector<Color>(), 0.0f, 0u, p_render_data->render_region);
+
+		uint32_t first_element = 0;
+		if (oit_accumulate_count > 0 && oit_effect && oit_effect->is_configured()) {
+			_oit_accumulate(p_render_data, &render_list_params, oit_accumulate_count);
+			first_element = oit_accumulate_count;
+		}
+
+		RD::FramebufferFormatID alpha_fb_format = RD::get_singleton()->framebuffer_get_format(alpha_framebuffer);
+		render_list_params.framebuffer_format = alpha_fb_format;
+		RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(alpha_framebuffer, RD::DRAW_DEFAULT_ALL, Vector<Color>(), 0.0f, 0u, p_render_data->render_region);
+		if (first_element > 0) {
+			oit_effect->resolve(draw_list, alpha_fb_format);
+		}
+		_render_list(draw_list, alpha_fb_format, &render_list_params, first_element, render_list_params.element_count);
+		RD::get_singleton()->draw_list_end();
 	}
 
 	RD::get_singleton()->draw_command_end_label();
@@ -3874,6 +3922,41 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 	}
 #endif // MODULE_TEXTURE_STREAMING_ENABLED
 
+	{
+		RD::Uniform u;
+		u.binding = 39;
+		u.uniform_type = RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
+		RID transmittance = oit_default_transmittance;
+		if (p_render_list == RENDER_LIST_ALPHA && oit_frame_active && oit_effect && oit_effect->is_configured()) {
+			transmittance = oit_effect->get_transmittance_texture();
+		}
+		u.append_id(oit_default_transmittance_sampler);
+		u.append_id(transmittance);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.binding = 40;
+		u.uniform_type = RD::UNIFORM_TYPE_UNIFORM_BUFFER;
+		RID params = oit_default_params_buffer;
+		if (p_render_list == RENDER_LIST_ALPHA && oit_frame_active && oit_scene_params_buffer.is_valid() && oit_effect && oit_effect->is_configured()) {
+			params = oit_scene_params_buffer;
+		}
+		u.append_id(params);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.binding = 41;
+		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+		RID extinction = oit_default_extinction_buffer;
+		if (p_render_list == RENDER_LIST_ALPHA && oit_frame_active && oit_effect && oit_effect->is_configured()) {
+			extinction = oit_effect->get_extinction_buffer();
+		}
+		u.append_id(extinction);
+		uniforms.push_back(u);
+	}
+
 	return UniformSetCacheRD::get_singleton()->get_cache_vec(scene_shader.get_default_shader_rd(is_multiview), RENDER_PASS_UNIFORM_SET, uniforms);
 }
 
@@ -4085,6 +4168,28 @@ RID RenderForwardClustered::_setup_sdfgi_render_pass_uniform_set(RID p_albedo_te
 		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
 		RID instance_buffer = scene_shader.default_material_feedback_buffer;
 		u.append_id(instance_buffer);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.binding = 39;
+		u.uniform_type = RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
+		u.append_id(oit_default_transmittance_sampler);
+		u.append_id(oit_default_transmittance);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.binding = 40;
+		u.uniform_type = RD::UNIFORM_TYPE_UNIFORM_BUFFER;
+		u.append_id(oit_default_params_buffer);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.binding = 41;
+		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+		u.append_id(oit_default_extinction_buffer);
 		uniforms.push_back(u);
 	}
 
@@ -5287,6 +5392,8 @@ RenderForwardClustered::RenderForwardClustered() {
 		scene_shader.init(defines);
 	}
 
+	_oit_ensure_defaults();
+
 	/* shadow sampler */
 	{
 		RD::SamplerState sampler;
@@ -5447,4 +5554,292 @@ RenderForwardClustered::~RenderForwardClustered() {
 		RD::get_singleton()->free_rid(sdfgi_framebuffer_size_cache.begin()->value);
 		sdfgi_framebuffer_size_cache.remove(sdfgi_framebuffer_size_cache.begin());
 	}
+
+	if (oit_params_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(oit_params_buffer);
+	}
+	if (oit_splat_count_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(oit_splat_count_buffer);
+	}
+	if (oit_splat_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(oit_splat_buffer);
+	}
+	if (oit_scene_params_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(oit_scene_params_buffer);
+	}
+	if (oit_integrate_params_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(oit_integrate_params_buffer);
+	}
+	if (oit_effect) {
+		memdelete(oit_effect);
+		oit_effect = nullptr;
+	}
+	_oit_free_defaults();
+}
+
+void RenderForwardClustered::_oit_ensure_defaults() {
+	if (oit_default_transmittance.is_valid()) {
+		return;
+	}
+	RenderingDevice *rd = RD::get_singleton();
+
+	RD::TextureFormat tf;
+	tf.width = 1;
+	tf.height = 1;
+	tf.depth = 1;
+	tf.array_layers = 1;
+	tf.mipmaps = 1;
+	tf.texture_type = RD::TEXTURE_TYPE_3D;
+	tf.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+	tf.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT;
+	Vector<uint8_t> white_pixel;
+	white_pixel.push_back(255);
+	white_pixel.push_back(255);
+	white_pixel.push_back(255);
+	white_pixel.push_back(255);
+	Vector<Vector<uint8_t>> initial_data;
+	initial_data.push_back(white_pixel);
+	oit_default_transmittance = rd->texture_create(tf, RD::TextureView(), initial_data);
+
+	RD::SamplerState sampler_state;
+	sampler_state.mag_filter = RD::SAMPLER_FILTER_LINEAR;
+	sampler_state.min_filter = RD::SAMPLER_FILTER_LINEAR;
+	sampler_state.repeat_u = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
+	sampler_state.repeat_v = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
+	sampler_state.repeat_w = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
+	oit_default_transmittance_sampler = rd->sampler_create(sampler_state);
+
+	struct SceneOITParams {
+		float slice_curve[4];
+		uint32_t froxel_dims[4];
+	};
+	SceneOITParams zero_params = {};
+	oit_default_params_buffer = rd->uniform_buffer_create(sizeof(SceneOITParams));
+	rd->buffer_update(oit_default_params_buffer, 0, sizeof(SceneOITParams), &zero_params);
+
+	oit_default_extinction_buffer = rd->storage_buffer_create(16);
+}
+
+void RenderForwardClustered::_oit_free_defaults() {
+	RenderingDevice *rd = RD::get_singleton();
+	if (oit_default_transmittance.is_valid()) {
+		rd->free_rid(oit_default_transmittance);
+		oit_default_transmittance = RID();
+	}
+	if (oit_default_transmittance_sampler.is_valid()) {
+		rd->free_rid(oit_default_transmittance_sampler);
+		oit_default_transmittance_sampler = RID();
+	}
+	if (oit_default_params_buffer.is_valid()) {
+		rd->free_rid(oit_default_params_buffer);
+		oit_default_params_buffer = RID();
+	}
+	if (oit_default_extinction_buffer.is_valid()) {
+		rd->free_rid(oit_default_extinction_buffer);
+		oit_default_extinction_buffer = RID();
+	}
+}
+
+void RenderForwardClustered::_oit_prepass(RenderDataRD *p_render_data, const SceneShaderForwardClustered::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview, uint32_t p_uniform_buffer_index) {
+	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
+	if (rb.is_null()) {
+		return;
+	}
+	Size2i internal = rb->get_internal_size();
+	if (internal.x <= 0 || internal.y <= 0) {
+		return;
+	}
+
+	int slice_count = int(GLOBAL_GET("rendering/oit/slice_count"));
+	Vector2i tile_size = GLOBAL_GET("rendering/oit/tile_size");
+	int splat_mode = int(GLOBAL_GET("rendering/oit/splat_mode"));
+	uint32_t view_count = p_render_data->scene_data->view_count;
+	if (splat_mode != 0 && view_count > 1) {
+		WARN_PRINT_ONCE("OIT compute splat is single-view; using the raster splat for multiview.");
+		splat_mode = 0;
+	}
+
+	if (oit_effect == nullptr) {
+		oit_effect = memnew(RendererRD::OITEffect);
+	}
+	oit_effect->configure(internal, slice_count, tile_size, view_count);
+	Vector3i dims = oit_effect->get_froxel_dims();
+
+	struct SceneOITParams {
+		float slice_curve[4];
+		uint32_t froxel_dims[4];
+	};
+	SceneOITParams sp;
+	sp.slice_curve[0] = float(GLOBAL_GET("rendering/oit/near_plane"));
+	sp.slice_curve[1] = float(GLOBAL_GET("rendering/oit/far_plane"));
+	sp.slice_curve[2] = float(GLOBAL_GET("rendering/oit/linearization_factor"));
+	sp.slice_curve[3] = float(slice_count);
+	sp.froxel_dims[0] = dims.x;
+	sp.froxel_dims[1] = dims.y;
+	sp.froxel_dims[2] = dims.z;
+	sp.froxel_dims[3] = view_count;
+	if (!oit_scene_params_buffer.is_valid()) {
+		oit_scene_params_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(SceneOITParams));
+	}
+	RD::get_singleton()->buffer_update(oit_scene_params_buffer, 0, sizeof(SceneOITParams), &sp);
+
+	RENDER_TIMESTAMP("Render OIT Splat");
+	RD::get_singleton()->draw_command_begin_label("Render OIT Splat");
+
+	if (splat_mode == 0) {
+		_oit_splat_raster(p_render_data, p_base_specialization, p_radiance_texture, p_samplers, p_reverse_cull, p_is_multiview, p_uniform_buffer_index);
+	} else {
+		_oit_splat_compute(p_render_data, sp.slice_curve, dims, tile_size);
+	}
+
+	struct IntegrateParams {
+		uint32_t froxel_dims[4];
+	};
+	IntegrateParams ip;
+	ip.froxel_dims[0] = dims.x * view_count;
+	ip.froxel_dims[1] = dims.y;
+	ip.froxel_dims[2] = dims.z;
+	ip.froxel_dims[3] = 0;
+	if (!oit_integrate_params_buffer.is_valid()) {
+		oit_integrate_params_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(IntegrateParams));
+	}
+	RD::get_singleton()->buffer_update(oit_integrate_params_buffer, 0, sizeof(IntegrateParams), &ip);
+	oit_effect->integrate(oit_integrate_params_buffer);
+
+	RD::get_singleton()->draw_command_end_label();
+}
+
+void RenderForwardClustered::_oit_splat_raster(RenderDataRD *p_render_data, const SceneShaderForwardClustered::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview, uint32_t p_uniform_buffer_index) {
+	oit_effect->clear_extinction();
+	if (render_list[RENDER_LIST_ALPHA].elements.is_empty()) {
+		return;
+	}
+
+	RID rp_uniform_set = _setup_render_pass_uniform_set(RENDER_LIST_ALPHA, p_render_data, p_is_multiview, p_radiance_texture, p_samplers, p_uniform_buffer_index, true);
+	RenderListParameters render_list_params(render_list[RENDER_LIST_ALPHA].elements.ptr(), render_list[RENDER_LIST_ALPHA].element_info.ptr(), render_list[RENDER_LIST_ALPHA].elements.size(), p_reverse_cull, PASS_MODE_OIT_SPLAT, 0, false, p_render_data->directional_light_soft_shadows, rp_uniform_set, false, Vector2(), p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, p_render_data->scene_data->view_count, 0, p_base_specialization, false);
+	_render_list_with_draw_list(&render_list_params, oit_effect->get_splat_framebuffer());
+}
+
+void RenderForwardClustered::_oit_splat_compute(RenderDataRD *p_render_data, const float *p_slice_curve, const Vector3i &p_dims, const Vector2i &p_tile_size) {
+	struct OITParams {
+		float view_matrix[16];
+		float projection_matrix[16];
+		float slice_curve[4];
+		uint32_t froxel_dims[4];
+		float tile_size[4];
+	};
+	OITParams params;
+	Projection view = p_render_data->scene_data->cam_transform.affine_inverse();
+	Projection projection = p_render_data->scene_data->get_cam_projection();
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 4; j++) {
+			params.view_matrix[i * 4 + j] = view.columns[i][j];
+			params.projection_matrix[i * 4 + j] = projection.columns[i][j];
+		}
+	}
+	for (int i = 0; i < 4; i++) {
+		params.slice_curve[i] = p_slice_curve[i];
+	}
+	params.froxel_dims[0] = p_dims.x;
+	params.froxel_dims[1] = p_dims.y;
+	params.froxel_dims[2] = p_dims.z;
+	params.froxel_dims[3] = 0;
+	params.tile_size[0] = p_tile_size.x;
+	params.tile_size[1] = p_tile_size.y;
+	params.tile_size[2] = 0.0f;
+	params.tile_size[3] = 0.0f;
+
+	if (!oit_params_buffer.is_valid()) {
+		oit_params_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(OITParams));
+	}
+	RD::get_singleton()->buffer_update(oit_params_buffer, 0, sizeof(OITParams), &params);
+
+	// One splat per transparent surface at its AABB center; the raster mode reads the real alpha.
+	Vector<float> splat_scratch;
+	uint32_t splat_count = 0;
+	{
+		const RenderList &rl = render_list[RENDER_LIST_ALPHA];
+		int element_count = rl.elements.size();
+		splat_scratch.resize(element_count * 4);
+		float *w = splat_scratch.ptrw();
+		for (int i = 0; i < element_count; i++) {
+			const GeometryInstanceSurfaceDataCache *surf = rl.elements[i];
+			if (!surf || !surf->owner) {
+				continue;
+			}
+			Vector3 center = surf->owner->transformed_aabb.get_center();
+			w[splat_count * 4 + 0] = float(center.x);
+			w[splat_count * 4 + 1] = float(center.y);
+			w[splat_count * 4 + 2] = float(center.z);
+			w[splat_count * 4 + 3] = 0.5f;
+			splat_count++;
+		}
+	}
+
+	uint32_t splat_count_data[4] = { splat_count, 0, 0, 0 };
+	if (!oit_splat_count_buffer.is_valid()) {
+		oit_splat_count_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(splat_count_data));
+	}
+	RD::get_singleton()->buffer_update(oit_splat_count_buffer, 0, sizeof(splat_count_data), splat_count_data);
+
+	uint32_t required_bytes = MAX((uint32_t)16, splat_count * (uint32_t)16);
+	if (!oit_splat_buffer.is_valid() || required_bytes > oit_splat_buffer_capacity) {
+		if (oit_splat_buffer.is_valid()) {
+			RD::get_singleton()->free_rid(oit_splat_buffer);
+		}
+		oit_splat_buffer_capacity = MAX(required_bytes, oit_splat_buffer_capacity * 2);
+		oit_splat_buffer = RD::get_singleton()->storage_buffer_create(oit_splat_buffer_capacity);
+	}
+	if (splat_count > 0) {
+		RD::get_singleton()->buffer_update(oit_splat_buffer, 0, splat_count * 16, splat_scratch.ptr());
+	}
+
+	oit_effect->voxelize(oit_splat_buffer, oit_splat_count_buffer, oit_params_buffer, splat_count);
+}
+
+// Moves the surfaces the weighted resolve can composite, BLEND_MODE_MIX without premultiplied alpha,
+// ahead of the rest of the alpha list, keeping each group's back-to-front order.
+uint32_t RenderForwardClustered::_oit_partition_alpha_list() {
+	RenderList &rl = render_list[RENDER_LIST_ALPHA];
+	uint32_t count = rl.elements.size();
+	LocalVector<GeometryInstanceSurfaceDataCache *> rest;
+	uint32_t write = 0;
+	for (uint32_t i = 0; i < count; i++) {
+		GeometryInstanceSurfaceDataCache *surf = rl.elements[i];
+		bool mix = surf->shader && surf->shader->blend_mode == SceneShaderForwardClustered::ShaderData::BLEND_MODE_MIX;
+		if (mix) {
+			rl.elements[write++] = surf;
+		} else {
+			rest.push_back(surf);
+		}
+	}
+	for (uint32_t i = 0; i < rest.size(); i++) {
+		rl.elements[write + i] = rest[i];
+	}
+	return write;
+}
+
+void RenderForwardClustered::_oit_accumulate(RenderDataRD *p_render_data, const RenderListParameters *p_params, uint32_t p_element_count) {
+	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
+	// Forward+ resolves depth by compute into a storage texture, so under MSAA the pass keeps the sample count and tests the live depth.
+	bool use_msaa = rb->get_msaa_3d() != RSE::VIEWPORT_MSAA_DISABLED;
+	RID depth = use_msaa ? rb->get_depth_msaa() : rb->get_depth_texture();
+	oit_effect->configure_accumulation(rb->get_internal_size(), depth, p_render_data->scene_data->view_count, use_msaa ? rb->get_texture_samples() : RD::TEXTURE_SAMPLES_1);
+	RID accumulation_fb = oit_effect->get_accumulation_framebuffer();
+	ERR_FAIL_COND(!accumulation_fb.is_valid());
+
+	RD::get_singleton()->draw_command_begin_label("OIT Accumulate");
+
+	RenderListParameters params = *p_params;
+	params.pass_mode = PASS_MODE_OIT_ACCUMULATE;
+	params.framebuffer_format = RD::get_singleton()->framebuffer_get_format(accumulation_fb);
+
+	Vector<Color> clear;
+	clear.push_back(Color(0, 0, 0, 0));
+	clear.push_back(Color(0, 0, 0, 0));
+	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(accumulation_fb, RD::DRAW_CLEAR_COLOR_ALL, clear, 1.0f, 0, p_render_data->render_region);
+	_render_list(draw_list, params.framebuffer_format, &params, 0, p_element_count);
+	RD::get_singleton()->draw_list_end();
+
+	RD::get_singleton()->draw_command_end_label();
 }

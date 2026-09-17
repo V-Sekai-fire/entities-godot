@@ -50,6 +50,8 @@ OITEffect::OITEffect() {
 	Vector<String> resolve_defines;
 	resolve_defines.push_back("");
 	resolve_defines.push_back("\n#define USE_MULTIVIEW\n");
+	resolve_defines.push_back("\n#define USE_MULTISAMPLE\n");
+	resolve_defines.push_back("\n#define USE_MULTIVIEW\n#define USE_MULTISAMPLE\n");
 	resolve_shader.initialize(resolve_defines);
 	resolve_shader_version = resolve_shader.version_create();
 
@@ -62,8 +64,9 @@ OITEffect::OITEffect() {
 	blend_attachment.alpha_blend_op = RD::BLEND_OP_ADD;
 	blend_attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
 	blend_attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	// The Forward+ color pass format keeps unused specular and motion vector slots after the color.
 	RD::PipelineColorBlendState blend_state;
-	blend_state.attachments.push_back(blend_attachment);
+	blend_state.attachments = { blend_attachment, RD::PipelineColorBlendState::Attachment(), RD::PipelineColorBlendState::Attachment() };
 	for (int i = 0; i < RESOLVE_VARIANT_MAX; i++) {
 		resolve_pipelines[i].setup(resolve_shader.version_get_shader(resolve_shader_version, i), RD::RENDER_PRIMITIVE_TRIANGLES, RD::PipelineRasterizationState(), RD::PipelineMultisampleState(), RD::PipelineDepthStencilState(), blend_state, 0);
 	}
@@ -289,13 +292,13 @@ void OITEffect::integrate(RID p_params_buffer) {
 	rd->compute_list_end();
 }
 
-void OITEffect::configure_accumulation(const Vector2i &p_size, RID p_depth_texture, uint32_t p_view_count) {
+void OITEffect::configure_accumulation(const Vector2i &p_size, RID p_depth_texture, uint32_t p_view_count, RD::TextureSamples p_samples) {
 	ERR_FAIL_COND(p_size.x <= 0 || p_size.y <= 0);
 	ERR_FAIL_COND(!p_depth_texture.is_valid());
 	ERR_FAIL_COND(p_view_count == 0);
 
 	RenderingDevice *rd = RD::get_singleton();
-	if (p_size == accumulation_size && p_depth_texture == accumulation_depth && p_view_count == accumulation_view_count && rd->framebuffer_is_valid(accumulation_framebuffer)) {
+	if (p_size == accumulation_size && p_depth_texture == accumulation_depth && p_view_count == accumulation_view_count && p_samples == accumulation_samples && rd->framebuffer_is_valid(accumulation_framebuffer)) {
 		return;
 	}
 
@@ -303,12 +306,14 @@ void OITEffect::configure_accumulation(const Vector2i &p_size, RID p_depth_textu
 	accumulation_size = p_size;
 	accumulation_depth = p_depth_texture;
 	accumulation_view_count = p_view_count;
+	accumulation_samples = p_samples;
 
 	RD::TextureFormat fmt;
 	fmt.width = p_size.x;
 	fmt.height = p_size.y;
 	fmt.array_layers = p_view_count;
 	fmt.texture_type = p_view_count > 1 ? RD::TEXTURE_TYPE_2D_ARRAY : RD::TEXTURE_TYPE_2D;
+	fmt.samples = p_samples;
 	fmt.usage_bits = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT;
 	fmt.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
 	accumulated_color = rd->texture_create(fmt, RD::TextureView());
@@ -332,9 +337,14 @@ void OITEffect::resolve(RD::DrawListID p_draw_list, RD::FramebufferFormatID p_fr
 	RD::Uniform u_color(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ sampler, accumulated_color }));
 	RD::Uniform u_extinction(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ sampler, accumulated_extinction }));
 
-	int variant = accumulation_view_count > 1 ? RESOLVE_VARIANT_MULTIVIEW : RESOLVE_VARIANT_MONO;
+	bool multisample = accumulation_samples != RD::TEXTURE_SAMPLES_1;
+	int variant = multisample ? (accumulation_view_count > 1 ? RESOLVE_VARIANT_MULTIVIEW_MULTISAMPLE : RESOLVE_VARIANT_MULTISAMPLE) : (accumulation_view_count > 1 ? RESOLVE_VARIANT_MULTIVIEW : RESOLVE_VARIANT_MONO);
 	RID shader = resolve_shader.version_get_shader(resolve_shader_version, variant);
 	rd->draw_list_bind_render_pipeline(p_draw_list, resolve_pipelines[variant].get_render_pipeline(RD::INVALID_ID, p_framebuffer_format));
 	rd->draw_list_bind_uniform_set(p_draw_list, uniform_set_cache->get_cache(shader, 0, u_color, u_extinction), 0);
+	if (multisample) {
+		uint32_t push_constant[4] = { 1u << uint32_t(accumulation_samples), 0, 0, 0 };
+		rd->draw_list_set_push_constant(p_draw_list, push_constant, sizeof(push_constant));
+	}
 	rd->draw_list_draw(p_draw_list, false, 1u, 3u);
 }

@@ -103,8 +103,28 @@ inline void oit_accumulate(OITAccum &p_accum, float p_color, float p_alpha, floa
 	p_accum.extinction += -std::log(1.0f - a);
 }
 
-inline float oit_resolve(const OITAccum &p_accum, float p_background) {
+// The premultiplied pair the resolve fragment writes; the framebuffer blends it as color + background * (1 - alpha).
+inline void oit_resolve_out(const OITAccum &p_accum, float &r_color, float &r_alpha) {
 	float total = std::exp(-p_accum.extinction);
-	float transparent = p_accum.alpha > 0.0f ? p_accum.color * (1.0f - total) / p_accum.alpha : 0.0f;
-	return transparent + p_background * total;
+	r_color = p_accum.alpha > 0.0f ? p_accum.color * (1.0f - total) / p_accum.alpha : 0.0f;
+	r_alpha = 1.0f - total;
+}
+
+inline float oit_resolve(const OITAccum &p_accum, float p_background) {
+	float color, alpha;
+	oit_resolve_out(p_accum, color, alpha);
+	return color + p_background * (1.0f - alpha);
+}
+
+// Under MSAA the resolve folds one accumulator per sample into the mean of their resolves.
+inline float oit_resolve_samples(const OITAccum *p_samples, uint32_t p_sample_count, float p_background) {
+	float color = 0.0f;
+	float alpha = 0.0f;
+	for (uint32_t s = 0; s < p_sample_count; s++) {
+		float sc, sa;
+		oit_resolve_out(p_samples[s], sc, sa);
+		color += sc / float(p_sample_count);
+		alpha += sa / float(p_sample_count);
+	}
+	return color + p_background * (1.0f - alpha);
 }
