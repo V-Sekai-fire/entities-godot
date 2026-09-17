@@ -33,7 +33,7 @@
 #include <cmath>
 #include <cstdint>
 
-// Mirrors the GLSL depth_to_slice in oit_voxelize.glsl / oit_lookup_inc.glsl.
+// Mirrors the GLSL oit_depth_to_slice in oit_voxelize.glsl / scene_forward_mobile_inc.glsl.
 // Kept in C++ so it can be tested without a live RenderingDevice.
 inline float oit_clamp01(float p_v) {
 	return p_v < 0.0f ? 0.0f : (p_v > 1.0f ? 1.0f : p_v);
@@ -71,4 +71,24 @@ inline uint32_t oit_flat_index(uint32_t p_dim_y, uint32_t p_dim_z, uint32_t p_x,
 // Mirrors oit_apply: slice z reads the inclusive prefix of slice z - 1, and slice 0 reads 1.
 inline float oit_lookup_transmittance(const float *p_column, uint32_t p_slice) {
 	return p_slice == 0 ? 1.0f : p_column[p_slice - 1];
+}
+
+// The three accumulation targets of the weighted resolve (oit_resolve.glsl), one channel of colour.
+struct OITAccum {
+	float color = 0.0f;
+	float alpha = 0.0f;
+	float extinction = 0.0f;
+};
+
+inline void oit_accumulate(OITAccum &p_accum, float p_color, float p_alpha, float p_transmittance_in_front) {
+	float a = p_alpha > 0.999f ? 0.999f : (p_alpha < 0.0f ? 0.0f : p_alpha);
+	p_accum.color += p_color * p_alpha * p_transmittance_in_front;
+	p_accum.alpha += p_alpha * p_transmittance_in_front;
+	p_accum.extinction += -std::log(1.0f - a);
+}
+
+inline float oit_resolve(const OITAccum &p_accum, float p_background) {
+	float total = std::exp(-p_accum.extinction);
+	float transparent = p_accum.alpha > 0.0f ? p_accum.color * (1.0f - total) / p_accum.alpha : 0.0f;
+	return transparent + p_background * total;
 }
