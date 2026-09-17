@@ -67,6 +67,10 @@ void OITEffect::_free_buffers() {
 		rd->free_rid(transmittance_sampler);
 		transmittance_sampler = RID();
 	}
+	if (splat_framebuffer.is_valid()) {
+		rd->free_rid(splat_framebuffer);
+		splat_framebuffer = RID();
+	}
 	froxel_dims = Vector3i();
 	extinction_bytes = 0;
 	voxelize_uniform_set = RID();
@@ -122,13 +126,21 @@ void OITEffect::configure(const Vector2i &p_screen_size, int p_slice_count, cons
 	sampler_state.repeat_v = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
 	sampler_state.repeat_w = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
 	transmittance_sampler = rd->sampler_create(sampler_state);
+
+	// The raster splat draws at froxel resolution so each surface lands once per covered column.
+	splat_framebuffer = rd->framebuffer_create_empty(Size2i(dims.x, dims.y));
+}
+
+void OITEffect::clear_extinction() {
+	ERR_FAIL_COND(!extinction_buffer.is_valid());
+	RD::get_singleton()->buffer_clear(extinction_buffer, 0, extinction_bytes);
 }
 
 void OITEffect::voxelize(RID p_splat_buffer, RID p_splat_count_buffer, RID p_params_buffer, uint32_t p_splat_count) {
 	ERR_FAIL_COND(!extinction_buffer.is_valid());
 	RenderingDevice *rd = RD::get_singleton();
 
-	rd->buffer_clear(extinction_buffer, 0, extinction_bytes);
+	clear_extinction();
 	if (p_splat_count == 0) {
 		return;
 	}

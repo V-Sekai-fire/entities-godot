@@ -52,6 +52,7 @@ class OITEffect {
 	RID extinction_buffer;
 	RID transmittance_buffer;
 	RID transmittance_sampler;
+	RID splat_framebuffer;
 	RID voxelize_uniform_set;
 	RID integrate_uniform_set;
 
@@ -60,9 +61,12 @@ class OITEffect {
 
 public:
 	void configure(const Vector2i &p_screen_size, int p_slice_count, const Vector2i &p_tile_size);
+	void clear_extinction();
 	void voxelize(RID p_splat_buffer, RID p_splat_count_buffer, RID p_params_buffer, uint32_t p_splat_count);
 	void integrate(RID p_params_buffer);
 
+	RID get_extinction_buffer() const { return extinction_buffer; }
+	RID get_splat_framebuffer() const { return splat_framebuffer; }
 	RID get_transmittance_texture() const { return transmittance_buffer; }
 	RID get_transmittance_sampler() const { return transmittance_sampler; }
 	Vector3i get_froxel_dims() const { return froxel_dims; }
