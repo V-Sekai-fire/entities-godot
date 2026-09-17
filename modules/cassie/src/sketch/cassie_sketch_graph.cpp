@@ -143,7 +143,7 @@ void CassieSketchGraph::_update_node_normal(int p_node_id) {
 	// Fallback for the raw-input path (no per-edge normals): best-fit plane
 	// normal from the incident edge tangents. The tangent plane at a
 	// curve-network vertex spans the plane that contains all incident
-	// edges' departing tangents; its normal is what `_next_edge_at`
+	// edges' departing tangents; its normal is what the cycle walk
 	// needs for a coherent angular sort. Yu 2021 §5.1 ("we obtain this
 	// normal estimate at each intersection by assuming that the
 	// intersecting curves lie on a smooth surface, whose tangent plane
@@ -387,6 +387,11 @@ void CassieSketchGraph::_crossings(const PackedVector3Array &p_a,
 	_cumulative_lengths(p_a, cum_a);
 	_cumulative_lengths(p_b, cum_b);
 	const real_t prox2 = p_proximity * p_proximity;
+	// A shared endpoint is an endpoint merge, not a crossing, and the tube
+	// of near-parallel segments around one crossing coalesces to one hit
+	// within cluster_eps, both as in the Lean model's findAllSplitsByCubic.
+	const real_t cluster_eps = real_t(0.05);
+	LocalVector<Vector3> reps;
 	for (int a = 0; a < na - 1; ++a) {
 		const Vector3 a0 = p_a[a];
 		const Vector3 a1 = p_a[a + 1];
@@ -406,7 +411,23 @@ void CassieSketchGraph::_crossings(const PackedVector3Array &p_a,
 			if (d2 > prox2) {
 				continue;
 			}
+			const bool at_end_a = (a == 0 && s < real_t(0.05)) || (a == na - 2 && s > real_t(0.95));
+			const bool at_end_b = (b == 0 && t < real_t(0.05)) || (b == nb - 2 && t > real_t(0.95));
+			if (at_end_a && at_end_b) {
+				continue;
+			}
 			const Vector3 mid = (a0 + (a1 - a0) * s + b0 + (b1 - b0) * t) * real_t(0.5);
+			bool clustered = false;
+			for (uint32_t r = 0; r < reps.size(); ++r) {
+				if (mid.distance_to(reps[r]) < cluster_eps) {
+					clustered = true;
+					break;
+				}
+			}
+			if (clustered) {
+				continue;
+			}
+			reps.push_back(mid);
 			const SplitPt sa = { cum_a[a] + s * (cum_a[a + 1] - cum_a[a]), mid };
 			const SplitPt sb = { cum_b[b] + t * (cum_b[b + 1] - cum_b[b]), mid };
 			r_a.push_back(sa);
@@ -617,194 +638,51 @@ Vector3 CassieSketchGraphEdge::parallel_transport(const Vector3 &p_v,
 	return v;
 }
 
-int CassieSketchGraph::_next_edge_at(int p_node_id, int p_incoming_edge,
-		const Vector3 &p_normal, bool p_want_next) const {
-	HashMap<int, Ref<CassieSketchGraphNode>>::ConstIterator it =
-			nodes.find(p_node_id);
-	if (!it) {
-		return -1;
+// Rotation taking unit `p_from` onto unit `p_to`, applied to `p_v`.
+static Vector3 _rotate_between(const Vector3 &p_from, const Vector3 &p_to,
+		const Vector3 &p_v) {
+	const real_t c = p_from.dot(p_to);
+	if (c > real_t(0.99999)) {
+		return p_v;
 	}
-	const PackedInt32Array eids = it->value->get_edge_ids();
-	if (eids.size() < 2) {
-		return -1;
+	if (c < real_t(-0.99999)) {
+		const Vector3 helper = Math::abs(p_from.x) < real_t(0.9) ? Vector3(1, 0, 0) : Vector3(0, 1, 0);
+		const Vector3 k = p_from.cross(helper).normalized();
+		return p_v * real_t(-1.0) + k * (k.dot(p_v) * real_t(2.0));
 	}
-	if (eids.size() == 2) {
-		return eids[0] == p_incoming_edge ? eids[1] : eids[0];
-	}
-	HashMap<int, Ref<CassieSketchGraphEdge>>::ConstIterator inc =
-			edges.find(p_incoming_edge);
-	if (!inc) {
-		return -1;
-	}
-	const Vector3 t_in = inc->value->get_tangent_away_from(p_node_id);
-	const Vector3 ref_unnorm = t_in - p_normal * t_in.dot(p_normal);
-	const Vector3 ref = ref_unnorm.normalized();
-	if (ref.length_squared() < real_t(1e-10)) {
-		const int idx = eids.find(p_incoming_edge);
-		return idx >= 0 ? eids[(idx + 1) % eids.size()] : eids[0];
-	}
-	int best_eid = -1;
-	// want_next=true picks smallest CCW angle in (0, 2π).
-	// want_next=false picks largest CCW angle in (0, 2π) = smallest CW.
-	real_t best_angle = p_want_next ? real_t(2.0) * real_t(Math::PI) + real_t(1.0)
-									: real_t(-1.0);
-	// Out-of-plane exclusion per Yu 2021 §5.1: "take care of excluding the
-	// segments that do not lie close to the plane defined by this normal".
-	// A tangent is "in plane" if its component along p_normal is small
-	// compared to its in-plane projection. The threshold matches the
-	// paper's sharp-feature angular threshold (30°), so a tangent within
-	// 60° of the tangent plane counts as in-plane and within 30° of the
-	// normal counts as out-of-plane.
-	const real_t in_plane_cos_threshold = Math::cos(real_t(Math::PI / 3.0));
-	for (int i = 0; i < eids.size(); ++i) {
-		const int eid = eids[i];
-		if (eid == p_incoming_edge) {
-			continue;
-		}
-		HashMap<int, Ref<CassieSketchGraphEdge>>::ConstIterator e_it = edges.find(eid);
-		if (!e_it) {
-			continue;
-		}
-		const Vector3 t = e_it->value->get_tangent_away_from(p_node_id);
-		// Exclude tangents that are nearly parallel to p_normal (out of
-		// plane). |t · n| > cos(60°) → tangent within 30° of the normal.
-		if (Math::abs(t.dot(p_normal)) > in_plane_cos_threshold) {
-			continue;
-		}
-		const Vector3 proj_unnorm = t - p_normal * t.dot(p_normal);
-		const Vector3 proj = proj_unnorm.normalized();
-		if (proj.length_squared() < real_t(1e-10)) {
-			continue;
-		}
-		const Vector3 cross = ref.cross(proj);
-		const real_t sin_a = cross.length() *
-				(cross.dot(p_normal) >= 0 ? real_t(1.0) : real_t(-1.0));
-		const real_t cos_a = CLAMP(ref.dot(proj), real_t(-1.0), real_t(1.0));
-		real_t ang = Math::atan2(sin_a, cos_a);
-		if (ang < 0) {
-			ang += real_t(2.0) * real_t(Math::PI);
-		}
-		if (p_want_next) {
-			if (ang < best_angle) {
-				best_angle = ang;
-				best_eid = eid;
-			}
-		} else {
-			if (ang > best_angle) {
-				best_angle = ang;
-				best_eid = eid;
-			}
-		}
-	}
-	return best_eid;
+	const Vector3 k_raw = p_from.cross(p_to);
+	const real_t k_len = k_raw.length();
+	const Vector3 k = k_len > real_t(1e-12) ? k_raw / k_len : Vector3(0, 0, 1);
+	const real_t cc = CLAMP(c, real_t(-1.0), real_t(1.0));
+	const real_t s = Math::sqrt(real_t(1.0) - cc * cc);
+	return p_v * cc + k.cross(p_v) * s + k * (k.dot(p_v) * (real_t(1.0) - cc));
 }
 
-int CassieSketchGraph::_next_edge_planar(int p_node_id, int p_incoming_edge,
-		const Vector3 &p_plane_normal) const {
-	HashMap<int, Ref<CassieSketchGraphNode>>::ConstIterator it = nodes.find(p_node_id);
-	if (!it) {
-		return -1;
-	}
-	const Ref<CassieSketchGraphNode> node = it->value;
-	const PackedInt32Array eids = node->get_edge_ids();
-	if (eids.size() < 2) {
-		return -1;
-	}
-	// Smooth (deg 2) fast path: return the other edge regardless of
-	// plane orientation.
-	if (eids.size() == 2) {
-		return eids[0] == p_incoming_edge ? eids[1] : eids[0];
-	}
-	// Project each incident edge's tangent into the plane perpendicular
-	// to p_plane_normal, then sort by signed angle. Pick the edge whose
-	// projected tangent is the next CW after the incoming-reversed.
-	HashMap<int, Ref<CassieSketchGraphEdge>>::ConstIterator inc =
-			edges.find(p_incoming_edge);
-	if (!inc) {
-		return -1;
-	}
-	const Vector3 t_in = inc->value->get_tangent_away_from(p_node_id);
-	const Vector3 ref_unnorm = t_in - p_plane_normal * t_in.dot(p_plane_normal);
-	const Vector3 ref = ref_unnorm.normalized();
-	if (ref.length_squared() < real_t(1e-10)) {
-		// Degenerate — fall back to next index.
-		const int idx = eids.find(p_incoming_edge);
-		return idx >= 0 ? eids[(idx + 1) % eids.size()] : eids[0];
-	}
-	int best_eid = -1;
-	real_t best_angle = real_t(2.0) * real_t(Math::PI) + real_t(1.0);
-	for (int i = 0; i < eids.size(); ++i) {
-		const int eid = eids[i];
-		if (eid == p_incoming_edge) {
-			continue;
-		}
-		HashMap<int, Ref<CassieSketchGraphEdge>>::ConstIterator e_it = edges.find(eid);
-		if (!e_it) {
-			continue;
-		}
-		const Vector3 t = e_it->value->get_tangent_away_from(p_node_id);
-		const Vector3 proj_unnorm = t - p_plane_normal * t.dot(p_plane_normal);
-		const Vector3 proj = proj_unnorm.normalized();
-		if (proj.length_squared() < real_t(1e-10)) {
-			continue;
-		}
-		// Signed angle CCW from ref to proj, in [0, 2π).
-		const Vector3 cross = ref.cross(proj);
-		const real_t sin_a = cross.length() *
-				(cross.dot(p_plane_normal) >= 0 ? real_t(1.0) : real_t(-1.0));
-		const real_t cos_a = CLAMP(ref.dot(proj), real_t(-1.0), real_t(1.0));
-		real_t ang = Math::atan2(sin_a, cos_a);
-		if (ang < 0) {
-			ang += real_t(2.0) * real_t(Math::PI);
-		}
-		if (ang < best_angle) {
-			best_angle = ang;
-			best_eid = eid;
-		}
-	}
-	return best_eid;
-}
+struct WalkNodeMeta {
+	Vector3 normal = Vector3(0, 1, 0);
+	bool is_sharp = false;
+	LocalVector<int> ring;
+};
 
-// CycleDetection.cs port — see Assets/Scripts/Data/Graph/CycleDetection.cs
-// in upstream Unity CASSIE. Maintains a `current_normal` propagated by
-// parallel transport along each segment; selects the next edge at each
-// node via CCW (next) or CW (previous) angular ordering relative to that
-// transported normal; flips the `reversed` flag when the next node's
-// stored normal opposes the transported one.
-//
-// Adds an explicit manifold cycle counter per edge — caps cycles per
-// segment at 2 (one per side), which prevents the outer-face walk from
-// being enumerated and stops redundant re-walks of inner faces.
-Array CassieSketchGraph::find_cycles() const {
-	Array out;
-	const int edge_count = edges.size();
-	if (edge_count < 3) {
-		return out;
+// Best-fit plane through the incident unit tangents; the residual is the
+// largest |t·n| and feeds the sharp test.
+static real_t _fit_plane(const LocalVector<Vector3> &p_tangents, Vector3 &r_normal) {
+	r_normal = Vector3(0, 1, 0);
+	if (p_tangents.size() < 2) {
+		return 0;
 	}
-
-	// Compute the GRAPH's global best-fit plane normal once for the entire
-	// pass. PCA on node positions: subtract the centroid, accumulate the
-	// 3×3 outer-product covariance, take the smallest-eigenvalue
-	// eigenvector. Falls back to Y-up if the node cloud is degenerate
-	// (all colinear). The angular selector reuses this normal at every
-	// node so the CCW direction is consistent across the network — this
-	// is the bench's "the sketch lives roughly on a 2D canvas" assumption,
-	// but it's derived from the captured data instead of hardcoded to
-	// world up, so it works for canvases at any orientation.
-	Vector3 centroid;
-	{
-		int n = 0;
-		for (const KeyValue<int, Ref<CassieSketchGraphNode>> &kv : nodes) {
-			centroid += kv.value->get_position();
-			++n;
-		}
-		if (n > 0) {
-			centroid = centroid / real_t(n);
-		}
+	if (p_tangents.size() == 2 && p_tangents[0].cross(p_tangents[1]).length() < real_t(0.1)) {
+		r_normal = Vector3();
+		return 0;
 	}
+	Vector3 c;
+	for (uint32_t i = 0; i < p_tangents.size(); ++i) {
+		c += p_tangents[i];
+	}
+	c /= real_t(p_tangents.size());
 	real_t cxx = 0, cyy = 0, czz = 0, cxy = 0, cxz = 0, cyz = 0;
-	for (const KeyValue<int, Ref<CassieSketchGraphNode>> &kv : nodes) {
-		const Vector3 d = kv.value->get_position() - centroid;
+	for (uint32_t i = 0; i < p_tangents.size(); ++i) {
+		const Vector3 d = p_tangents[i] - c;
 		cxx += d.x * d.x;
 		cyy += d.y * d.y;
 		czz += d.z * d.z;
@@ -812,162 +690,267 @@ Array CassieSketchGraph::find_cycles() const {
 		cxz += d.x * d.z;
 		cyz += d.y * d.z;
 	}
-	Vector3 graph_plane_normal(0, 1, 0);
-	{
-		// Power iteration on (trace·I − C) from a single seed cannot leave
-		// the seed's invariant subspace: a sketch on z=0 seeded from Y-up
-		// never gains a z component. Iterate from each axis and keep the
-		// result with the smallest Rayleigh quotient.
-		const real_t trace = cxx + cyy + czz;
-		const Vector3 seeds[3] = { Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0) };
-		real_t best_q = Math::INF;
-		for (int s = 0; s < 3; ++s) {
-			Vector3 n = seeds[s];
-			for (int it = 0; it < 8; ++it) {
-				const Vector3 cn(
-						cxx * n.x + cxy * n.y + cxz * n.z,
-						cxy * n.x + cyy * n.y + cyz * n.z,
-						cxz * n.x + cyz * n.y + czz * n.z);
-				Vector3 r = n * trace - cn;
-				const real_t r2 = r.length_squared();
-				if (r2 < real_t(1e-20)) {
-					break;
-				}
-				n = r / Math::sqrt(r2);
-			}
-			if (n.length_squared() < real_t(1e-10)) {
-				continue;
-			}
-			n.normalize();
-			const Vector3 cn(
-					cxx * n.x + cxy * n.y + cxz * n.z,
-					cxy * n.x + cyy * n.y + cyz * n.z,
-					cxz * n.x + cyz * n.y + czz * n.z);
-			const real_t q = n.dot(cn);
-			if (q < best_q) {
-				best_q = q;
-				graph_plane_normal = n;
-			}
+	const real_t trace = cxx + cyy + czz;
+	// Power iteration cannot leave the seed's invariant subspace, so a
+	// Y-up seed on a z=0 sketch never gains a z component; seed from the
+	// tangents instead.
+	Vector3 n(0, 1, 0);
+	for (uint32_t i = 1; i < p_tangents.size(); ++i) {
+		const Vector3 c0 = p_tangents[0].cross(p_tangents[i]);
+		if (c0.length_squared() > real_t(1e-10)) {
+			n = c0.normalized();
+			break;
 		}
 	}
-	// Half-edge visit set: (edge_id << 32) | start_node_id.
-	HashSet<uint64_t> visited;
-	// Per-edge cycle count for the manifold constraint.
-	HashMap<int, int> cycle_count;
-	for (const KeyValue<int, Ref<CassieSketchGraphEdge>> &kv : edges) {
-		cycle_count[kv.key] = 0;
+	for (int it = 0; it < 256; ++it) {
+		const Vector3 cn(
+				cxx * n.x + cxy * n.y + cxz * n.z,
+				cxy * n.x + cyy * n.y + cyz * n.z,
+				cxz * n.x + cyz * n.y + czz * n.z);
+		const Vector3 r = n * trace - cn;
+		const real_t r2 = r.length_squared();
+		if (r2 < real_t(1e-20)) {
+			break;
+		}
+		const Vector3 next = r / Math::sqrt(r2);
+		const bool converged = (next - n).length_squared() < real_t(1e-14);
+		n = next;
+		if (converged) {
+			break;
+		}
 	}
+	r_normal = n;
+	real_t max_abs = 0;
+	for (uint32_t i = 0; i < p_tangents.size(); ++i) {
+		max_abs = MAX(max_abs, Math::abs(p_tangents[i].dot(n)));
+	}
+	return max_abs;
+}
+
+static void _sort_ring_ccw(const HashMap<int, Ref<CassieSketchGraphEdge>> &p_edges,
+		int p_nid, const Vector3 &p_normal, LocalVector<int> &r_ring) {
+	if (r_ring.size() <= 2) {
+		return;
+	}
+	const Vector3 t0 = p_edges[r_ring[0]]->get_tangent_away_from(p_nid);
+	const Vector3 x_raw = t0 - p_normal * t0.dot(p_normal);
+	const real_t x_len = x_raw.length();
+	if (x_len < real_t(1e-6)) {
+		return;
+	}
+	const Vector3 x_axis = x_raw / x_len;
+	const Vector3 y_axis = p_normal.cross(x_axis);
+	const real_t two_pi = real_t(2.0) * real_t(Math::PI);
+	struct Keyed {
+		real_t theta;
+		int eid;
+		bool operator<(const Keyed &p_o) const { return theta < p_o.theta; }
+	};
+	LocalVector<Keyed> keyed;
+	keyed.resize(r_ring.size());
+	for (uint32_t i = 0; i < r_ring.size(); ++i) {
+		const Vector3 t = p_edges[r_ring[i]]->get_tangent_away_from(p_nid);
+		const Vector3 p_raw = t - p_normal * t.dot(p_normal);
+		const real_t p_len = p_raw.length();
+		real_t theta = two_pi;
+		if (p_len >= real_t(1e-6)) {
+			const Vector3 p = p_raw / p_len;
+			theta = Math::atan2(p.dot(y_axis), p.dot(x_axis));
+			if (theta < 0) {
+				theta += two_pi;
+			}
+		}
+		keyed[i] = Keyed{ theta, r_ring[i] };
+	}
+	SortArray<Keyed> sorter;
+	sorter.sort(keyed.ptr(), keyed.size());
+	for (uint32_t i = 0; i < keyed.size(); ++i) {
+		r_ring[i] = keyed[i].eid;
+	}
+}
+
+// Sharp-node pick: the incident edge whose in-plane tangent sits next
+// (or previous) to the incoming edge's, with Unity's 0.7 projection floor.
+static int _get_in_plane(const HashMap<int, Ref<CassieSketchGraphEdge>> &p_edges,
+		int p_nid, int p_incoming, const Vector3 &p_n, bool p_want_next,
+		const LocalVector<int> &p_ring) {
+	const Vector3 t_in = p_edges[p_incoming]->get_tangent_away_from(p_nid);
+	const Vector3 x0_raw = t_in - p_n * t_in.dot(p_n);
+	const real_t x0_len = x0_raw.length();
+	if (x0_len < real_t(1e-6)) {
+		return -1;
+	}
+	const Vector3 x0 = x0_raw / x0_len;
+	const Vector3 y0 = x0.cross(p_n);
+	int chosen = -1;
+	real_t chosen_x = 0;
+	real_t chosen_y = 0;
+	int fallback = -1;
+	real_t fallback_mag = 0;
+	for (uint32_t i = 0; i < p_ring.size(); ++i) {
+		const int eid = p_ring[i];
+		if (eid == p_incoming) {
+			continue;
+		}
+		const Vector3 t = p_edges[eid]->get_tangent_away_from(p_nid);
+		const Vector3 p_raw = t - p_n * t.dot(p_n);
+		const real_t p_mag = p_raw.length();
+		if (p_mag < real_t(0.7)) {
+			if (p_mag > fallback_mag) {
+				fallback = eid;
+				fallback_mag = p_mag;
+			}
+			continue;
+		}
+		const Vector3 p = p_raw / p_mag;
+		const real_t xs = p.dot(x0);
+		const real_t ys = p.dot(y0);
+		bool take = chosen < 0;
+		if (!take) {
+			if (chosen_y >= 0) {
+				take = p_want_next ? (ys > 0 && chosen_x < xs) : (ys <= 0 || chosen_x > xs);
+			} else {
+				take = p_want_next ? (ys >= 0 || chosen_x > xs) : (ys < 0 && chosen_x < xs);
+			}
+		}
+		if (take) {
+			chosen = eid;
+			chosen_x = xs;
+			chosen_y = ys;
+		}
+	}
+	return chosen >= 0 ? chosen : fallback;
+}
+
+static int _next_edge_port(const HashMap<int, Ref<CassieSketchGraphEdge>> &p_edges,
+		const WalkNodeMeta &p_meta, int p_nid, int p_incoming,
+		const Vector3 &p_transported, bool p_reversed) {
+	const LocalVector<int> &ring = p_meta.ring;
+	if (ring.size() < 2) {
+		return -1;
+	}
+	if (p_meta.is_sharp && p_transported.length() > real_t(0.9)) {
+		return _get_in_plane(p_edges, p_nid, p_incoming, p_transported, !p_reversed, ring);
+	}
+	const int64_t idx = ring.find(p_incoming);
+	if (idx < 0) {
+		return _get_in_plane(p_edges, p_nid, p_incoming, p_transported, !p_reversed, ring);
+	}
+	const int64_t n = int64_t(ring.size());
+	const int64_t step = p_reversed ? -1 : 1;
+	return ring[uint32_t((idx + step + n) % n)];
+}
+
+// Port of the Lean `findCyclesPort` walk (modules/cassie/lean/CassieAvbd/
+// CycleDetect/Walk.lean), itself a port of Unity CASSIE's CycleDetection.cs:
+// a normal is parallel-transported along each edge and across each node,
+// smooth nodes step ±1 around a CCW-sorted ring, sharp nodes pick in the
+// plane of the transported normal, and at each node `reversed` is set when
+// the transported normal disagrees with the node's fitted normal by more
+// than 60°. Two edges closing on each other is a cycle (a lens).
+Array CassieSketchGraph::find_cycles() const {
+	Array out;
+	const int edge_count = edges.size();
+	if (edge_count < 2) {
+		return out;
+	}
+
+	HashMap<int, WalkNodeMeta> meta;
+	for (const KeyValue<int, Ref<CassieSketchGraphNode>> &kv : nodes) {
+		WalkNodeMeta m;
+		const PackedInt32Array eids = kv.value->get_edge_ids();
+		LocalVector<Vector3> tangents;
+		for (int i = 0; i < eids.size(); ++i) {
+			if (!edges.has(eids[i])) {
+				continue;
+			}
+			m.ring.push_back(eids[i]);
+			tangents.push_back(edges[eids[i]]->get_tangent_away_from(kv.key));
+		}
+		if (m.ring.size() >= 2) {
+			const real_t residual = _fit_plane(tangents, m.normal);
+			m.is_sharp = residual > real_t(0.5);
+			if (m.normal.length() > real_t(0.5)) {
+				_sort_ring_ccw(edges, kv.key, m.normal, m.ring);
+			}
+		}
+		meta.insert(kv.key, m);
+	}
+
+	HashSet<String> seen;
 	for (const KeyValue<int, Ref<CassieSketchGraphEdge>> &kv : edges) {
-		const int eid = kv.key;
-		const int starts[2] = { kv.value->get_node_a_id(),
-			kv.value->get_node_b_id() };
+		const int seed_eid = kv.key;
+		const int starts[2] = { kv.value->get_node_a_id(), kv.value->get_node_b_id() };
 		for (int side = 0; side < 2; ++side) {
 			const int start_nid = starts[side];
-			const uint64_t key0 =
-					(uint64_t(uint32_t(eid)) << 32) | uint64_t(uint32_t(start_nid));
-			if (visited.has(key0)) {
+			if (!meta.has(start_nid)) {
 				continue;
 			}
-			// Manifold check at entry: segment already in 2 cycles → outer
-			// face / non-planar reuse; skip per upstream's
-			// `g.ExistingCyclesCount(currentSegment) >= 2` break.
-			if (cycle_count[eid] >= 2) {
-				continue;
-			}
-			Ref<CassieSketchGraphNode> seed_node = get_node(start_nid);
-			if (seed_node.is_null()) {
-				continue;
-			}
-			// Seed with the graph-derived plane normal (PCA above). For a
-			// canvas sketch this is the canvas normal regardless of world
-			// orientation; for fully 3D networks it's the best single
-			// plane and downstream walks override it from the same source.
-			Vector3 current_normal = graph_plane_normal;
-
 			LocalVector<int> path;
 			HashSet<int> path_set;
-			int current_eid = eid;
+			int current_eid = seed_eid;
 			int current_nid = start_nid;
-			const int max_steps = edge_count + 2;
+			Vector3 transported = meta[start_nid].normal;
+			bool reversed = false;
 			bool closed = false;
-			// Mark only the SEED half-edge as tried — not every step. If the
-			// walk dead-ends mid-flight, the intermediate half-edges are
-			// still valid starting points for some other cycle.
-			visited.insert(key0);
-
+			const int max_steps = edge_count + 2;
 			for (int step = 0; step < max_steps; ++step) {
-				if (cycle_count[current_eid] >= 2) {
-					break;
-				}
 				path.push_back(current_eid);
 				path_set.insert(current_eid);
-
-				Ref<CassieSketchGraphEdge> cur_edge = get_edge(current_eid);
-				if (cur_edge.is_null()) {
+				const Ref<CassieSketchGraphEdge> cur_edge = edges[current_eid];
+				const int next_nid = cur_edge->get_opposite(current_nid);
+				if (!meta.has(next_nid)) {
 					break;
 				}
-				const int next_nid = cur_edge->get_opposite(current_nid);
-				// Parallel-transport the walking normal through this
-				// segment — the rotation that takes the segment's start
-				// tangent to its end tangent is applied to current_normal.
-				// This is the paper's mechanism for keeping a consistent
-				// "this side of the surface" direction as the walk crosses
-				// from one tangent plane to the next.
-				Vector3 transported = cur_edge->parallel_transport(
-						current_normal, current_nid);
-				if (transported.length_squared() > real_t(1e-10)) {
-					transported = transported.normalized();
-				} else {
-					transported = current_normal;
-				}
-				// The angular pick sorts around the transported normal, which
-				// is already sign-coherent along the walk. The node's stored
-				// normal carries an arbitrary sign at a crossing (the
-				// tangent-covariance fallback has no preferred side), so it is
-				// not consulted here: flipping on it sent the walk down the
-				// dangling stub at every overshooting corner.
-				current_normal = transported;
-				const int next_eid = _next_edge_at(next_nid, current_eid,
-						current_normal, /*p_want_next=*/true);
+				transported = cur_edge->parallel_transport(transported, current_nid);
+				reversed = transported.dot(meta[next_nid].normal) < real_t(0.5);
+				const int next_eid = _next_edge_port(edges, meta[next_nid], next_nid,
+						current_eid, transported, reversed);
 				if (next_eid < 0) {
 					break;
 				}
-				if (next_eid == eid && next_nid == start_nid) {
-					if (path.size() >= 3) {
-						PackedInt32Array cycle;
-						cycle.resize(int(path.size()));
-						int *w = cycle.ptrw();
-						for (uint32_t i = 0; i < path.size(); ++i) {
-							w[i] = path[i];
-						}
-						out.push_back(cycle);
-						// Mark each traversed half-edge as consumed so a
-						// rotated version of this cycle isn't re-found from
-						// a different seed.
-						int prev_nid = start_nid;
-						for (uint32_t i = 0; i < path.size(); ++i) {
-							const int peid = path[i];
-							cycle_count[peid]++;
-							const uint64_t kused =
-									(uint64_t(uint32_t(peid)) << 32) |
-									uint64_t(uint32_t(prev_nid));
-							visited.insert(kused);
-							Ref<CassieSketchGraphEdge> pe = get_edge(peid);
-							if (pe.is_valid()) {
-								prev_nid = pe->get_opposite(prev_nid);
-							}
-						}
-						closed = true;
-					}
+				if (next_eid == seed_eid && next_nid == start_nid) {
+					closed = path.size() >= 2;
 					break;
 				}
 				if (path_set.has(next_eid)) {
 					break;
 				}
+				// Unity rotates from the direction of travel into the node, which
+				// is the incoming edge's tangent pointed away from it and negated;
+				// the Lean model drops the negation and turns a straight-through
+				// node into a half-turn about an arbitrary axis.
+				const Vector3 t_in = -cur_edge->get_tangent_away_from(next_nid);
+				const Vector3 t_next = edges[next_eid]->get_tangent_away_from(next_nid);
+				transported = _rotate_between(t_in, t_next, transported);
 				current_eid = next_eid;
 				current_nid = next_nid;
 			}
-			(void)closed;
+			if (!closed) {
+				continue;
+			}
+			LocalVector<int> sig;
+			sig.resize(path.size());
+			for (uint32_t i = 0; i < path.size(); ++i) {
+				sig[i] = path[i];
+			}
+			SortArray<int> sig_sorter;
+			sig_sorter.sort(sig.ptr(), sig.size());
+			String key;
+			for (uint32_t i = 0; i < sig.size(); ++i) {
+				key += itos(sig[i]) + ",";
+			}
+			if (seen.has(key)) {
+				continue;
+			}
+			seen.insert(key);
+			PackedInt32Array cycle;
+			cycle.resize(int(path.size()));
+			int *w = cycle.ptrw();
+			for (uint32_t i = 0; i < path.size(); ++i) {
+				w[i] = path[i];
+			}
+			out.push_back(cycle);
 		}
 	}
 

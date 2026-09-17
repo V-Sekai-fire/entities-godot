@@ -153,20 +153,6 @@ class CassieSketchGraph : public Resource {
 	int _add_polyline_sliced(const PackedVector3Array &p_poly,
 			LocalVector<SplitPt> &p_splits, int p_source_idx);
 
-	// CycleDetection.cs port: angular ordering at a node. Projects all
-	// incident edge tangents into the plane perpendicular to `normal`, picks
-	// the edge whose projected tangent is the immediate CCW (want_next=true)
-	// or CW (want_next=false) neighbor of the incoming-reversed tangent.
-	// Returns -1 if no suitable next edge.
-	int _next_edge_at(int p_node_id, int p_incoming_edge,
-			const Vector3 &p_normal, bool p_want_next) const;
-
-	// Planar cycle helpers — pick the next edge at a node by angular
-	// sweep in the plane perpendicular to the node's normal. CCW pick
-	// of the immediately-clockwise edge after the incoming reversed.
-	int _next_edge_planar(int p_node_id, int p_incoming_edge,
-			const Vector3 &p_plane_normal) const;
-
 protected:
 	static void _bind_methods();
 

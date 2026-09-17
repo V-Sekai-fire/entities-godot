@@ -33,7 +33,9 @@
 #include "../src/cassie_triangulator.h"
 #include "../src/sketch/cassie_sketch_graph.h"
 
+#include "core/math/transform_3d.h"
 #include "core/math/vector3.h"
+#include "core/templates/hash_map.h"
 #include "tests/test_macros.h"
 
 namespace TestCassieSketchGraph {
@@ -226,6 +228,246 @@ TEST_CASE("[Cassie][SketchGraph] triangle cycle → sample_cycle_boundary → Ca
 				vformat("face index %d (%d) >= vertex count %d",
 						i, fi, verts.size()));
 	}
+}
+
+static PackedVector3Array _quarter_arc(int p_samples = 16) {
+	PackedVector3Array pts;
+	pts.resize(p_samples);
+	for (int i = 0; i < p_samples; ++i) {
+		const real_t a = real_t(Math::PI) * real_t(0.5) * real_t(i) / real_t(p_samples - 1);
+		pts.write[i] = Vector3(Math::cos(a), Math::sin(a), 0);
+	}
+	return pts;
+}
+
+TEST_CASE("[Cassie][SketchGraph] parallel_transport turns with the tangent and leaves the plane normal alone") {
+	Ref<CassieSketchGraph> g;
+	g.instantiate();
+	const int arc = g->add_stroke(_quarter_arc(), _up_normals(16));
+	const int line = g->add_stroke(_segment(Vector3(3, 0, 0), Vector3(4, 0, 0)), _up_normals(8));
+	REQUIRE(arc >= 0);
+	REQUIRE(line >= 0);
+	const Ref<CassieSketchGraphEdge> e = g->get_edge(arc);
+	const int from = e->get_node_a_id();
+
+	// The radial at the arc's start is the radial at its end, less the
+	// half-sample the chord tangents lose at each end (about 3 degrees here).
+	const Vector3 radial = e->parallel_transport(Vector3(1, 0, 0), from);
+	CHECK(radial.dot(Vector3(0, 1, 0)) > real_t(0.99));
+	CHECK(Math::is_equal_approx(radial.length(), real_t(1)));
+	const Vector3 up = e->parallel_transport(Vector3(0, 0, 1), from);
+	CHECK(up.is_equal_approx(Vector3(0, 0, 1)));
+
+	// Transporting the other way undoes it.
+	const Vector3 back = e->parallel_transport(radial, e->get_node_b_id());
+	CHECK(back.is_equal_approx(Vector3(1, 0, 0)));
+
+	// Control: a straight edge has nothing to turn by.
+	const Ref<CassieSketchGraphEdge> l = g->get_edge(line);
+	CHECK(l->parallel_transport(Vector3(0, 1, 0), l->get_node_a_id()).is_equal_approx(Vector3(0, 1, 0)));
+}
+
+// Straight-edged fixtures with a known face count. Every node's fitted
+// normal is a vertex normal rather than a face normal, so these exercise
+// the sharp branch (cube, residual 1/sqrt(3)) and the smooth branch (tet,
+// residual 1/3) of the walk, and the grid exercises the arrangement.
+struct WireFixture {
+	const char *name;
+	int faces;
+	int face_edges;
+	TypedArray<PackedVector3Array> strokes;
+};
+
+static TypedArray<PackedVector3Array> _wire(const Vector3 *p_v, const int (*p_pair)[2], int p_count) {
+	TypedArray<PackedVector3Array> out;
+	for (int i = 0; i < p_count; ++i) {
+		out.push_back(_segment(p_v[p_pair[i][0]], p_v[p_pair[i][1]]));
+	}
+	return out;
+}
+
+static WireFixture _tet_fixture() {
+	const Vector3 v[4] = { Vector3(1, 1, 1), Vector3(1, -1, -1), Vector3(-1, 1, -1), Vector3(-1, -1, 1) };
+	const int pr[6][2] = { { 0, 1 }, { 0, 2 }, { 0, 3 }, { 1, 2 }, { 1, 3 }, { 2, 3 } };
+	return WireFixture{ "tet", 4, 3, _wire(v, pr, 6) };
+}
+
+static WireFixture _cube_fixture() {
+	const Vector3 v[8] = { Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 1, 0), Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 1), Vector3(1, 1, 1), Vector3(0, 1, 1) };
+	const int pr[12][2] = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 }, { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
+	return WireFixture{ "cube", 6, 4, _wire(v, pr, 12) };
+}
+
+// Three horizontal and three vertical lines: four cells, and the walk also
+// closes the outer boundary once, as an 8-edge loop.
+static WireFixture _grid_fixture() {
+	TypedArray<PackedVector3Array> lines;
+	for (int i = 0; i <= 2; ++i) {
+		lines.push_back(_segment(Vector3(0, i, 0), Vector3(2, i, 0)));
+		lines.push_back(_segment(Vector3(i, 0, 0), Vector3(i, 2, 0)));
+	}
+	return WireFixture{ "grid", 4, 4, lines };
+}
+
+static Ref<CassieSketchGraph> _build(const TypedArray<PackedVector3Array> &p_strokes) {
+	Ref<CassieSketchGraph> g;
+	g.instantiate();
+	g->build_from_polylines(p_strokes, real_t(0.02));
+	return g;
+}
+
+static int _count_cycles_of_size(const Array &p_cycles, int p_size) {
+	int n = 0;
+	for (int i = 0; i < p_cycles.size(); ++i) {
+		n += PackedInt32Array(p_cycles[i]).size() == p_size ? 1 : 0;
+	}
+	return n;
+}
+
+static TypedArray<PackedVector3Array> _transformed(const TypedArray<PackedVector3Array> &p_strokes, const Transform3D &p_xf) {
+	TypedArray<PackedVector3Array> out;
+	for (int i = 0; i < p_strokes.size(); ++i) {
+		PackedVector3Array poly = p_strokes[i];
+		for (int k = 0; k < poly.size(); ++k) {
+			poly.write[k] = p_xf.xform(poly[k]);
+		}
+		out.push_back(poly);
+	}
+	return out;
+}
+
+// Every edge of a closed wireframe borders exactly two of its faces.
+static int _edges_used_twice(const Array &p_cycles, int p_face_edges) {
+	HashMap<int, int> uses;
+	for (int i = 0; i < p_cycles.size(); ++i) {
+		const PackedInt32Array c = p_cycles[i];
+		if (c.size() != p_face_edges) {
+			continue;
+		}
+		for (int k = 0; k < c.size(); ++k) {
+			uses[c[k]] = uses.has(c[k]) ? uses[c[k]] + 1 : 1;
+		}
+	}
+	int twice = 0;
+	for (const KeyValue<int, int> &kv : uses) {
+		twice += kv.value == 2 ? 1 : 0;
+	}
+	return twice;
+}
+
+TEST_CASE("[Cassie][SketchGraph] tetrahedron and cube close every face and nothing else") {
+	const WireFixture fixtures[2] = { _tet_fixture(), _cube_fixture() };
+	for (int f = 0; f < 2; ++f) {
+		const WireFixture &w = fixtures[f];
+		INFO(w.name);
+		const Ref<CassieSketchGraph> g = _build(w.strokes);
+		REQUIRE_EQ(g->get_edge_count(), w.strokes.size());
+		const Array cycles = g->find_cycles();
+		CHECK_EQ(cycles.size(), w.faces);
+		CHECK_EQ(_count_cycles_of_size(cycles, w.face_edges), w.faces);
+		CHECK_EQ(_edges_used_twice(cycles, w.face_edges), w.strokes.size());
+
+		// Control: dropping one edge opens the two faces it bordered.
+		TypedArray<PackedVector3Array> cut = w.strokes.duplicate();
+		cut.remove_at(cut.size() - 1);
+		const Array cut_cycles = _build(cut)->find_cycles();
+		CHECK_EQ(_count_cycles_of_size(cut_cycles, w.face_edges), w.faces - 2);
+	}
+}
+
+TEST_CASE("[Cassie][SketchGraph] planar grid closes its four cells") {
+	const WireFixture w = _grid_fixture();
+	const Ref<CassieSketchGraph> g = _build(w.strokes);
+	REQUIRE_EQ(g->get_node_count(), 9);
+	REQUIRE_EQ(g->get_edge_count(), 12);
+	const Array cycles = g->find_cycles();
+	CHECK_EQ(_count_cycles_of_size(cycles, 4), 4);
+	CHECK_EQ(_count_cycles_of_size(cycles, 8), 1);
+	CHECK_EQ(cycles.size(), 5);
+
+	// Control: without the middle vertical line the rows are two cells and
+	// the outer boundary is six edges.
+	TypedArray<PackedVector3Array> cut = w.strokes.duplicate();
+	cut.remove_at(3);
+	const Array cut_cycles = _build(cut)->find_cycles();
+	CHECK_EQ(_count_cycles_of_size(cut_cycles, 4), 2);
+	CHECK_EQ(_count_cycles_of_size(cut_cycles, 6), 1);
+	CHECK_EQ(cut_cycles.size(), 3);
+}
+
+// Properties: the cycle set is a function of the sketch's shape, so a rigid
+// motion, a mirror, a uniform scale or a reordering of the strokes leaves
+// the count and the size multiset alone. The control is a flattening, which
+// changes the shape and must change the answer.
+static String _size_multiset(const Array &p_cycles) {
+	Vector<int> sizes;
+	for (int i = 0; i < p_cycles.size(); ++i) {
+		sizes.push_back(PackedInt32Array(p_cycles[i]).size());
+	}
+	sizes.sort();
+	String out;
+	for (int i = 0; i < sizes.size(); ++i) {
+		out += itos(sizes[i]) + ",";
+	}
+	return out;
+}
+
+TEST_CASE("[Cassie][SketchGraph] cycle set is invariant under rigid motion, mirroring, scale and stroke order") {
+	const WireFixture fixtures[3] = { _tet_fixture(), _cube_fixture(), _grid_fixture() };
+	const Transform3D rigid(Basis(Vector3(0.3, -0.8, 0.5).normalized(), real_t(1.1)), Vector3(4, -2, 7));
+	const Transform3D mirror(Basis().scaled(Vector3(-1, 1, 1)), Vector3());
+	const Transform3D scale(Basis().scaled(Vector3(3, 3, 3)), Vector3());
+	const Transform3D flatten(Basis().scaled(Vector3(1, 1, 0)), Vector3());
+	for (int f = 0; f < 3; ++f) {
+		const WireFixture &w = fixtures[f];
+		INFO(w.name);
+		const Array base = _build(w.strokes)->find_cycles();
+		REQUIRE(base.size() > 0);
+		const String expected = _size_multiset(base);
+		CHECK_EQ(_size_multiset(_build(_transformed(w.strokes, rigid))->find_cycles()), expected);
+		CHECK_EQ(_size_multiset(_build(_transformed(w.strokes, mirror))->find_cycles()), expected);
+		CHECK_EQ(_size_multiset(_build(_transformed(w.strokes, scale))->find_cycles()), expected);
+
+		TypedArray<PackedVector3Array> reordered;
+		for (int i = w.strokes.size() - 1; i >= 0; --i) {
+			reordered.push_back(w.strokes[i]);
+		}
+		CHECK_EQ(_size_multiset(_build(reordered)->find_cycles()), expected);
+
+		if (f < 2) {
+			CHECK_NE(_size_multiset(_build(_transformed(w.strokes, flatten))->find_cycles()), expected);
+		}
+	}
+}
+
+// Twelve of the hat capture's 234 patches are bordered by two strokes, so a
+// two-edge lens is a cycle.
+TEST_CASE("[Cassie][SketchGraph] a lens of two strokes between two nodes is a cycle") {
+	Ref<CassieSketchGraph> g;
+	g.instantiate();
+	PackedVector3Array upper;
+	PackedVector3Array lower;
+	for (int i = 0; i < 12; ++i) {
+		const real_t t = real_t(i) / real_t(11);
+		const real_t bulge = Math::sin(t * real_t(Math::PI)) * real_t(0.3);
+		upper.push_back(Vector3(t, bulge, 0));
+		lower.push_back(Vector3(t, -bulge, 0));
+	}
+	g->add_stroke(upper, _up_normals(12));
+	g->add_stroke(lower, _up_normals(12));
+	REQUIRE_EQ(g->get_node_count(), 2);
+	const Array cycles = g->find_cycles();
+	CHECK_EQ(cycles.size(), 1);
+	CHECK_EQ(_count_cycles_of_size(cycles, 2), 1);
+
+	// Control: the same two strokes without the shared far endpoint.
+	Ref<CassieSketchGraph> open;
+	open.instantiate();
+	lower.write[11] = Vector3(1.2, 0, 0);
+	open->add_stroke(upper, _up_normals(12));
+	open->add_stroke(lower, _up_normals(12));
+	REQUIRE_EQ(open->get_node_count(), 3);
+	CHECK_EQ(open->find_cycles().size(), 0);
 }
 
 TEST_CASE("[Cassie][SketchGraph] two strokes form no cycle") {
