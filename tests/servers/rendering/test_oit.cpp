@@ -325,7 +325,7 @@ TEST_CASE("[OIT] views: packed columns are distinct across two views of a 4-wide
 	}
 }
 
-TEST_CASE("[OIT] views: a pixel centre looks up the column it splatted into, both eyes") {
+TEST_CASE("[OIT] views: a pixel center looks up the column it splatted into, both eyes") {
 	for (uint32_t v = 0; v < 2; v++) {
 		for (uint32_t x = 0; x < 320; x++) {
 			CAPTURE(v);
