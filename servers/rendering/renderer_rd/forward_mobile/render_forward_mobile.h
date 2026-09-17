@@ -62,6 +62,7 @@ private:
 	RID oit_default_transmittance;
 	RID oit_default_transmittance_sampler;
 	RID oit_default_params_buffer;
+	RID oit_default_extinction_buffer;
 	void _oit_ensure_defaults();
 	void _oit_free_defaults();
 
@@ -72,7 +73,9 @@ private:
 	RID oit_splat_buffer;
 	uint32_t oit_splat_buffer_capacity = 0;
 	RID oit_scene_params_buffer;
-	void _oit_prepass(RenderDataRD *p_render_data);
+	void _oit_prepass(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview);
+	void _oit_splat_raster(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview);
+	void _oit_splat_compute(RenderDataRD *p_render_data, const float *p_slice_curve, const Vector3i &p_dims, const Vector2i &p_tile_size);
 #endif
 
 	/* Scene Shader */
@@ -145,6 +148,7 @@ private:
 		PASS_MODE_DEPTH_MATERIAL,
 		// PASS_MODE_SDF,
 		PASS_MODE_MOTION_VECTORS,
+		PASS_MODE_OIT_SPLAT,
 	};
 
 	struct RenderElementInfo;

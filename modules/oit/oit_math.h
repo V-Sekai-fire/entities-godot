@@ -67,3 +67,8 @@ inline uint32_t oit_pack_extinction(float p_alpha) {
 inline uint32_t oit_flat_index(uint32_t p_dim_y, uint32_t p_dim_z, uint32_t p_x, uint32_t p_y, uint32_t p_z) {
 	return (p_x * p_dim_y + p_y) * p_dim_z + p_z;
 }
+
+// Mirrors oit_apply: slice z reads the inclusive prefix of slice z - 1, and slice 0 reads 1.
+inline float oit_lookup_transmittance(const float *p_column, uint32_t p_slice) {
+	return p_slice == 0 ? 1.0f : p_column[p_slice - 1];
+}
