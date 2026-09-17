@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ResonanceAudioServer" inherits="Object" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Server that drives the 3D spatial-audio mixer.
+	</brief_description>
+	<description>
+		Owns the spatial-audio backend used by buses tagged [constant AudioServer.BUS_TYPE_SPATIAL_3D]. Initialized at startup when [member ProjectSettings.audio/enable_spatial_audio] is [code]true[/code].
+	</description>
+	<tutorials>
+	</tutorials>
+</class>
