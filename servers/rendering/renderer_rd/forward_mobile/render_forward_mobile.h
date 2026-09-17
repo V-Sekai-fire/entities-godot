@@ -74,7 +74,7 @@ private:
 	RID oit_integrate_params_buffer;
 	void _oit_prepass(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview);
 	void _oit_splat_raster(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview);
-	void _oit_splat_compute(RenderDataRD *p_render_data, const float *p_slice_curve, const Vector3i &p_dims, const Vector2i &p_tile_size);
+	void _oit_splat_compute(RenderDataRD *p_render_data, const float *p_slice_curve, const Vector3i &p_dims);
 
 	/* Scene Shader */
 

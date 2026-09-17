@@ -3905,7 +3905,7 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data, const SceneS
 	if (splat_mode == 0) {
 		_oit_splat_raster(p_render_data, p_base_specialization, p_radiance_texture, p_samplers, p_reverse_cull, p_is_multiview);
 	} else {
-		_oit_splat_compute(p_render_data, sp.slice_curve, dims, tile_size);
+		_oit_splat_compute(p_render_data, sp.slice_curve, dims);
 	}
 
 	struct IntegrateParams {
@@ -3936,13 +3936,12 @@ void RenderForwardMobile::_oit_splat_raster(RenderDataRD *p_render_data, const S
 	_render_list_with_draw_list(&render_list_params, oit_effect->get_splat_framebuffer());
 }
 
-void RenderForwardMobile::_oit_splat_compute(RenderDataRD *p_render_data, const float *p_slice_curve, const Vector3i &p_dims, const Vector2i &p_tile_size) {
+void RenderForwardMobile::_oit_splat_compute(RenderDataRD *p_render_data, const float *p_slice_curve, const Vector3i &p_dims) {
 	struct OITParams {
 		float view_matrix[16];
 		float projection_matrix[16];
 		float slice_curve[4];
 		uint32_t froxel_dims[4];
-		float tile_size[4];
 	};
 	OITParams params;
 	Projection view = p_render_data->scene_data->cam_transform.affine_inverse();
@@ -3960,10 +3959,6 @@ void RenderForwardMobile::_oit_splat_compute(RenderDataRD *p_render_data, const 
 	params.froxel_dims[1] = p_dims.y;
 	params.froxel_dims[2] = p_dims.z;
 	params.froxel_dims[3] = 0;
-	params.tile_size[0] = p_tile_size.x;
-	params.tile_size[1] = p_tile_size.y;
-	params.tile_size[2] = 0.0f;
-	params.tile_size[3] = 0.0f;
 
 	if (!oit_params_buffer.is_valid()) {
 		oit_params_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(OITParams));

@@ -18,7 +18,6 @@ layout(set = 0, binding = 1, std140) uniform Params {
 	mat4 projection_matrix;
 	vec4 slice_curve;
 	uvec4 froxel_dims;
-	vec4 tile_size;
 }
 params;
 
