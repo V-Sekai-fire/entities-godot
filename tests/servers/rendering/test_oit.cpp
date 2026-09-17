@@ -39,6 +39,8 @@ TEST_FORCE_LINK(test_oit)
 
 #include <thirdparty/witness-cpp/include/witness/ladder.h>
 
+#include <cstring>
+
 namespace TestOIT {
 
 TEST_CASE("[OIT] Project settings register the AVBOIT surface") {
@@ -571,6 +573,57 @@ TEST_CASE("[OIT][Witness] falsification control: constant slice function is caug
 	};
 	witness::Trial trial = witness::resolve<DepthPair>("oit-falsification-control", gen, broken_predicate);
 	CHECK(trial.outcome == witness::Outcome::FOUND);
+}
+
+// The hash ladder of Oit/Tables.lean: the same LCG, the same rows, the same FNV-1a fold.
+static uint32_t tables_lcg(uint32_t p_x) {
+	return p_x * 1664525u + 1013904223u;
+}
+
+static float tables_unit(uint32_t p_x) {
+	return float(p_x >> 8) / 16777216.0f;
+}
+
+static uint32_t tables_fnv1a(uint32_t p_h, uint32_t p_w) {
+	for (int i = 0; i < 4; i++) {
+		p_h = (p_h ^ ((p_w >> (8 * i)) & 0xFFu)) * 16777619u;
+	}
+	return p_h;
+}
+
+static uint32_t tables_hash(uint32_t p_rows, bool p_perturb) {
+	uint32_t x = 0x9E3779B9u;
+	uint32_t h = 2166136261u;
+	for (uint32_t i = 0; i < p_rows; i++) {
+		uint32_t w1 = tables_lcg(x);
+		uint32_t w2 = tables_lcg(w1);
+		uint32_t w3 = tables_lcg(w2);
+		uint32_t w4 = tables_lcg(w3);
+		float k = tables_unit(w1) * 200.0f;
+		k = k + 0.05f;
+		float z = tables_unit(w2) * 600.0f;
+		uint32_t slice = oit_depth_to_slice(0.1f, 500.0f, k, 128, z);
+		uint32_t ext = oit_pack_extinction(tables_unit(w3));
+		if (p_perturb && i == 7) {
+			ext += 1;
+		}
+		float packed = oit_packed_u(320, 2, w4 % 2, tables_unit(w4));
+		uint32_t bits;
+		memcpy(&bits, &packed, sizeof(bits));
+		h = tables_fnv1a(tables_fnv1a(tables_fnv1a(h, slice), ext), bits);
+		x = w4;
+	}
+	return h;
+}
+
+TEST_CASE("[OIT] tables: the FNV-1a ladder matches the Lean spec") {
+	CHECK(tables_hash(4096, false) == 0x9371EF76u);
+}
+
+TEST_CASE("[OIT] tables: control, one perturbed row changes the hash") {
+	CHECK(tables_hash(4096, true) == 0x2AFAE94Du);
+	CHECK(tables_hash(4096, true) != tables_hash(4096, false));
+	CHECK(tables_hash(4095, false) != tables_hash(4096, false));
 }
 
 } // namespace TestOIT
