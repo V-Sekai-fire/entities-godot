@@ -33,6 +33,7 @@
 #include "../oit_math.h"
 
 #include "core/config/project_settings.h"
+#include "core/templates/local_vector.h"
 #include "core/variant/variant.h"
 #include "tests/test_macros.h"
 
@@ -79,8 +80,6 @@ TEST_CASE("[OIT] depth_to_slice: negative control catches a constant regression"
 	CHECK(a != b);
 }
 
-// The tables below pin the same integers as lean/Oit/SliceCurve.lean and
-// lean/Oit/Extinction.lean; both sides run IEEE single precision.
 static const float oit_table16_z[16] = { 0.15f, 0.3f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f, 64.0f, 128.0f, 256.0f, 350.0f, 420.0f, 470.0f, 495.0f };
 
 static void oit_check_table16(float p_k, const uint32_t (&p_expected)[16]) {
@@ -154,6 +153,37 @@ TEST_CASE("[OIT] pack_extinction: summing packed values composites alpha within 
 		CHECK((s >= c ? s - c : c - s) == gap[i]);
 	}
 	CHECK(oit_pack_extinction(0.5f) + oit_pack_extinction(0.5f) != oit_pack_extinction(1.0f));
+}
+
+TEST_CASE("[OIT] flat_index: matches the Lean layout at 320x180x128") {
+	CHECK(oit_flat_index(180, 128, 0, 0, 0) == 0u);
+	CHECK(oit_flat_index(180, 128, 0, 0, 127) == 127u);
+	CHECK(oit_flat_index(180, 128, 0, 1, 0) == 128u);
+	CHECK(oit_flat_index(180, 128, 1, 0, 0) == 180u * 128u);
+	CHECK(oit_flat_index(180, 128, 319, 179, 127) == 320u * 180u * 128u - 1u);
+	for (uint32_t z = 0; z < 127; z++) {
+		CHECK(oit_flat_index(180, 128, 7, 9, z + 1) == oit_flat_index(180, 128, 7, 9, z) + 1);
+	}
+}
+
+TEST_CASE("[OIT] flat_index: every froxel of a 5x3x8 grid gets its own slot") {
+	LocalVector<bool> seen;
+	seen.resize(5 * 3 * 8);
+	for (uint32_t i = 0; i < seen.size(); i++) {
+		seen[i] = false;
+	}
+	for (uint32_t x = 0; x < 5; x++) {
+		for (uint32_t y = 0; y < 3; y++) {
+			for (uint32_t z = 0; z < 8; z++) {
+				uint32_t i = oit_flat_index(3, 8, x, y, z);
+				REQUIRE(i < seen.size());
+				CHECK_FALSE(seen[i]);
+				seen[i] = true;
+			}
+		}
+	}
+	CHECK(((1 + 0) * 8 + 0) == ((0 + 1) * 8 + 0));
+	CHECK(oit_flat_index(3, 8, 1, 0, 0) != oit_flat_index(3, 8, 0, 1, 0));
 }
 
 struct DepthPair {

@@ -68,6 +68,18 @@ void OITEffect::_free_buffers() {
 		transmittance_sampler = RID();
 	}
 	froxel_dims = Vector3i();
+	extinction_bytes = 0;
+	voxelize_uniform_set = RID();
+	integrate_uniform_set = RID();
+}
+
+RID OITEffect::_uniform_set(RID &r_cached, const Vector<RD::Uniform> &p_uniforms, RID p_shader) {
+	RenderingDevice *rd = RD::get_singleton();
+	if (r_cached.is_valid() && rd->uniform_set_is_valid(r_cached)) {
+		return r_cached;
+	}
+	r_cached = rd->uniform_set_create(p_uniforms, p_shader, 0);
+	return r_cached;
 }
 
 void OITEffect::configure(const Vector2i &p_screen_size, int p_slice_count, const Vector2i &p_tile_size) {
@@ -89,18 +101,16 @@ void OITEffect::configure(const Vector2i &p_screen_size, int p_slice_count, cons
 
 	RenderingDevice *rd = RD::get_singleton();
 
-	RD::TextureFormat extinction_fmt;
-	extinction_fmt.width = dims.x;
-	extinction_fmt.height = dims.y;
-	extinction_fmt.depth = dims.z;
-	extinction_fmt.array_layers = 1;
-	extinction_fmt.mipmaps = 1;
-	extinction_fmt.texture_type = RD::TEXTURE_TYPE_3D;
-	extinction_fmt.format = RD::DATA_FORMAT_R32_UINT;
-	extinction_fmt.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_STORAGE_ATOMIC_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
-	extinction_buffer = rd->texture_create(extinction_fmt, RD::TextureView());
+	extinction_bytes = uint32_t(dims.x) * uint32_t(dims.y) * uint32_t(dims.z) * sizeof(uint32_t);
+	extinction_buffer = rd->storage_buffer_create(extinction_bytes);
 
-	RD::TextureFormat transmittance_fmt = extinction_fmt;
+	RD::TextureFormat transmittance_fmt;
+	transmittance_fmt.width = dims.x;
+	transmittance_fmt.height = dims.y;
+	transmittance_fmt.depth = dims.z;
+	transmittance_fmt.array_layers = 1;
+	transmittance_fmt.mipmaps = 1;
+	transmittance_fmt.texture_type = RD::TEXTURE_TYPE_3D;
 	transmittance_fmt.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
 	transmittance_fmt.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT;
 	transmittance_buffer = rd->texture_create(transmittance_fmt, RD::TextureView());
@@ -116,17 +126,17 @@ void OITEffect::configure(const Vector2i &p_screen_size, int p_slice_count, cons
 
 void OITEffect::voxelize(RID p_splat_buffer, RID p_splat_count_buffer, RID p_params_buffer, uint32_t p_splat_count) {
 	ERR_FAIL_COND(!extinction_buffer.is_valid());
+	RenderingDevice *rd = RD::get_singleton();
+
+	rd->buffer_clear(extinction_buffer, 0, extinction_bytes);
 	if (p_splat_count == 0) {
 		return;
 	}
-	RenderingDevice *rd = RD::get_singleton();
-
-	rd->texture_clear(extinction_buffer, Color(0, 0, 0, 0), 0, 1, 0, 1);
 
 	Vector<RD::Uniform> uniforms;
 	{
 		RD::Uniform u;
-		u.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
 		u.binding = 0;
 		u.append_id(extinction_buffer);
 		uniforms.push_back(u);
@@ -153,7 +163,7 @@ void OITEffect::voxelize(RID p_splat_buffer, RID p_splat_count_buffer, RID p_par
 		uniforms.push_back(u);
 	}
 
-	RID uniform_set = rd->uniform_set_create(uniforms, voxelize_shader.version_get_shader(voxelize_shader_version, 0), 0);
+	RID uniform_set = _uniform_set(voxelize_uniform_set, uniforms, voxelize_shader.version_get_shader(voxelize_shader_version, 0));
 
 	RD::ComputeListID compute_list = rd->compute_list_begin();
 	rd->compute_list_bind_compute_pipeline(compute_list, voxelize_pipeline);
@@ -169,7 +179,7 @@ void OITEffect::integrate(RID p_params_buffer) {
 	Vector<RD::Uniform> uniforms;
 	{
 		RD::Uniform u;
-		u.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
 		u.binding = 0;
 		u.append_id(extinction_buffer);
 		uniforms.push_back(u);
@@ -189,7 +199,7 @@ void OITEffect::integrate(RID p_params_buffer) {
 		uniforms.push_back(u);
 	}
 
-	RID uniform_set = rd->uniform_set_create(uniforms, integrate_shader.version_get_shader(integrate_shader_version, 0), 0);
+	RID uniform_set = _uniform_set(integrate_uniform_set, uniforms, integrate_shader.version_get_shader(integrate_shader_version, 0));
 
 	RD::ComputeListID compute_list = rd->compute_list_begin();
 	rd->compute_list_bind_compute_pipeline(compute_list, integrate_pipeline);

@@ -98,4 +98,65 @@ example :
 example : packExtinction 0.5 + packExtinction 0.5 ≠ packExtinction 1.0 := by
   native_decide
 
+/-! ## Storage
+
+The extinction grid is a flat `uint[]` storage buffer, not an `r32ui`
+image: `atomicAdd` on a buffer lands on every RD backend, where
+`imageAtomicAdd` on a 3D storage image did not on Metal. The layout
+is x-major, z fastest, so one (x, y) column is contiguous and the
+integrate workgroup reads its 128 slices as one run. -/
+
+inductive Storage where
+  | buffer
+  | image3D
+  deriving DecidableEq, Repr
+
+def storage : Storage := .buffer
+
+example : storage = .buffer := by decide
+
+structure Dims where
+  x : UInt32
+  y : UInt32
+  z : UInt32
+
+/-- Matches `flat_index` in `oit_voxelize.glsl` and `oit_flat_index`
+    in `oit_math.h`. -/
+def flatIndex (d : Dims) (x y z : UInt32) : UInt32 :=
+  (x * d.y + y) * d.z + z
+
+def dims : Dims := ⟨320, 180, 128⟩
+
+example : flatIndex dims 0 0 0 = 0 := by native_decide
+example : flatIndex dims 0 0 127 = 127 := by native_decide
+example : flatIndex dims 0 1 0 = 128 := by native_decide
+example : flatIndex dims 1 0 0 = 180 * 128 := by native_decide
+example : flatIndex dims 319 179 127 = 320 * 180 * 128 - 1 := by native_decide
+
+/-- A column is contiguous: consecutive z differ by one. -/
+example : (List.range 127).all fun z =>
+    flatIndex dims 7 9 (z.toUInt32 + 1) = flatIndex dims 7 9 z.toUInt32 + 1 := by
+  native_decide
+
+/-- Distinct froxels never share a slot. -/
+def injectiveOn (d : Dims) : Bool := Id.run do
+  let mut seen : Array Bool := Array.replicate (d.x * d.y * d.z).toNat false
+  let mut ok := true
+  for x in [0 : d.x.toNat] do
+    for y in [0 : d.y.toNat] do
+      for z in [0 : d.z.toNat] do
+        let i := (flatIndex d x.toUInt32 y.toUInt32 z.toUInt32).toNat
+        if seen[i]! then ok := false
+        seen := seen.set! i true
+  return ok
+
+example : injectiveOn ⟨5, 3, 8⟩ = true := by native_decide
+
+/-- Control: a layout that drops the `y` stride collides. -/
+def collidingIndex (d : Dims) (x y z : UInt32) : UInt32 := (x + y) * d.z + z
+
+example : collidingIndex ⟨5, 3, 8⟩ 1 0 0 = collidingIndex ⟨5, 3, 8⟩ 0 1 0 := by
+  native_decide
+example : flatIndex ⟨5, 3, 8⟩ 1 0 0 ≠ flatIndex ⟨5, 3, 8⟩ 0 1 0 := by native_decide
+
 end Oit.Extinction
