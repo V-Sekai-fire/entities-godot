@@ -1008,13 +1008,15 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 	oit_frame_active = false;
 	if (GLOBAL_GET("rendering/oit/enabled")) {
 		if (rb_data.is_valid() && !is_reflection_probe) {
-			if (use_msaa) {
-				WARN_PRINT_ONCE("OIT compositing does not support MSAA; transparent surfaces fall back to sorted blending.");
+			if (use_msaa && !supports_depth_resolve) {
+				WARN_PRINT_ONCE("OIT compositing under MSAA needs SUPPORTS_FRAMEBUFFER_DEPTH_RESOLVE; transparent surfaces fall back to sorted blending.");
 			} else {
+				// The accumulation pass runs at one sample against the resolved depth.
 				oit_frame_active = true;
 				oit_accumulate_count = _oit_partition_alpha_list();
 				merge_transparent_pass = false;
 				using_subpass_post_process = false;
+				resolve_depth_buffer = resolve_depth_buffer || use_msaa;
 			}
 		}
 	} else if (oit_effect) {
