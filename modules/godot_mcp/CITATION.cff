@@ -3,8 +3,9 @@ message: "If you use this software, please cite it as below."
 title: "transport-godot-mcp: an in-editor MCP server for the Godot editor"
 abstract: >
   Drive the Godot editor from an MCP client. A transport layer for an authoring
-  client, and the Godot-side counterpart to Unity-MCP, so the Godot host can be
-  exercised the same way as the Unity host for the two-implementation interop check.
+  client, and the Godot-side counterpart to the editor MCP plugin another engine
+  carries, so both hosts can be exercised the same way for the two-implementation
+  interop check.
   It runs two halves at once on purpose: the editor plugin answers what the scene was
   authored as, and MCPRuntime, autoloaded into the running game, answers what the
   scene actually is. Those are different questions, and only the second one can say

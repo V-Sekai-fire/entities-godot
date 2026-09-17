@@ -273,7 +273,7 @@ func _cmd_run_script(a: Dictionary):
 	return { "value": _to_json(inst.call("run", editor, root)) }
 
 
-# --- profiling (parity with Unity-MCP diagnostics) --------------------------
+# --- profiling (parity with the other host's diagnostics) -------------------
 
 func _cmd_get_performance(a: Dictionary):
 	# Expose Godot's Performance monitors (fps, mem, draw calls, object counts…).
@@ -666,7 +666,7 @@ func _cmd_get_bone_poses(a: Dictionary):
 	return { "skeleton": String(sk.name), "bone_count": sk.get_bone_count(), "bones": bones }
 
 
-# --- asset reimport (parity with Unity-MCP assets-refresh) ------------------
+# --- asset reimport (parity with the other host's assets-refresh) -----------
 
 func _cmd_reimport(a: Dictionary):
 	if editor == null:

@@ -1,8 +1,8 @@
 # godot_mcp
 
-Drive the **Godot editor** from an MCP client — the Godot-side counterpart to
-[IvanMurzak/Unity-MCP](https://github.com/IvanMurzak/Unity-MCP) (`com.ivanmurzak.unity.mcp`),
-so the Godot host can be exercised the same way as the Unity host for the two-implementation
+Drive the **Godot editor** from an MCP client. It is the Godot-side counterpart to the
+[editor MCP plugin](https://github.com/IvanMurzak/Unity-MCP) another engine already carries,
+so the Godot host can be exercised the same way as that host for the two-implementation
 interop check.
 
 ## Where it lives

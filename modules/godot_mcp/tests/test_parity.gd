@@ -1,5 +1,5 @@
 extends SceneTree
-## Headless tests for the Unity-MCP-parity command additions.
+## Headless tests for the command additions that keep parity with the other host.
 ## Run: godot --headless --path . --script res://tests/test_parity.gd
 
 const Commands = preload("res://addons/vsekai_godot_mcp/mcp_commands.gd")
