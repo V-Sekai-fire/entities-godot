@@ -14,6 +14,15 @@
 			<description>
 			</description>
 		</method>
+		<method name="add_stroke_intersecting">
+			<return type="int" />
+			<param index="0" name="points" type="PackedVector3Array" />
+			<param index="1" name="normals" type="PackedVector3Array" />
+			<param index="2" name="proximity" type="float" />
+			<description>
+				Adds one stroke and splits it, and every existing edge it crosses within [param proximity], at the crossings. Untouched edges keep their ids. Returns the number of edges added.
+			</description>
+		</method>
 		<method name="build_from_polylines">
 			<return type="int" />
 			<param index="0" name="polylines" type="PackedVector3Array[]" />
