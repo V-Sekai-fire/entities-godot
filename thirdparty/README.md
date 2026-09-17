@@ -1123,6 +1123,20 @@ Files extracted from upstream source:
 - `LICENSE` (edited to keep only relevant license)
 
 
+## sse2neon
+
+- Upstream: https://github.com/DLTcollab/sse2neon
+- Version: 1.8.0 (2024)
+- License: MIT
+
+File extracted from upstream source:
+
+- `sse2neon.h`
+- `LICENSE`
+
+`shim/` is ours: one header per x86 intrinsic header the CineForm codec includes, each
+forwarding to `sse2neon.h`, so the codec builds on arm64 unpatched.
+
 ## spirv-reflect
 
 - Upstream: https://github.com/KhronosGroup/SPIRV-Reflect

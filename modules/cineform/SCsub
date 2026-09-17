@@ -103,8 +103,19 @@ env_cineform.Prepend(
     + [libwebm_dir]
 )
 
+if env["arch"] == "arm64":
+    # The shim directory answers the codec's <emmintrin.h> includes with sse2neon.
+    env_cineform.Prepend(CPPPATH=["#thirdparty/sse2neon/shim"])
+
 env_thirdparty = env_cineform.Clone()
 env_thirdparty.disable_warnings()
+
+if env["arch"] == "arm64":
+    # ImageConverter's fast loops are MMX, which sse2neon does not carry; its scalar loops stand in.
+    env_scalar = env_thirdparty.Clone()
+    env_scalar.Append(CPPDEFINES=[("_XMMOPT", 0)])
+    env_scalar.add_source_files(thirdparty_obj, thirdparty_dir + "ConvertLib/ImageConverter.cpp")
+    thirdparty_sources.remove(thirdparty_dir + "ConvertLib/ImageConverter.cpp")
 
 # Godot builds with /fp:strict, under which the MSVC C compiler does not fold floating point
 # constant expressions, so the codec's static tables fail with C2099.
