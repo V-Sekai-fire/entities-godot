@@ -36,7 +36,9 @@
 #include "servers/rendering/rendering_device.h"
 
 #include "modules/oit/shaders/oit_integrate.glsl.gen.h"
+#include "modules/oit/shaders/oit_resolve.glsl.gen.h"
 #include "modules/oit/shaders/oit_voxelize.glsl.gen.h"
+#include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 
 class OITEffect {
 	OitVoxelizeShaderRD voxelize_shader;
@@ -46,6 +48,16 @@ class OITEffect {
 	OitIntegrateShaderRD integrate_shader;
 	RID integrate_shader_version;
 	RID integrate_pipeline;
+
+	OitResolveShaderRD resolve_shader;
+	RID resolve_shader_version;
+	PipelineCacheRD resolve_pipeline;
+
+	Vector2i accumulation_size;
+	RID accumulation_depth;
+	RID accumulated_color;
+	RID accumulated_extinction;
+	RID accumulation_framebuffer;
 
 	Vector3i froxel_dims;
 	uint32_t extinction_bytes = 0;
@@ -57,6 +69,7 @@ class OITEffect {
 	RID integrate_uniform_set;
 
 	void _free_buffers();
+	void _free_accumulation();
 	RID _uniform_set(RID &r_cached, const Vector<RD::Uniform> &p_uniforms, RID p_shader);
 
 public:
@@ -64,9 +77,12 @@ public:
 	void clear_extinction();
 	void voxelize(RID p_splat_buffer, RID p_splat_count_buffer, RID p_params_buffer, uint32_t p_splat_count);
 	void integrate(RID p_params_buffer);
+	void configure_accumulation(const Vector2i &p_size, RID p_depth_texture);
+	void resolve(RD::DrawListID p_draw_list, RD::FramebufferFormatID p_framebuffer_format);
 
 	RID get_extinction_buffer() const { return extinction_buffer; }
 	RID get_splat_framebuffer() const { return splat_framebuffer; }
+	RID get_accumulation_framebuffer() const { return accumulation_framebuffer; }
 	RID get_transmittance_texture() const { return transmittance_buffer; }
 	RID get_transmittance_sampler() const { return transmittance_sampler; }
 	Vector3i get_froxel_dims() const { return froxel_dims; }

@@ -472,16 +472,20 @@ void oit_splat(vec2 frag_coord, float view_z, float alpha) {
 }
 
 // Transmittance through every slice in front of this fragment's own slice.
-float oit_apply(vec2 screen_uv, float view_z, float alpha) {
+float oit_transmittance_in_front(vec2 screen_uv, float view_z) {
 	if (oit_params.froxel_dims.w == 0u || view_z <= 0.0) {
-		return alpha;
+		return 1.0;
 	}
 	uint slice = oit_depth_to_slice(view_z);
 	if (slice == 0u) {
-		return alpha;
+		return 1.0;
 	}
 	float slice_uv = (float(slice) - 0.5) / oit_params.slice_curve.w;
-	return alpha * texture(oit_transmittance, vec3(screen_uv, slice_uv)).r;
+	return texture(oit_transmittance, vec3(screen_uv, slice_uv)).r;
+}
+
+float oit_apply(vec2 screen_uv, float view_z, float alpha) {
+	return alpha * oit_transmittance_in_front(screen_uv, view_z);
 }
 
 /* Set 2 Skeleton & Instancing (can change per item) */

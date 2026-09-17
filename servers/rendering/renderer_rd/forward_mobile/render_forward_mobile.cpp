@@ -948,6 +948,7 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 	RID framebuffer;
 	bool reverse_cull = p_render_data->scene_data->cam_transform.basis.determinant() < 0;
 	bool merge_transparent_pass = true; // If true: we can do our transparent pass in the same pass as our opaque pass.
+	uint32_t oit_accumulate_count = 0; // Leading alpha elements composited through the OIT resolve instead of blending.
 	bool using_subpass_post_process = true; // If true: we can do our post processing in a subpass
 	RendererRD::MaterialStorage::Samplers samplers;
 	bool hdr_render_target = false;
@@ -1011,6 +1012,18 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 		render_list[RENDER_LIST_OPAQUE].sort_by_key();
 	}
 	render_list[RENDER_LIST_ALPHA].sort_by_reverse_depth_and_priority();
+
+#ifdef MODULE_OIT_ENABLED
+	if (rb_data.is_valid() && !is_reflection_probe && GLOBAL_GET("rendering/oit/enabled")) {
+		if (use_msaa || is_multiview) {
+			WARN_PRINT_ONCE("OIT compositing does not support MSAA or multiview; transparent surfaces fall back to sorted blending.");
+		} else {
+			oit_accumulate_count = _oit_partition_alpha_list();
+			merge_transparent_pass = false;
+			using_subpass_post_process = false;
+		}
+	}
+#endif
 
 	_fill_instance_data(RENDER_LIST_OPAQUE);
 	_fill_instance_data(RENDER_LIST_ALPHA);
@@ -1443,8 +1456,21 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 				render_list_params.framebuffer_format = fb_format;
 				render_list_params.subpass = RD::get_singleton()->draw_list_get_current_pass(); // Should now always be 0.
 
+				uint32_t first_element = 0;
+#ifdef MODULE_OIT_ENABLED
+				if (oit_accumulate_count > 0 && oit_effect && oit_effect->is_configured()) {
+					_oit_accumulate(p_render_data, &render_list_params, oit_accumulate_count, breadcrumb);
+					first_element = oit_accumulate_count;
+				}
+#endif
+
 				draw_list = RD::get_singleton()->draw_list_begin(framebuffer, RD::DRAW_DEFAULT_ALL, Vector<Color>(), 1.0f, 0, p_render_data->render_region, breadcrumb);
-				_render_list(draw_list, fb_format, &render_list_params, 0, render_list_params.element_count);
+#ifdef MODULE_OIT_ENABLED
+				if (first_element > 0) {
+					oit_effect->resolve(draw_list, fb_format);
+				}
+#endif
+				_render_list(draw_list, fb_format, &render_list_params, first_element, render_list_params.element_count);
 				RD::get_singleton()->draw_list_end();
 
 				RD::get_singleton()->draw_command_end_label(); // Render Transparent Pass
@@ -2490,7 +2516,10 @@ void RenderForwardMobile::_render_list(RenderingDevice::DrawListID p_draw_list, 
 		} break;
 		case PASS_MODE_OIT_SPLAT: {
 			_render_list_template<PASS_MODE_OIT_SPLAT>(p_draw_list, p_framebuffer_Format, p_params, p_from_element, p_to_element);
-		}
+		} break;
+		case PASS_MODE_OIT_ACCUMULATE: {
+			_render_list_template<PASS_MODE_OIT_ACCUMULATE>(p_draw_list, p_framebuffer_Format, p_params, p_from_element, p_to_element);
+		} break;
 	}
 }
 
@@ -2646,7 +2675,11 @@ void RenderForwardMobile::_render_list_template(RenderingDevice::DrawListID p_dr
 			case PASS_MODE_OIT_SPLAT: {
 				ERR_FAIL_COND_MSG(p_params->view_count > 1, "Multiview not supported for OIT splat pass");
 				pipeline_key.version = SceneShaderForwardMobile::SHADER_VERSION_OIT_SPLAT_PASS;
-			}
+			} break;
+			case PASS_MODE_OIT_ACCUMULATE: {
+				ERR_FAIL_COND_MSG(p_params->view_count > 1, "Multiview not supported for OIT accumulate pass");
+				pipeline_key.version = SceneShaderForwardMobile::SHADER_VERSION_OIT_ACCUMULATE_PASS;
+			} break;
 		}
 
 		pipeline_key.framebuffer_format_id = framebuffer_format;
@@ -3989,3 +4022,47 @@ void RenderForwardMobile::_oit_splat_compute(RenderDataRD *p_render_data, const 
 	oit_effect->voxelize(oit_splat_buffer, oit_splat_count_buffer, oit_params_buffer, splat_count);
 }
 #endif
+
+// Moves the surfaces the weighted resolve can composite, BLEND_MODE_MIX without premultiplied alpha,
+// ahead of the rest of the alpha list, keeping each group's back-to-front order.
+uint32_t RenderForwardMobile::_oit_partition_alpha_list() {
+	RenderList &rl = render_list[RENDER_LIST_ALPHA];
+	uint32_t count = rl.elements.size();
+	LocalVector<GeometryInstanceSurfaceDataCache *> rest;
+	uint32_t write = 0;
+	for (uint32_t i = 0; i < count; i++) {
+		GeometryInstanceSurfaceDataCache *surf = rl.elements[i];
+		bool mix = surf->shader && surf->shader->blend_mode == SceneShaderForwardMobile::ShaderData::BLEND_MODE_MIX;
+		if (mix) {
+			rl.elements[write++] = surf;
+		} else {
+			rest.push_back(surf);
+		}
+	}
+	for (uint32_t i = 0; i < rest.size(); i++) {
+		rl.elements[write + i] = rest[i];
+	}
+	return write;
+}
+
+void RenderForwardMobile::_oit_accumulate(RenderDataRD *p_render_data, const RenderListParameters *p_params, uint32_t p_element_count, uint32_t p_breadcrumb) {
+	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
+	oit_effect->configure_accumulation(rb->get_internal_size(), rb->get_depth_texture());
+	RID accumulation_fb = oit_effect->get_accumulation_framebuffer();
+	ERR_FAIL_COND(!accumulation_fb.is_valid());
+
+	RD::get_singleton()->draw_command_begin_label("OIT Accumulate");
+
+	RenderListParameters params = *p_params;
+	params.pass_mode = PASS_MODE_OIT_ACCUMULATE;
+	params.framebuffer_format = RD::get_singleton()->framebuffer_get_format(accumulation_fb);
+
+	Vector<Color> clear;
+	clear.push_back(Color(0, 0, 0, 0));
+	clear.push_back(Color(0, 0, 0, 0));
+	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(accumulation_fb, RD::DRAW_CLEAR_COLOR_ALL, clear, 1.0f, 0, p_render_data->render_region, p_breadcrumb);
+	_render_list(draw_list, params.framebuffer_format, &params, 0, p_element_count);
+	RD::get_singleton()->draw_list_end();
+
+	RD::get_singleton()->draw_command_end_label();
+}

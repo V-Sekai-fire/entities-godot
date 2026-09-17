@@ -307,6 +307,18 @@ void SceneShaderForwardMobile::ShaderData::_create_pipeline(PipelineKey p_pipeli
 	RD::PipelineColorBlendState blend_state_depth_normal_roughness = RD::PipelineColorBlendState::create_disabled(1);
 	RD::PipelineColorBlendState blend_state_depth_normal_roughness_giprobe = RD::PipelineColorBlendState::create_disabled(2);
 
+	RD::PipelineColorBlendState::Attachment oit_accumulate_attachment;
+	oit_accumulate_attachment.enable_blend = true;
+	oit_accumulate_attachment.color_blend_op = RD::BLEND_OP_ADD;
+	oit_accumulate_attachment.src_color_blend_factor = RD::BLEND_FACTOR_ONE;
+	oit_accumulate_attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE;
+	oit_accumulate_attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+	oit_accumulate_attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+	oit_accumulate_attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+	RD::PipelineColorBlendState blend_state_oit_accumulate;
+	blend_state_oit_accumulate.attachments.push_back(oit_accumulate_attachment);
+	blend_state_oit_accumulate.attachments.push_back(oit_accumulate_attachment);
+
 	//update pipelines
 
 	RD::PipelineDepthStencilState depth_stencil_state;
@@ -410,6 +422,10 @@ void SceneShaderForwardMobile::ShaderData::_create_pipeline(PipelineKey p_pipeli
 		} else if (p_pipeline_key.version == SHADER_VERSION_OIT_SPLAT_PASS) {
 			// Contains nothing, fragments accumulate into the OIT extinction buffer.
 			depth_stencil_state = RD::PipelineDepthStencilState();
+		} else if (p_pipeline_key.version == SHADER_VERSION_OIT_ACCUMULATE_PASS) {
+			// Weighted color, alpha and extinction sum in any order; the resolve pass composites them.
+			blend_state = blend_state_oit_accumulate;
+			depth_stencil_state.enable_depth_write = false;
 		} else {
 			// Do not use this version (error case).
 		}
@@ -424,6 +440,9 @@ void SceneShaderForwardMobile::ShaderData::_create_pipeline(PipelineKey p_pipeli
 		} else if (p_pipeline_key.version == SHADER_VERSION_OIT_SPLAT_PASS) {
 			// Contains nothing, fragments accumulate into the OIT extinction buffer.
 			depth_stencil_state = RD::PipelineDepthStencilState();
+		} else if (p_pipeline_key.version == SHADER_VERSION_OIT_ACCUMULATE_PASS) {
+			blend_state = blend_state_oit_accumulate;
+			depth_stencil_state.enable_depth_write = false;
 		} else {
 			// Unknown pipeline version.
 		}
@@ -618,6 +637,7 @@ void SceneShaderForwardMobile::init(const String p_defines) {
 				shader_versions.push_back(ShaderRD::VariantDefine(shader_group, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_DUAL_PARABOLOID\n#define SHADOW_PASS\n", default_enabled)); // SHADER_VERSION_SHADOW_PASS_DP
 				shader_versions.push_back(ShaderRD::VariantDefine(shader_group, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_MATERIAL\n", default_enabled)); // SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL
 				shader_versions.push_back(ShaderRD::VariantDefine(shader_group, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_OIT_SPLAT\n", default_enabled)); // SHADER_VERSION_OIT_SPLAT_PASS
+				shader_versions.push_back(ShaderRD::VariantDefine(shader_group, base_define + "\n#define MODE_OIT_ACCUMULATE\n", default_enabled)); // SHADER_VERSION_OIT_ACCUMULATE_PASS
 
 				// Multiview versions of our shaders.
 				shader_versions.push_back(ShaderRD::VariantDefine(shader_group_multiview, base_define + "\n#define USE_MULTIVIEW\n", false)); // SHADER_VERSION_COLOR_PASS_MULTIVIEW

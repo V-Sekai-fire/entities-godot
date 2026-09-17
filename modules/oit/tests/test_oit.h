@@ -311,6 +311,123 @@ TEST_CASE("[OIT] lookup: a fragment reads the slice in front of its own") {
 	CHECK(oit_lookup_transmittance(t.ptr(), 0) == 1.0f);
 }
 
+struct ResolveEvent {
+	float color;
+	float alpha;
+	uint32_t slice;
+};
+
+// Three half-alpha surfaces in slices 2, 3 and 5 of 8 over a background of 1, as in Oit/Resolve.lean.
+static const ResolveEvent RESOLVE_STACK[3] = { { 0.8f, 0.5f, 5 }, { 0.2f, 0.5f, 2 }, { 0.6f, 0.5f, 3 } };
+static const float RESOLVE_REFERENCE = 0.475f;
+
+static float resolve_reference(const LocalVector<ResolveEvent> &p_sorted, float p_background) {
+	float color = 0.0f;
+	float t = 1.0f;
+	for (const ResolveEvent &e : p_sorted) {
+		color += e.color * e.alpha * t;
+		t *= 1.0f - e.alpha;
+	}
+	return color + p_background * t;
+}
+
+static LocalVector<ResolveEvent> resolve_sorted(const LocalVector<ResolveEvent> &p_events) {
+	LocalVector<ResolveEvent> sorted(p_events);
+	for (uint32_t i = 1; i < sorted.size(); i++) {
+		for (uint32_t j = i; j > 0 && sorted[j].slice < sorted[j - 1].slice; j--) {
+			SWAP(sorted[j], sorted[j - 1]);
+		}
+	}
+	return sorted;
+}
+
+static float resolve_exact_front(const LocalVector<ResolveEvent> &p_events, const ResolveEvent &p_e) {
+	float t = 1.0f;
+	for (const ResolveEvent &o : p_events) {
+		if (o.slice < p_e.slice) {
+			t *= 1.0f - o.alpha;
+		}
+	}
+	return t;
+}
+
+static float resolve_froxel_front(const LocalVector<ResolveEvent> &p_events, const ResolveEvent &p_e) {
+	LocalVector<uint32_t> column;
+	column.resize(8);
+	for (uint32_t i = 0; i < 8; i++) {
+		column[i] = 0;
+	}
+	for (const ResolveEvent &o : p_events) {
+		column[o.slice] += oit_pack_extinction(o.alpha);
+	}
+	LocalVector<float> t = column_transmittance(column);
+	return oit_lookup_transmittance(t.ptr(), p_e.slice);
+}
+
+static OITAccum resolve_accumulate(const LocalVector<ResolveEvent> &p_events, bool p_froxel) {
+	OITAccum accum;
+	for (const ResolveEvent &e : p_events) {
+		float t = p_froxel ? resolve_froxel_front(p_events, e) : resolve_exact_front(p_events, e);
+		oit_accumulate(accum, e.color, e.alpha, t);
+	}
+	return accum;
+}
+
+// Control: the lookup scales alpha and a sorted back-to-front over-blend composites it.
+static float resolve_over_blend(const LocalVector<ResolveEvent> &p_sorted, float p_background) {
+	float acc = p_background;
+	for (int i = int(p_sorted.size()) - 1; i >= 0; i--) {
+		const ResolveEvent &e = p_sorted[i];
+		float a = e.alpha * resolve_exact_front(p_sorted, e);
+		acc = e.color * a + acc * (1.0f - a);
+	}
+	return acc;
+}
+
+TEST_CASE("[OIT] resolve: the weighted resolve reproduces the sorted over-blend in any order") {
+	LocalVector<ResolveEvent> stack;
+	for (const ResolveEvent &e : RESOLVE_STACK) {
+		stack.push_back(e);
+	}
+	CHECK(resolve_reference(resolve_sorted(stack), 1.0f) == doctest::Approx(RESOLVE_REFERENCE).epsilon(1e-4));
+
+	CHECK(oit_resolve(resolve_accumulate(stack, false), 1.0f) == doctest::Approx(RESOLVE_REFERENCE).epsilon(1e-4));
+	LocalVector<ResolveEvent> reversed;
+	for (int i = int(stack.size()) - 1; i >= 0; i--) {
+		reversed.push_back(stack[i]);
+	}
+	CHECK(oit_resolve(resolve_accumulate(reversed, false), 1.0f) == doctest::Approx(RESOLVE_REFERENCE).epsilon(1e-4));
+	CHECK(oit_resolve(resolve_accumulate(stack, true), 1.0f) == doctest::Approx(RESOLVE_REFERENCE).epsilon(1e-4));
+
+	OITAccum exact = resolve_accumulate(stack, false);
+	CHECK(exact.alpha == doctest::Approx(1.0f - std::exp(-exact.extinction)).epsilon(1e-4));
+
+	LocalVector<ResolveEvent> lone;
+	lone.push_back({ 0.2f, 0.5f, 3 });
+	CHECK(oit_resolve(resolve_accumulate(lone, true), 1.0f) == doctest::Approx(0.6f).epsilon(1e-4));
+}
+
+TEST_CASE("[OIT] resolve: control, alpha scaled into a sorted over-blend attenuates twice") {
+	LocalVector<ResolveEvent> stack;
+	for (const ResolveEvent &e : RESOLVE_STACK) {
+		stack.push_back(e);
+	}
+	float twice = resolve_over_blend(resolve_sorted(stack), 1.0f);
+	CHECK(twice == doctest::Approx(0.540625f).epsilon(1e-4));
+	CHECK(twice != doctest::Approx(RESOLVE_REFERENCE).epsilon(1e-4));
+
+	// Two events in one slice: the lookup cannot order them, the total transmittance still holds.
+	LocalVector<ResolveEvent> shared;
+	shared.push_back({ 1.0f, 0.5f, 4 });
+	shared.push_back({ 0.0f, 0.5f, 4 });
+	OITAccum a = resolve_accumulate(shared, true);
+	CHECK(std::exp(-a.extinction) == doctest::Approx(0.25f).epsilon(1e-4));
+	LocalVector<ResolveEvent> swapped;
+	swapped.push_back(shared[1]);
+	swapped.push_back(shared[0]);
+	CHECK(oit_resolve(a, 0.0f) == doctest::Approx(oit_resolve(resolve_accumulate(swapped, true), 0.0f)).epsilon(1e-4));
+}
+
 struct DepthPair {
 	float near_plane;
 	float far_plane;

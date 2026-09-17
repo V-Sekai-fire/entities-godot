@@ -995,6 +995,9 @@ layout(location = 1) out vec4 specular_buffer; //specular and SSS (subsurface sc
 #else
 
 layout(location = 0) out vec4 frag_color;
+#ifdef MODE_OIT_ACCUMULATE
+layout(location = 1) out float oit_extinction_out;
+#endif // MODE_OIT_ACCUMULATE
 #endif // MODE_MULTIPLE_RENDER_TARGETS
 
 #endif // RENDER DEPTH
@@ -2379,7 +2382,11 @@ void main() {
 
 #else // MODE_RENDER_DEPTH
 
+#ifdef MODE_OIT_ACCUMULATE
+	float oit_front = oit_transmittance_in_front(screen_uv, -vertex.z);
+#else
 	alpha = half(oit_apply(screen_uv, -vertex.z, float(alpha)));
+#endif // MODE_OIT_ACCUMULATE
 
 	// multiply by albedo
 	diffuse_light *= albedo; // ambient must be multiplied by albedo at the end
@@ -2432,6 +2439,11 @@ void main() {
 	out_color.rgb *= premul_alpha;
 #endif
 
+#ifdef MODE_OIT_ACCUMULATE
+	// Weighted by the transmittance in front; the resolve pass divides the weights back out.
+	frag_color = vec4(vec3(out_color.rgb) * float(out_color.a) * oit_front, float(out_color.a) * oit_front);
+	oit_extinction_out = -log(1.0 - clamp(float(out_color.a), 0.0, 0.999));
+#else
 	frag_color = out_color;
 
 	if (sc_use_material_debanding()) {
@@ -2455,6 +2467,7 @@ void main() {
 		// to 10-bit quantization.
 		frag_color.rgb += (dither.rgb - 0.5) / 1023.0;
 	}
+#endif // MODE_OIT_ACCUMULATE
 
 #endif //MODE_MULTIPLE_RENDER_TARGETS
 
