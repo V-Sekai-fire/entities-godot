@@ -10,7 +10,7 @@ index 4c32b35a7d..8e7e3c9d60 100644
  	{
  		CFHD_EncodedFormat encodedFormat = CFHD_ENCODED_FORMAT_YUV_422;
  		CFHD_FieldType fieldType = CFHD_FIELD_TYPE_UNKNOWN;
-@@ -492,15 +491,7 @@ CFHD_ParseSampleHeader(void *samplePtr,
+@@ -492,15 +491,6 @@ CFHD_ParseSampleHeader(void *samplePtr,
  
  		sampleHeader->SetFrameSize(header.width, header.height);
  	}
@@ -23,7 +23,6 @@ index 4c32b35a7d..8e7e3c9d60 100644
 -#endif
 -		return CFHD_ERROR_INTERNAL;
 -	}
-+	return CFHD_ERROR_INTERNAL;
  
  finish:
  
@@ -53,7 +52,7 @@ index 4c32b35a7d..8e7e3c9d60 100644
  	{
  		uint32_t length = 0;
  		uint8_t *test_mem = (uint8_t *)outputBuffer;
-@@ -746,13 +733,7 @@ CFHD_DecodeSample(CFHD_DecoderRef decoderRef,
+@@ -746,13 +733,6 @@ CFHD_DecodeSample(CFHD_DecoderRef decoderRef,
  				test_mem[-(len + outputPitch)] = 0;
  		}
  	}
@@ -64,7 +63,6 @@ index 4c32b35a7d..8e7e3c9d60 100644
 -#endif
 -		return CFHD_ERROR_DECODE_BUFFER_SIZE;
 -	}
-+	return CFHD_ERROR_DECODE_BUFFER_SIZE;
  
  	errorCode = decoder->DecodeSample(samplePtr, sampleSize, outputBuffer, outputPitch);
  	if (errorCode != CFHD_ERROR_OKAY) {
@@ -91,7 +89,7 @@ index 7577897322..e95d2fd7d5 100644
  	{
  		// special case for thumbnail decodes...
  		if(decodedResolution == CFHD_DECODED_RESOLUTION_THUMBNAIL)
-@@ -1244,15 +1245,7 @@ CSampleDecoder::PrepareDecoder(int outputWidth,
+@@ -1244,15 +1245,6 @@ CSampleDecoder::PrepareDecoder(int outputWidth,
  		}
  #endif
  	}
@@ -104,7 +102,6 @@ index 7577897322..e95d2fd7d5 100644
 -#endif
 -		return CFHD_ERROR_INTERNAL;
 -	}
-+	return CFHD_ERROR_INTERNAL;
  
  finish:
  	if(errorCode) // return which we can
@@ -116,7 +113,7 @@ index 7577897322..e95d2fd7d5 100644
  	{
  		CFHD_EncodedFormat encodedFormat = CFHD_ENCODED_FORMAT_YUV_422;
  		CFHD_FieldType fieldType = CFHD_FIELD_TYPE_UNKNOWN;
-@@ -1364,15 +1356,7 @@ CSampleDecoder::ParseSampleHeader(void *samplePtr,
+@@ -1364,15 +1356,6 @@ CSampleDecoder::ParseSampleHeader(void *samplePtr,
  
  		sampleHeader->SetFrameSize(header.width, header.height);
  	}
@@ -129,7 +126,6 @@ index 7577897322..e95d2fd7d5 100644
 -#endif
 -		return CFHD_ERROR_INTERNAL;
 -	}
-+	return CFHD_ERROR_INTERNAL;
  
  finish:
  
@@ -141,7 +137,7 @@ index 7577897322..e95d2fd7d5 100644
  	{
  		// short circuit this if this decoder was prepared for thumbnails
  		if(m_preparedForThumbnails)
-@@ -1551,38 +1534,12 @@ CSampleDecoder::DecodeSample(void *samplePtr,
+@@ -1551,38 +1534,11 @@ CSampleDecoder::DecodeSample(void *samplePtr,
  			return CFHD_ERROR_INTERNAL;
  		}
  
@@ -177,11 +173,10 @@ index 7577897322..e95d2fd7d5 100644
 -
 -			return CFHD_ERROR_CODEC_ERROR;
 -		}
-+		return CFHD_ERROR_CODEC_ERROR;
  
  		if (!result) {
  			//assert(0);
-@@ -1609,15 +1566,7 @@ CSampleDecoder::DecodeSample(void *samplePtr,
+@@ -1609,15 +1566,6 @@ CSampleDecoder::DecodeSample(void *samplePtr,
  		// Indicate that the frame has been decoded
  		return CFHD_ERROR_OKAY;
  	}
@@ -194,7 +189,6 @@ index 7577897322..e95d2fd7d5 100644
 -#endif
 -		return CFHD_ERROR_INTERNAL;
 -	}
-+	return CFHD_ERROR_INTERNAL;
  }
  
  ENCODED_FORMAT CSampleDecoder::GetEncodedFormat(void *samplePtr,
@@ -274,7 +268,7 @@ index 36745f64b9..e002bd89b3 100644
  	{
  		encoderPool = new CEncoderPool(encoderThreadCount, jobQueueLength, allocator);
  		if (encoderPool == NULL) {
-@@ -123,15 +122,7 @@ CFHD_CreateEncoderPool(CFHD_EncoderPoolRef *encoderPoolRefOut,
+@@ -123,15 +122,6 @@ CFHD_CreateEncoderPool(CFHD_EncoderPoolRef *encoderPoolRefOut,
  #endif
  		return CFHD_ERROR_OKAY;
  	}
@@ -287,11 +281,10 @@ index 36745f64b9..e002bd89b3 100644
 -
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  /*!
-@@ -151,17 +142,16 @@ CFHD_GetAsyncInputFormats(CFHD_EncoderPoolRef encoderPoolRef,
+@@ -151,17 +142,15 @@ CFHD_GetAsyncInputFormats(CFHD_EncoderPoolRef encoderPoolRef,
  	sprintf(tt,"CFHD_GetAsyncInputFormats ref:%04x thread:%d", (0xffff)&(int)encoderPoolRef, GetCurrentThreadId()); 
  	OutputDebugString(tt);
  #endif
@@ -309,11 +302,10 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  /*!
-@@ -186,16 +176,15 @@ CFHD_PrepareEncoderPool(CFHD_EncoderPoolRef encoderPoolRef,
+@@ -186,16 +176,14 @@ CFHD_PrepareEncoderPool(CFHD_EncoderPoolRef encoderPoolRef,
  	sprintf(tt,"CFHD_PrepareEncoderPool ref:%04x thread:%d", (0xffff)&(int)encoderPoolRef, GetCurrentThreadId()); 
  	OutputDebugString(tt);
  #endif
@@ -330,11 +322,10 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  /*!
-@@ -225,19 +214,18 @@ CFHD_SetEncoderPoolLicense(CFHD_EncoderPoolRef encoderPoolRef,
+@@ -225,19 +214,17 @@ CFHD_SetEncoderPoolLicense(CFHD_EncoderPoolRef encoderPoolRef,
  	sprintf(tt,"CFHD_SetEncoderPoolLicense ref:%04x thread:%d", (0xffff)&(int)encoderPoolRef, GetCurrentThreadId()); 
  	OutputDebugString(tt);
  #endif
@@ -354,11 +345,10 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  
-@@ -278,19 +266,18 @@ CFHD_SetEncoderPoolLicense2(CFHD_EncoderPoolRef encoderPoolRef,
+@@ -278,19 +266,17 @@ CFHD_SetEncoderPoolLicense2(CFHD_EncoderPoolRef encoderPoolRef,
  	sprintf(tt,"CFHD_SetEncoderPoolLicense2 ref:%04x thread:%d", (0xffff)&(int)encoderPoolRef, GetCurrentThreadId()); 
  	OutputDebugString(tt);
  #endif
@@ -378,7 +368,6 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  /*!
@@ -395,7 +384,7 @@ index 36745f64b9..e002bd89b3 100644
  		CSampleEncodeMetadata *encoderMetadata = GetEncoderMetadata(metadataRef);
  		
  		CFHD_ALLOCATOR *encAllocator = NULL;
-@@ -341,10 +330,7 @@ CFHD_AttachEncoderPoolMetadata(CFHD_EncoderPoolRef encoderPoolRef,
+@@ -341,10 +330,6 @@ CFHD_AttachEncoderPoolMetadata(CFHD_EncoderPoolRef encoderPoolRef,
  
  		return encoderPool->AttachMetadata(encoderMetadata);
  	}
@@ -403,11 +392,10 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  /*!
-@@ -364,15 +350,14 @@ CFHD_StartEncoderPool(CFHD_EncoderPoolRef encoderPoolRef)
+@@ -364,15 +350,13 @@ CFHD_StartEncoderPool(CFHD_EncoderPoolRef encoderPoolRef)
  	sprintf(tt,"CFHD_StartEncoderPool ref:%04x thread:%d", (0xffff)&(int)encoderPoolRef, GetCurrentThreadId()); 
  	OutputDebugString(tt);
  #endif
@@ -423,11 +411,10 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  
  	return CFHD_ERROR_OKAY;
  }
-@@ -396,15 +381,14 @@ CFHD_StopEncoderPool(CFHD_EncoderPoolRef encoderPoolRef)
+@@ -396,15 +381,13 @@ CFHD_StopEncoderPool(CFHD_EncoderPoolRef encoderPoolRef)
  	sprintf(tt,"CFHD_StopEncoderPool ref:%04x thread:%d", (0xffff)&(int)encoderPoolRef, GetCurrentThreadId()); 
  	OutputDebugString(tt);
  #endif
@@ -443,11 +430,10 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  
  	return CFHD_ERROR_OKAY;
  }
-@@ -444,17 +428,16 @@ CFHD_EncodeAsyncSample(CFHD_EncoderPoolRef encoderPoolRef,
+@@ -444,17 +428,15 @@ CFHD_EncodeAsyncSample(CFHD_EncoderPoolRef encoderPoolRef,
  	sprintf(tt,"CFHD_EncodeAsyncSample ref:%04x mref:%04x thread:%d", (0xffff)&(int)encoderPoolRef, (0xffff)&(int)metadataRef, GetCurrentThreadId()); 
  	OutputDebugString(tt);
  #endif
@@ -465,7 +451,6 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  /*!
@@ -483,7 +468,7 @@ index 36745f64b9..e002bd89b3 100644
  		uint32_t frameNumber = 0;
  		CSampleBuffer *sampleBuffer = NULL;
  		error = encoderPool->WaitForSample(&frameNumber, &sampleBuffer);
-@@ -495,10 +480,7 @@ CFHD_WaitForSample(CFHD_EncoderPoolRef encoderPoolRef,
+@@ -495,10 +480,6 @@ CFHD_WaitForSample(CFHD_EncoderPoolRef encoderPoolRef,
  		*sampleBufferRefOut = reinterpret_cast<CFHD_SampleBufferRef>(sampleBuffer);
  		return CFHD_ERROR_OKAY;
  	}
@@ -491,7 +476,6 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  /*!
@@ -509,7 +493,7 @@ index 36745f64b9..e002bd89b3 100644
  		uint32_t frameNumber = 0;
  		CSampleBuffer *sampleBuffer = NULL;
  		error = encoderPool->TestForSample(&frameNumber, &sampleBuffer);
-@@ -540,10 +524,7 @@ CFHD_TestForSample(CFHD_EncoderPoolRef encoderPoolRef,
+@@ -540,10 +524,6 @@ CFHD_TestForSample(CFHD_EncoderPoolRef encoderPoolRef,
  		*sampleBufferRefOut = reinterpret_cast<CFHD_SampleBufferRef>(sampleBuffer);
  		return CFHD_ERROR_OKAY;
  	}
@@ -517,11 +501,10 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  /*!
-@@ -567,17 +548,16 @@ CFHD_GetEncodedSample(CFHD_SampleBufferRef sampleBufferRef,
+@@ -567,17 +548,15 @@ CFHD_GetEncodedSample(CFHD_SampleBufferRef sampleBufferRef,
  		return CFHD_ERROR_INVALID_ARGUMENT;
  	}
  
@@ -539,7 +522,6 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  /*!
@@ -556,7 +538,7 @@ index 36745f64b9..e002bd89b3 100644
  		if (sampleBuffer == NULL) {
  			return CFHD_ERROR_INVALID_ARGUMENT;
  		}
-@@ -705,10 +687,7 @@ CFHD_GetSampleThumbnail(CFHD_SampleBufferRef sampleBufferRef,
+@@ -705,10 +687,6 @@ CFHD_GetSampleThumbnail(CFHD_SampleBufferRef sampleBufferRef,
  			}
  		}
  	}
@@ -564,11 +546,10 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  
  	// Could not parse the sample or generate the thumbnail image
  	return CFHD_ERROR_CODEC_ERROR;
-@@ -731,16 +710,18 @@ CFHD_ReleaseSampleBuffer(CFHD_EncoderPoolRef encoderPoolRef,
+@@ -731,16 +710,17 @@ CFHD_ReleaseSampleBuffer(CFHD_EncoderPoolRef encoderPoolRef,
  	sprintf(tt,"CFHD_ReleaseSampleBuffer ref:%04x thread:%d", (0xffff)&(int)encoderPoolRef, GetCurrentThreadId()); 
  	OutputDebugString(tt);
  #endif
@@ -588,11 +569,10 @@ index 36745f64b9..e002bd89b3 100644
 -	{
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
  
  /*!
-@@ -763,17 +744,15 @@ CFHD_ReleaseEncoderPool(CFHD_EncoderPoolRef encoderPoolRef)
+@@ -763,17 +744,14 @@ CFHD_ReleaseEncoderPool(CFHD_EncoderPoolRef encoderPoolRef)
  	sprintf(tt,"CFHD_ReleaseEncoderPool ref:%04x thread:%d", (0xffff)&(int)encoderPoolRef, GetCurrentThreadId()); 
  	OutputDebugString(tt);
  #endif
@@ -612,7 +592,6 @@ index 36745f64b9..e002bd89b3 100644
 -		printf("CFHD_ReleaseEncoderPool error\n");
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  }
 diff --git a/thirdparty/cineform/EncoderSDK/SampleEncoder.cpp b/thirdparty/cineform/EncoderSDK/SampleEncoder.cpp
 index 88e3f2d0f1..e33d3504eb 100644
@@ -626,7 +605,7 @@ index 88e3f2d0f1..e33d3504eb 100644
  	{
  
  		//fprintf(stderr, "Call EncodeSample inw: %d inh: %d framePitch: %d colorFmt: %d channels: %d inFormat %08X:\n",
-@@ -573,13 +572,7 @@ CSampleEncoder::EncodeSample(void *frameBuffer,
+@@ -573,13 +572,6 @@ CSampleEncoder::EncodeSample(void *frameBuffer,
  								(PIXEL *)m_scratchBuffer, m_scratchBufferSize, fixedQuality, fixedBitrate,
  								NULL, m_frameRate, NULL);
  	}
@@ -637,7 +616,6 @@ index 88e3f2d0f1..e33d3504eb 100644
 -#endif
 -		return CFHD_ERROR_UNEXPECTED;
 -	}
-+	return CFHD_ERROR_UNEXPECTED;
  
  	//fprintf(stderr, "Back from encode, result: %d error %d size %d\n",result,m_encoder->error,bitstream.nWordsUsed);
  	if (!result) {

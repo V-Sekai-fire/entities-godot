@@ -572,7 +572,6 @@ CSampleEncoder::EncodeSample(void *frameBuffer,
 								(PIXEL *)m_scratchBuffer, m_scratchBufferSize, fixedQuality, fixedBitrate,
 								NULL, m_frameRate, NULL);
 	}
-	return CFHD_ERROR_UNEXPECTED;
 
 	//fprintf(stderr, "Back from encode, result: %d error %d size %d\n",result,m_encoder->error,bitstream.nWordsUsed);
 	if (!result) {

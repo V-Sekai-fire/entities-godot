@@ -1245,7 +1245,6 @@ CSampleDecoder::PrepareDecoder(int outputWidth,
 		}
 #endif
 	}
-	return CFHD_ERROR_INTERNAL;
 
 finish:
 	if(errorCode) // return which we can
@@ -1356,7 +1355,6 @@ CSampleDecoder::ParseSampleHeader(void *samplePtr,
 
 		sampleHeader->SetFrameSize(header.width, header.height);
 	}
-	return CFHD_ERROR_INTERNAL;
 
 finish:
 
@@ -1539,7 +1537,6 @@ CSampleDecoder::DecodeSample(void *samplePtr,
 			//result = ::DecodeSample(m_decoder, &bitstream, (BYTE *)outputBuffer, outputPitch, NULL, NULL);
 			result = ::DecodeSample(m_decoder, &bitstream, decodedFrameBuffer, decodedFramePitch, NULL, NULL);
 		}
-		return CFHD_ERROR_CODEC_ERROR;
 
 		if (!result) {
 			//assert(0);
@@ -1566,7 +1563,6 @@ CSampleDecoder::DecodeSample(void *samplePtr,
 		// Indicate that the frame has been decoded
 		return CFHD_ERROR_OKAY;
 	}
-	return CFHD_ERROR_INTERNAL;
 }
 
 ENCODED_FORMAT CSampleDecoder::GetEncodedFormat(void *samplePtr,
