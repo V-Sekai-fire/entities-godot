@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  test_oit.h                                                            */
+/*  test_oit.cpp                                                          */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,14 +28,14 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#include "tests/test_macros.h"
 
-#include "../oit_math.h"
+TEST_FORCE_LINK(test_oit)
 
 #include "core/config/project_settings.h"
 #include "core/templates/local_vector.h"
 #include "core/variant/variant.h"
-#include "tests/test_macros.h"
+#include "servers/rendering/renderer_rd/effects/oit_math.h"
 
 #include <thirdparty/witness-cpp/include/witness/ladder.h>
 
@@ -309,6 +309,73 @@ TEST_CASE("[OIT] lookup: a fragment reads the slice in front of its own") {
 	CHECK(oit_lookup_transmittance(t.ptr(), 5) == doctest::Approx(0.5f).epsilon(1e-4));
 	CHECK(oit_lookup_transmittance(t.ptr(), 2) == doctest::Approx(1.0f).epsilon(1e-4));
 	CHECK(oit_lookup_transmittance(t.ptr(), 0) == 1.0f);
+}
+
+TEST_CASE("[OIT] views: packed columns are distinct across two views of a 4-wide grid") {
+	for (uint32_t v = 0; v < 2; v++) {
+		for (uint32_t x = 0; x < 4; x++) {
+			for (uint32_t v2 = 0; v2 < 2; v2++) {
+				for (uint32_t x2 = 0; x2 < 4; x2++) {
+					CHECK((oit_packed_column(4, v, x) == oit_packed_column(4, v2, x2)) == (v == v2 && x == x2));
+				}
+			}
+		}
+	}
+}
+
+TEST_CASE("[OIT] views: a pixel centre looks up the column it splatted into, both eyes") {
+	for (uint32_t v = 0; v < 2; v++) {
+		for (uint32_t x = 0; x < 320; x++) {
+			CAPTURE(v);
+			CAPTURE(x);
+			CHECK(oit_sampled_column(320, 2, oit_packed_u(320, 2, v, (float(x) + 0.5f) / 320.0f)) == oit_packed_column(320, v, x));
+		}
+	}
+	for (uint32_t x = 0; x < 320; x++) {
+		CHECK(oit_sampled_column(320, 1, oit_packed_u(320, 1, 0, (float(x) + 0.5f) / 320.0f)) == x);
+	}
+}
+
+TEST_CASE("[OIT] views: the clamp keeps each eye's edge inside its own slab") {
+	CHECK(oit_sampled_column(4, 2, oit_packed_u(4, 2, 0, 1.0f)) == 3u);
+	CHECK(oit_sampled_column(4, 2, oit_packed_u(4, 2, 1, 0.0f)) == 4u);
+	// Control: unclamped, the right edge of view 0 reads view 1's first column.
+	CHECK(oit_sampled_column(4, 2, (1.0f + 0.0f) / 2.0f) == 4u);
+}
+
+struct ViewSample {
+	uint32_t dim_x;
+	uint32_t view_count;
+	uint32_t view;
+	float u;
+};
+
+static witness::Generator<ViewSample> view_sample_gen = [](witness::RNG &r, const witness::Level &) -> ViewSample {
+	ViewSample s;
+	s.dim_x = r.uint_range(2, 640);
+	s.view_count = r.uint_range(1, 2);
+	s.view = r.uint_range(0, s.view_count - 1);
+	s.u = float(r.float_range(-0.25, 1.25));
+	return s;
+};
+
+TEST_CASE("[OIT][Witness] views: the clamped lookup never leaves the eye's slab") {
+	std::function<bool(const ViewSample &)> predicate = [](const ViewSample &s) -> bool {
+		uint32_t c = oit_sampled_column(s.dim_x, s.view_count, oit_packed_u(s.dim_x, s.view_count, s.view, s.u));
+		return c >= s.view * s.dim_x && c < (s.view + 1) * s.dim_x;
+	};
+	witness::Trial trial = witness::resolve<ViewSample>("oit-views-in-slab", view_sample_gen, predicate);
+	CHECK(trial.outcome == witness::Outcome::PROVABLY_NONE);
+}
+
+TEST_CASE("[OIT][Witness] views: falsification control, the unclamped lookup bleeds") {
+	std::function<bool(const ViewSample &)> predicate = [](const ViewSample &s) -> bool {
+		float unclamped = (s.u + float(s.view)) / float(s.view_count);
+		uint32_t c = oit_sampled_column(s.dim_x, s.view_count, unclamped < 0.0f ? 0.0f : unclamped);
+		return c >= s.view * s.dim_x && c < (s.view + 1) * s.dim_x;
+	};
+	witness::Trial trial = witness::resolve<ViewSample>("oit-views-bleed-control", view_sample_gen, predicate);
+	CHECK(trial.outcome == witness::Outcome::FOUND);
 }
 
 struct ResolveEvent {

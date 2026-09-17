@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  oit_effect.h                                                          */
+/*  oit.h                                                                 */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -35,10 +35,12 @@
 #include "core/math/vector3i.h"
 #include "servers/rendering/rendering_device.h"
 
-#include "modules/oit/shaders/oit_integrate.glsl.gen.h"
-#include "modules/oit/shaders/oit_resolve.glsl.gen.h"
-#include "modules/oit/shaders/oit_voxelize.glsl.gen.h"
+#include "servers/rendering/renderer_rd/shaders/effects/oit_integrate.glsl.gen.h"
+#include "servers/rendering/renderer_rd/shaders/effects/oit_resolve.glsl.gen.h"
+#include "servers/rendering/renderer_rd/shaders/effects/oit_voxelize.glsl.gen.h"
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
+
+namespace RendererRD {
 
 class OITEffect {
 	OitVoxelizeShaderRD voxelize_shader;
@@ -49,21 +51,31 @@ class OITEffect {
 	RID integrate_shader_version;
 	RID integrate_pipeline;
 
+	enum ResolveVariant {
+		RESOLVE_VARIANT_MONO,
+		RESOLVE_VARIANT_MULTIVIEW,
+		RESOLVE_VARIANT_MAX
+	};
+
 	OitResolveShaderRD resolve_shader;
 	RID resolve_shader_version;
-	PipelineCacheRD resolve_pipeline;
+	PipelineCacheRD resolve_pipelines[RESOLVE_VARIANT_MAX];
 
 	Vector2i accumulation_size;
+	uint32_t accumulation_view_count = 0;
 	RID accumulation_depth;
 	RID accumulated_color;
 	RID accumulated_extinction;
 	RID accumulation_framebuffer;
 
+	// Views pack side by side along X: the buffers span froxel_dims.x * view_count columns.
 	Vector3i froxel_dims;
+	uint32_t view_count = 0;
 	uint32_t extinction_bytes = 0;
 	RID extinction_buffer;
 	RID transmittance_buffer;
 	RID transmittance_sampler;
+	RID splat_placeholder;
 	RID splat_framebuffer;
 	RID voxelize_uniform_set;
 	RID integrate_uniform_set;
@@ -73,11 +85,11 @@ class OITEffect {
 	RID _uniform_set(RID &r_cached, const Vector<RD::Uniform> &p_uniforms, RID p_shader);
 
 public:
-	void configure(const Vector2i &p_screen_size, int p_slice_count, const Vector2i &p_tile_size);
+	void configure(const Vector2i &p_screen_size, int p_slice_count, const Vector2i &p_tile_size, uint32_t p_view_count);
 	void clear_extinction();
 	void voxelize(RID p_splat_buffer, RID p_splat_count_buffer, RID p_params_buffer, uint32_t p_splat_count);
 	void integrate(RID p_params_buffer);
-	void configure_accumulation(const Vector2i &p_size, RID p_depth_texture);
+	void configure_accumulation(const Vector2i &p_size, RID p_depth_texture, uint32_t p_view_count);
 	void resolve(RD::DrawListID p_draw_list, RD::FramebufferFormatID p_framebuffer_format);
 
 	RID get_extinction_buffer() const { return extinction_buffer; }
@@ -91,3 +103,5 @@ public:
 	OITEffect();
 	~OITEffect();
 };
+
+} // namespace RendererRD
