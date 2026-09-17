@@ -94,7 +94,9 @@ argument.
 static std::vector<int> make_ints(witness::RNG &rng, const witness::Level &lvl) {
     uint32_t n = rng.uint_range(0, static_cast<uint32_t>(lvl.fin_bound / 32));
     std::vector<int> v(n);
-    for (uint32_t i = 0; i < n; ++i) v[i] = rng.int_range(-100, 100);
+    for (uint32_t i = 0; i < n; ++i) {
+      v[i] = rng.int_range(-100, 100);
+    }
     return v;
 }
 
@@ -146,14 +148,3 @@ target_link_libraries(mytests PRIVATE witness::ladder)
 Or `find_package(witness-cpp)` after `cmake --install`. Header-only,
 so any build system that can add `witness-cpp/include` to the include
 path also works.
-
-## Test suite
-
-80 test cases, 165 assertions, all passing under `-fno-exceptions`
-`-fno-rtti`. Every property-test and every unit test paired with a
-falsifiability control asserting the broken input fails
-(CLAUDE.md rule 2).
-
-## License
-
-MIT. See `LICENSE` and `CITATION.cff`.
