@@ -799,10 +799,22 @@ static void _probe_curves_file(const String &p_label, const String &p_filename,
 // a guide to whether we're in the right ballpark, not a literal
 // must-match target.
 
-static Vector3 _v3_from_json(const Dictionary &p_d) {
-	return Vector3(real_t(double(p_d.get("x", 0.0))),
-			real_t(double(p_d.get("y", 0.0))),
-			real_t(double(p_d.get("z", 0.0))));
+// raw_data stores a point as [x, y, z]; the {x, y, z} form is kept for
+// older captures. Anything else is NaN so a wrong shape fails loudly
+// instead of reading as the origin.
+static Vector3 _v3_from_json(const Variant &p_v) {
+	if (p_v.get_type() == Variant::ARRAY) {
+		const Array a = p_v;
+		if (a.size() == 3) {
+			return Vector3(real_t(double(a[0])), real_t(double(a[1])), real_t(double(a[2])));
+		}
+	} else if (p_v.get_type() == Variant::DICTIONARY) {
+		const Dictionary d = p_v;
+		if (d.has("x") && d.has("y") && d.has("z")) {
+			return Vector3(real_t(double(d["x"])), real_t(double(d["y"])), real_t(double(d["z"])));
+		}
+	}
+	return Vector3(Math::NaN, Math::NaN, Math::NaN);
 }
 
 // Flatten a polybezier ctrlPts list to a polyline. ctrlPts.size() == 2
@@ -879,7 +891,7 @@ static void _border_set_diff(const String &p_label, const String &p_filename) {
 	const Dictionary j = _load_raw_data_json(path);
 	if (j.is_empty()) {
 		MESSAGE(vformat(
-				"[CassieBorderDiff] %s skipped: %s not found / parse failure",
+				"[CassieBorderDiff] %s skipped: %s not found / parse failure (hat: lake exe hat_dump in modules/cassie/lean writes it)",
 				p_label, path));
 		return;
 	}
@@ -901,6 +913,7 @@ static void _border_set_diff(const String &p_label, const String &p_filename) {
 	TypedArray<PackedVector3Array> polylines;
 	Vector<int> poly_idx_to_sid;
 	int loaded = 0;
+	int unreadable = 0;
 	for (int i = 0; i < strokes.size(); ++i) {
 		const Dictionary s = strokes[i];
 		const int sid = int(s.get("id", -1));
@@ -912,10 +925,15 @@ static void _border_set_diff(const String &p_label, const String &p_filename) {
 		if (poly.size() < 2) {
 			continue;
 		}
+		if (!poly[0].is_finite()) {
+			unreadable++;
+			continue;
+		}
 		polylines.push_back(poly);
 		poly_idx_to_sid.push_back(sid);
 		loaded++;
 	}
+	CHECK_MESSAGE(unreadable == 0, vformat("%s: %d strokes had points in a shape _v3_from_json does not read", p_label, unreadable));
 	// Single planar-arrangement build replaces the per-stroke loop.
 	graph->build_from_polylines(polylines, graph->get_merge_epsilon());
 	// Populate eid_to_sid from each edge's source polyline index.
