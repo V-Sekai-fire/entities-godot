@@ -773,6 +773,19 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 		u.append_id(params);
 		uniforms.push_back(u);
 	}
+	{
+		RD::Uniform u;
+		u.binding = 28;
+		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+		RID extinction = oit_default_extinction_buffer;
+#ifdef MODULE_OIT_ENABLED
+		if (p_render_list == RENDER_LIST_ALPHA && oit_effect && oit_effect->is_configured()) {
+			extinction = oit_effect->get_extinction_buffer();
+		}
+#endif
+		u.append_id(extinction);
+		uniforms.push_back(u);
+	}
 
 	return UniformSetCacheRD::get_singleton()->get_cache_vec(scene_shader.get_default_shader_rd(is_multiview), RENDER_PASS_UNIFORM_SET, uniforms);
 }
@@ -1001,10 +1014,6 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 
 	_fill_instance_data(RENDER_LIST_OPAQUE);
 	_fill_instance_data(RENDER_LIST_ALPHA);
-
-#ifdef MODULE_OIT_ENABLED
-	_oit_prepass(p_render_data);
-#endif
 
 	if (p_render_data->render_info) {
 		p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE][RSE::VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME] = p_render_data->instances->size();
@@ -1254,6 +1263,12 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 			RD::get_singleton()->draw_command_begin_label("Render Reflection Probe Pass");
 			breadcrumb = RDD::BreadcrumbMarker::REFLECTION_PROBES;
 		}
+
+#ifdef MODULE_OIT_ENABLED
+		if (rb_data.is_valid()) {
+			_oit_prepass(p_render_data, base_specialization, radiance_texture, samplers, reverse_cull, is_multiview);
+		}
+#endif
 
 		if (rb_data.is_valid() && p_render_data->scene_data->calculate_motion_vectors) {
 			RID mv_fb = rb_data->get_motion_vectors_fb();
@@ -2472,6 +2487,9 @@ void RenderForwardMobile::_render_list(RenderingDevice::DrawListID p_draw_list, 
 		} break;
 		case PASS_MODE_MOTION_VECTORS: {
 			_render_list_template<PASS_MODE_MOTION_VECTORS>(p_draw_list, p_framebuffer_Format, p_params, p_from_element, p_to_element);
+		} break;
+		case PASS_MODE_OIT_SPLAT: {
+			_render_list_template<PASS_MODE_OIT_SPLAT>(p_draw_list, p_framebuffer_Format, p_params, p_from_element, p_to_element);
 		}
 	}
 }
@@ -2624,6 +2642,10 @@ void RenderForwardMobile::_render_list_template(RenderingDevice::DrawListID p_dr
 			} break;
 			case PASS_MODE_MOTION_VECTORS: {
 				pipeline_key.version = SceneShaderForwardMobile::SHADER_VERSION_MOTION_VECTORS_MULTIVIEW;
+			} break;
+			case PASS_MODE_OIT_SPLAT: {
+				ERR_FAIL_COND_MSG(p_params->view_count > 1, "Multiview not supported for OIT splat pass");
+				pipeline_key.version = SceneShaderForwardMobile::SHADER_VERSION_OIT_SPLAT_PASS;
 			}
 		}
 
@@ -3668,6 +3690,8 @@ void RenderForwardMobile::_oit_ensure_defaults() {
 	SceneOITParams zero_params = {};
 	oit_default_params_buffer = rd->uniform_buffer_create(sizeof(SceneOITParams));
 	rd->buffer_update(oit_default_params_buffer, 0, sizeof(SceneOITParams), &zero_params);
+
+	oit_default_extinction_buffer = rd->storage_buffer_create(16);
 }
 
 void RenderForwardMobile::_oit_free_defaults() {
@@ -3683,6 +3707,10 @@ void RenderForwardMobile::_oit_free_defaults() {
 	if (oit_default_params_buffer.is_valid()) {
 		rd->free_rid(oit_default_params_buffer);
 		oit_default_params_buffer = RID();
+	}
+	if (oit_default_extinction_buffer.is_valid()) {
+		rd->free_rid(oit_default_extinction_buffer);
+		oit_default_extinction_buffer = RID();
 	}
 }
 
@@ -3803,7 +3831,7 @@ RenderForwardMobile::~RenderForwardMobile() {
 }
 
 #ifdef MODULE_OIT_ENABLED
-void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
+void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview) {
 	if (!GLOBAL_GET("rendering/oit/enabled")) {
 		return;
 	}
@@ -3818,12 +3846,73 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
 
 	int slice_count = int(GLOBAL_GET("rendering/oit/slice_count"));
 	Vector2i tile_size = GLOBAL_GET("rendering/oit/tile_size");
+	int splat_mode = int(GLOBAL_GET("rendering/oit/splat_mode"));
 
 	if (oit_effect == nullptr) {
 		oit_effect = memnew(OITEffect);
 	}
 	oit_effect->configure(internal, slice_count, tile_size);
+	Vector3i dims = oit_effect->get_froxel_dims();
 
+	struct SceneOITParams {
+		float slice_curve[4];
+		uint32_t froxel_dims[4];
+	};
+	SceneOITParams sp;
+	sp.slice_curve[0] = float(GLOBAL_GET("rendering/oit/near_plane"));
+	sp.slice_curve[1] = float(GLOBAL_GET("rendering/oit/far_plane"));
+	sp.slice_curve[2] = float(GLOBAL_GET("rendering/oit/linearization_factor"));
+	sp.slice_curve[3] = float(slice_count);
+	sp.froxel_dims[0] = dims.x;
+	sp.froxel_dims[1] = dims.y;
+	sp.froxel_dims[2] = dims.z;
+	sp.froxel_dims[3] = 1;
+	if (!oit_scene_params_buffer.is_valid()) {
+		oit_scene_params_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(SceneOITParams));
+	}
+	RD::get_singleton()->buffer_update(oit_scene_params_buffer, 0, sizeof(SceneOITParams), &sp);
+
+	RENDER_TIMESTAMP("Render OIT Splat");
+	RD::get_singleton()->draw_command_begin_label("Render OIT Splat");
+
+	if (splat_mode == 0) {
+		_oit_splat_raster(p_render_data, p_base_specialization, p_radiance_texture, p_samplers, p_reverse_cull, p_is_multiview);
+	} else {
+		_oit_splat_compute(p_render_data, sp.slice_curve, dims, tile_size);
+	}
+
+	struct IntegrateParams {
+		uint32_t froxel_dims[4];
+	};
+	IntegrateParams ip;
+	ip.froxel_dims[0] = dims.x;
+	ip.froxel_dims[1] = dims.y;
+	ip.froxel_dims[2] = dims.z;
+	ip.froxel_dims[3] = 0;
+	RID integrate_params = RD::get_singleton()->uniform_buffer_create(sizeof(IntegrateParams));
+	RD::get_singleton()->buffer_update(integrate_params, 0, sizeof(IntegrateParams), &ip);
+	oit_effect->integrate(integrate_params);
+	RD::get_singleton()->free_rid(integrate_params);
+
+	RD::get_singleton()->draw_command_end_label();
+}
+
+void RenderForwardMobile::_oit_splat_raster(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview) {
+	oit_effect->clear_extinction();
+	if (render_list[RENDER_LIST_ALPHA].elements.is_empty()) {
+		return;
+	}
+	if (p_render_data->scene_data->view_count > 1) {
+		WARN_PRINT_ONCE("OIT raster splat does not support multiview yet; transparent surfaces render unmodulated.");
+		return;
+	}
+
+	RID rp_uniform_set = _setup_render_pass_uniform_set(RENDER_LIST_ALPHA, p_render_data, p_is_multiview, p_radiance_texture, p_samplers, true);
+	RenderListParameters render_list_params(render_list[RENDER_LIST_ALPHA].elements.ptr(), render_list[RENDER_LIST_ALPHA].element_info.ptr(), render_list[RENDER_LIST_ALPHA].elements.size(), p_reverse_cull, PASS_MODE_OIT_SPLAT, rp_uniform_set, p_base_specialization, false, Vector2(), p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, p_render_data->scene_data->view_count);
+	_render_list_with_draw_list(&render_list_params, oit_effect->get_splat_framebuffer());
+}
+
+void RenderForwardMobile::_oit_splat_compute(RenderDataRD *p_render_data, const float *p_slice_curve, const Vector3i &p_dims, const Vector2i &p_tile_size) {
 	struct OITParams {
 		float view_matrix[16];
 		float projection_matrix[16];
@@ -3833,24 +3922,22 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
 	};
 	OITParams params;
 	Projection view = p_render_data->scene_data->cam_transform.affine_inverse();
-	Projection projection = p_render_data->scene_data->cam_projection;
+	Projection projection = p_render_data->scene_data->get_cam_projection();
 	for (int i = 0; i < 4; i++) {
 		for (int j = 0; j < 4; j++) {
 			params.view_matrix[i * 4 + j] = view.columns[i][j];
 			params.projection_matrix[i * 4 + j] = projection.columns[i][j];
 		}
 	}
-	params.slice_curve[0] = float(GLOBAL_GET("rendering/oit/near_plane"));
-	params.slice_curve[1] = float(GLOBAL_GET("rendering/oit/far_plane"));
-	params.slice_curve[2] = float(GLOBAL_GET("rendering/oit/linearization_factor"));
-	params.slice_curve[3] = float(slice_count);
-	Vector3i dims = oit_effect->get_froxel_dims();
-	params.froxel_dims[0] = dims.x;
-	params.froxel_dims[1] = dims.y;
-	params.froxel_dims[2] = dims.z;
+	for (int i = 0; i < 4; i++) {
+		params.slice_curve[i] = p_slice_curve[i];
+	}
+	params.froxel_dims[0] = p_dims.x;
+	params.froxel_dims[1] = p_dims.y;
+	params.froxel_dims[2] = p_dims.z;
 	params.froxel_dims[3] = 0;
-	params.tile_size[0] = tile_size.x;
-	params.tile_size[1] = tile_size.y;
+	params.tile_size[0] = p_tile_size.x;
+	params.tile_size[1] = p_tile_size.y;
 	params.tile_size[2] = 0.0f;
 	params.tile_size[3] = 0.0f;
 
@@ -3859,7 +3946,7 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
 	}
 	RD::get_singleton()->buffer_update(oit_params_buffer, 0, sizeof(OITParams), &params);
 
-	// One splat per transparent surface at its AABB center; alpha is a placeholder until the raster splat lands.
+	// One splat per transparent surface at its AABB center; the raster mode reads the real alpha.
 	Vector<float> splat_scratch;
 	uint32_t splat_count = 0;
 	{
@@ -3900,36 +3987,5 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
 	}
 
 	oit_effect->voxelize(oit_splat_buffer, oit_splat_count_buffer, oit_params_buffer, splat_count);
-
-	struct IntegrateParams {
-		uint32_t froxel_dims[4];
-	};
-	IntegrateParams ip;
-	ip.froxel_dims[0] = dims.x;
-	ip.froxel_dims[1] = dims.y;
-	ip.froxel_dims[2] = dims.z;
-	ip.froxel_dims[3] = 0;
-	RID integrate_params = RD::get_singleton()->uniform_buffer_create(sizeof(IntegrateParams));
-	RD::get_singleton()->buffer_update(integrate_params, 0, sizeof(IntegrateParams), &ip);
-	oit_effect->integrate(integrate_params);
-	RD::get_singleton()->free_rid(integrate_params);
-
-	struct SceneOITParams {
-		float slice_curve[4];
-		uint32_t froxel_dims[4];
-	};
-	SceneOITParams sp;
-	sp.slice_curve[0] = params.slice_curve[0];
-	sp.slice_curve[1] = params.slice_curve[1];
-	sp.slice_curve[2] = params.slice_curve[2];
-	sp.slice_curve[3] = params.slice_curve[3];
-	sp.froxel_dims[0] = dims.x;
-	sp.froxel_dims[1] = dims.y;
-	sp.froxel_dims[2] = dims.z;
-	sp.froxel_dims[3] = 1;
-	if (!oit_scene_params_buffer.is_valid()) {
-		oit_scene_params_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(SceneOITParams));
-	}
-	RD::get_singleton()->buffer_update(oit_scene_params_buffer, 0, sizeof(SceneOITParams), &sp);
 }
 #endif

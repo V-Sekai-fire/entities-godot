@@ -4,6 +4,8 @@
 import Oit.SliceCurve
 import Oit.Extinction
 import Oit.PrefixSum
+import Oit.Splat
+import Oit.Lookup
 import Oit.Voxelize
 import Oit.Integrate
 

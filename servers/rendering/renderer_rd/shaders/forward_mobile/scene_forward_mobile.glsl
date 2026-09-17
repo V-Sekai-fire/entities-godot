@@ -1261,7 +1261,6 @@ void main() {
 	hvec2 anisotropy_flow = hvec2(anisotropy_flow_highp);
 	half ao = half(ao_highp);
 	half ao_light_affect = half(ao_light_affect_highp);
-	alpha_highp = oit_apply(vertex_interp, projection_matrix, alpha_highp);
 	half alpha = half(alpha_highp);
 	half normal_map_depth = half(normal_map_depth_highp);
 	half sss_strength = half(sss_strength_highp);
@@ -2356,6 +2355,10 @@ void main() {
 
 #ifdef MODE_RENDER_DEPTH
 
+#ifdef MODE_OIT_SPLAT
+	oit_splat(gl_FragCoord.xy, -vertex.z, float(alpha));
+#endif // MODE_OIT_SPLAT
+
 #ifdef MODE_RENDER_MATERIAL
 
 	albedo_output_buffer.rgb = albedo;
@@ -2375,6 +2378,8 @@ void main() {
 #endif // MODE_RENDER_MATERIAL
 
 #else // MODE_RENDER_DEPTH
+
+	alpha = half(oit_apply(screen_uv, -vertex.z, float(alpha)));
 
 	// multiply by albedo
 	diffuse_light *= albedo; // ambient must be multiplied by albedo at the end

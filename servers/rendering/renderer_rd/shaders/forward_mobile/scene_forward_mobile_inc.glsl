@@ -441,24 +441,47 @@ layout(set = 1, binding = 27, std140) uniform OITParams {
 }
 oit_params;
 
-float oit_apply(vec3 view_pos, mat4 projection, float alpha) {
-	if (oit_params.froxel_dims.w == 0u) {
-		return alpha;
-	}
-	float view_z = -view_pos.z;
-	if (view_z <= 0.0) {
-		return alpha;
-	}
-	vec4 clip = projection * vec4(view_pos, 1.0);
-	vec2 uv = clip.xy / max(clip.w, 0.001) * 0.5 + 0.5;
-	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
-		return alpha;
-	}
+layout(set = 1, binding = 28, std430) buffer restrict OITExtinction {
+	uint data[];
+}
+oit_extinction;
+
+float oit_slice_uv(float view_z) {
+	float near = oit_params.slice_curve.x;
+	float far = oit_params.slice_curve.y;
 	float k = max(oit_params.slice_curve.z, 0.001);
-	float linear_z = clamp((view_z - oit_params.slice_curve.x) / max(oit_params.slice_curve.y - oit_params.slice_curve.x, 0.001), 0.0, 1.0);
-	float slice_uv = log(1.0 + k * linear_z) / log(1.0 + k);
-	float transmittance = texture(oit_transmittance, vec3(uv, slice_uv)).r;
-	return alpha * transmittance;
+	float linear_z = clamp((view_z - near) / max(far - near, 0.001), 0.0, 1.0);
+	return log(1.0 + k * linear_z) / log(1.0 + k);
+}
+
+uint oit_depth_to_slice(float view_z) {
+	float slices = oit_params.slice_curve.w;
+	return uint(clamp(oit_slice_uv(view_z) * slices, 0.0, slices - 1.0));
+}
+
+// Accumulates this fragment's extinction into the froxel that owns it; the framebuffer is at froxel resolution.
+void oit_splat(vec2 frag_coord, float view_z, float alpha) {
+	if (oit_params.froxel_dims.w == 0u || view_z <= 0.0 || alpha <= 0.0) {
+		return;
+	}
+	uvec3 froxel = uvec3(uvec2(frag_coord), oit_depth_to_slice(view_z));
+	froxel = min(froxel, oit_params.froxel_dims.xyz - uvec3(1u));
+	uint index = (froxel.x * oit_params.froxel_dims.y + froxel.y) * oit_params.froxel_dims.z + froxel.z;
+	float ext = -log(1.0 - clamp(alpha, 0.0, 0.999));
+	atomicAdd(oit_extinction.data[index], uint(clamp(ext * 65536.0, 0.0, 4.29e9)));
+}
+
+// Transmittance through every slice in front of this fragment's own slice.
+float oit_apply(vec2 screen_uv, float view_z, float alpha) {
+	if (oit_params.froxel_dims.w == 0u || view_z <= 0.0) {
+		return alpha;
+	}
+	uint slice = oit_depth_to_slice(view_z);
+	if (slice == 0u) {
+		return alpha;
+	}
+	float slice_uv = (float(slice) - 0.5) / oit_params.slice_curve.w;
+	return alpha * texture(oit_transmittance, vec3(screen_uv, slice_uv)).r;
 }
 
 /* Set 2 Skeleton & Instancing (can change per item) */

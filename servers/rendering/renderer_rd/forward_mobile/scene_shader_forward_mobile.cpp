@@ -407,6 +407,9 @@ void SceneShaderForwardMobile::ShaderData::_create_pipeline(PipelineKey p_pipeli
 		} else if (p_pipeline_key.version == SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL) {
 			// Writes to normal and roughness in opaque way.
 			blend_state = RD::PipelineColorBlendState::create_disabled(5);
+		} else if (p_pipeline_key.version == SHADER_VERSION_OIT_SPLAT_PASS) {
+			// Contains nothing, fragments accumulate into the OIT extinction buffer.
+			depth_stencil_state = RD::PipelineDepthStencilState();
 		} else {
 			// Do not use this version (error case).
 		}
@@ -418,6 +421,9 @@ void SceneShaderForwardMobile::ShaderData::_create_pipeline(PipelineKey p_pipeli
 		} else if (p_pipeline_key.version == SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL) {
 			// Writes to normal and roughness in opaque way.
 			blend_state = RD::PipelineColorBlendState::create_disabled(5);
+		} else if (p_pipeline_key.version == SHADER_VERSION_OIT_SPLAT_PASS) {
+			// Contains nothing, fragments accumulate into the OIT extinction buffer.
+			depth_stencil_state = RD::PipelineDepthStencilState();
 		} else {
 			// Unknown pipeline version.
 		}
@@ -611,6 +617,7 @@ void SceneShaderForwardMobile::init(const String p_defines) {
 				shader_versions.push_back(ShaderRD::VariantDefine(shader_group, base_define + "\n#define MODE_RENDER_DEPTH\n#define SHADOW_PASS\n", default_enabled)); // SHADER_VERSION_SHADOW_PASS, should probably change this to MODE_RENDER_SHADOW because we don't have a depth pass here...
 				shader_versions.push_back(ShaderRD::VariantDefine(shader_group, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_DUAL_PARABOLOID\n#define SHADOW_PASS\n", default_enabled)); // SHADER_VERSION_SHADOW_PASS_DP
 				shader_versions.push_back(ShaderRD::VariantDefine(shader_group, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_MATERIAL\n", default_enabled)); // SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL
+				shader_versions.push_back(ShaderRD::VariantDefine(shader_group, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_OIT_SPLAT\n", default_enabled)); // SHADER_VERSION_OIT_SPLAT_PASS
 
 				// Multiview versions of our shaders.
 				shader_versions.push_back(ShaderRD::VariantDefine(shader_group_multiview, base_define + "\n#define USE_MULTIVIEW\n", false)); // SHADER_VERSION_COLOR_PASS_MULTIVIEW

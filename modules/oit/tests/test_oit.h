@@ -47,6 +47,7 @@ TEST_CASE("[OIT] Project settings register the AVBOIT surface") {
 	CHECK(ps->has_setting("rendering/oit/enabled"));
 	CHECK(ps->has_setting("rendering/oit/slice_count"));
 	CHECK(ps->has_setting("rendering/oit/tile_size"));
+	CHECK(ps->has_setting("rendering/oit/splat_mode"));
 	CHECK(ps->has_setting("rendering/oit/near_plane"));
 	CHECK(ps->has_setting("rendering/oit/far_plane"));
 	CHECK(ps->has_setting("rendering/oit/linearization_factor"));
@@ -184,6 +185,130 @@ TEST_CASE("[OIT] flat_index: every froxel of a 5x3x8 grid gets its own slot") {
 	}
 	CHECK(((1 + 0) * 8 + 0) == ((0 + 1) * 8 + 0));
 	CHECK(oit_flat_index(3, 8, 1, 0, 0) != oit_flat_index(3, 8, 0, 1, 0));
+}
+
+struct SplatFragment {
+	uint32_t x;
+	uint32_t y;
+	float view_z;
+	float alpha;
+};
+
+static const uint32_t SPLAT_DIMS[3] = { 4, 3, 8 };
+
+static uint32_t splat_froxel(const SplatFragment &p_f) {
+	uint32_t z = oit_depth_to_slice(0.1f, 100.0f, 1000.0f, SPLAT_DIMS[2], p_f.view_z);
+	return oit_flat_index(SPLAT_DIMS[1], SPLAT_DIMS[2], p_f.x, p_f.y, z);
+}
+
+static LocalVector<uint32_t> splat_grid(const LocalVector<SplatFragment> &p_frags) {
+	LocalVector<uint32_t> grid;
+	grid.resize(SPLAT_DIMS[0] * SPLAT_DIMS[1] * SPLAT_DIMS[2]);
+	for (uint32_t i = 0; i < grid.size(); i++) {
+		grid[i] = 0;
+	}
+	for (const SplatFragment &f : p_frags) {
+		if (f.view_z > 0.0f) {
+			grid[splat_froxel(f)] += oit_pack_extinction(f.alpha);
+		}
+	}
+	return grid;
+}
+
+static LocalVector<SplatFragment> splat_samples() {
+	LocalVector<SplatFragment> frags;
+	frags.push_back({ 1, 1, 1.0f, 0.5f });
+	frags.push_back({ 1, 1, 3.0f, 0.5f });
+	frags.push_back({ 1, 1, 9.0f, 0.5f });
+	frags.push_back({ 2, 0, 3.0f, 0.25f });
+	frags.push_back({ 2, 0, 3.0f, 0.75f });
+	frags.push_back({ 0, 2, -1.0f, 0.9f });
+	frags.push_back({ 3, 2, 99.0f, 0.1f });
+	return frags;
+}
+
+TEST_CASE("[OIT] splat: froxel totals match the Lean reference on the shared samples") {
+	LocalVector<SplatFragment> frags = splat_samples();
+	LocalVector<uint32_t> grid = splat_grid(frags);
+
+	CHECK(oit_depth_to_slice(0.1f, 100.0f, 1000.0f, 8, 1.0f) == 2u);
+	CHECK(oit_depth_to_slice(0.1f, 100.0f, 1000.0f, 8, 3.0f) == 3u);
+	CHECK(oit_depth_to_slice(0.1f, 100.0f, 1000.0f, 8, 9.0f) == 5u);
+	CHECK(grid[splat_froxel({ 2, 0, 3.0f, 0.0f })] == oit_pack_extinction(0.25f) + oit_pack_extinction(0.75f));
+	CHECK(grid[splat_froxel({ 1, 1, 1.0f, 0.0f })] == oit_pack_extinction(0.5f));
+
+	uint64_t total = 0;
+	for (uint32_t v : grid) {
+		total += v;
+	}
+	uint64_t expected = 0;
+	for (const SplatFragment &f : frags) {
+		if (f.view_z > 0.0f) {
+			expected += oit_pack_extinction(f.alpha);
+		}
+	}
+	CHECK(total == expected);
+
+	LocalVector<SplatFragment> reversed;
+	for (uint32_t i = frags.size(); i > 0; i--) {
+		reversed.push_back(frags[i - 1]);
+	}
+	LocalVector<uint32_t> grid_reversed = splat_grid(reversed);
+	for (uint32_t i = 0; i < grid.size(); i++) {
+		CHECK(grid[i] == grid_reversed[i]);
+	}
+}
+
+TEST_CASE("[OIT] splat: control, double-counting and screen-resolution raster disagree") {
+	LocalVector<SplatFragment> frags = splat_samples();
+	LocalVector<SplatFragment> twice(frags);
+	for (const SplatFragment &f : frags) {
+		twice.push_back(f);
+	}
+	LocalVector<uint32_t> grid = splat_grid(frags);
+	LocalVector<uint32_t> grid_twice = splat_grid(twice);
+	bool differs = false;
+	for (uint32_t i = 0; i < grid.size(); i++) {
+		differs = differs || (grid[i] != grid_twice[i]);
+	}
+	CHECK(differs);
+
+	LocalVector<SplatFragment> tile;
+	for (uint32_t i = 0; i < 36; i++) {
+		tile.push_back({ 1, 1, 3.0f, 0.5f });
+	}
+	CHECK(splat_grid(tile)[splat_froxel({ 1, 1, 3.0f, 0.0f })] == 36u * oit_pack_extinction(0.5f));
+}
+
+static LocalVector<float> column_transmittance(const LocalVector<uint32_t> &p_column) {
+	LocalVector<float> t;
+	uint64_t sum = 0;
+	for (uint32_t v : p_column) {
+		sum += v;
+		t.push_back(std::exp(-float(sum) / 65536.0f));
+	}
+	return t;
+}
+
+TEST_CASE("[OIT] lookup: a fragment reads the slice in front of its own") {
+	LocalVector<uint32_t> lone;
+	lone.resize(8);
+	for (uint32_t i = 0; i < 8; i++) {
+		lone[i] = 0;
+	}
+	lone[3] = oit_pack_extinction(0.5f);
+	LocalVector<float> t = column_transmittance(lone);
+	CHECK(oit_lookup_transmittance(t.ptr(), 3) == doctest::Approx(1.0f).epsilon(1e-4));
+	CHECK(t[3] == doctest::Approx(0.5f).epsilon(1e-4));
+
+	LocalVector<uint32_t> pair(lone);
+	pair[3] = 0;
+	pair[2] = oit_pack_extinction(0.5f);
+	pair[5] = oit_pack_extinction(0.5f);
+	t = column_transmittance(pair);
+	CHECK(oit_lookup_transmittance(t.ptr(), 5) == doctest::Approx(0.5f).epsilon(1e-4));
+	CHECK(oit_lookup_transmittance(t.ptr(), 2) == doctest::Approx(1.0f).epsilon(1e-4));
+	CHECK(oit_lookup_transmittance(t.ptr(), 0) == 1.0f);
 }
 
 struct DepthPair {
