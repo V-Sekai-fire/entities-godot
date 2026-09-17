@@ -1073,20 +1073,41 @@ static void _border_set_diff(const String &p_label, const String &p_filename, re
 // The tracked Lean hat fixture: 138 pre-flattened strokes, the input of
 // Fixtures/HatCycleCount.lean. Strokes are returned in file order; pass
 // a stride to keep every p_keep_every-th stroke only.
-static TypedArray<PackedVector3Array> _hat_fixture_polylines(int p_keep_every = 1, Vector<int> *r_ids = nullptr) {
+// p_spp > 0 resamples each stroke from hat.json's ctrlPts at that density;
+// odd ids are mirror twins, rebuilt from the even original across x = 0.125.
+static TypedArray<PackedVector3Array> _hat_fixture_polylines(int p_keep_every = 1, Vector<int> *r_ids = nullptr, int p_spp = 0) {
 	TypedArray<PackedVector3Array> out;
 	const Dictionary j = _load_raw_data_json(
 			"modules/cassie/lean/CassieAvbd/CycleDetect/Fixtures/hat_polylines.json");
 	const Array strokes = j.get("strokes", Array());
+	HashMap<int, Array> ctrl_by_id;
+	if (p_spp > 0) {
+		const Array sketched = _load_raw_data_json(_raw_data_path("hat.json")).get("allSketchedStrokes", Array());
+		for (int i = 0; i < sketched.size(); ++i) {
+			const Dictionary s = sketched[i];
+			ctrl_by_id.insert(int(s.get("id", -1)), s.get("ctrlPts", Array()));
+		}
+	}
 	for (int i = 0; i < strokes.size(); ++i) {
 		if (i % p_keep_every != 0) {
 			continue;
 		}
 		const Dictionary s = strokes[i];
+		const int sid = int(s.get("id", -1));
 		const Array pts = s.get("pts", Array());
 		PackedVector3Array poly;
-		for (int k = 0; k < pts.size(); ++k) {
-			poly.push_back(_v3_from_json(pts[k]));
+		const bool twin = !ctrl_by_id.has(sid) && (sid & 1) && ctrl_by_id.has(sid - 1);
+		if (p_spp > 0 && (twin || ctrl_by_id.has(sid))) {
+			poly = _flatten_ctrl_pts(ctrl_by_id[twin ? sid - 1 : sid], p_spp);
+			if (twin) {
+				for (int k = 0; k < poly.size(); ++k) {
+					poly.set(k, Vector3(real_t(0.25) - poly[k].x, poly[k].y, poly[k].z));
+				}
+			}
+		} else {
+			for (int k = 0; k < pts.size(); ++k) {
+				poly.push_back(_v3_from_json(pts[k]));
+			}
 		}
 		if (poly.size() >= 2) {
 			out.push_back(poly);
@@ -1098,18 +1119,143 @@ static TypedArray<PackedVector3Array> _hat_fixture_polylines(int p_keep_every = 
 	return out;
 }
 
-// Unity's patch list is cumulative over the session, and 18 of the hat's
-// strokes were deleted before the capture ended, so the final 120-stroke
-// graph can reach 142 of the 202 borders at best. Replaying the tracked
-// 138-stroke fixture prefix by prefix and taking the union of every cycle
-// each prefix closes is the like-for-like comparison.
-static void _hat_cumulative_diff(real_t p_proximity) {
-	const Dictionary j = _load_raw_data_json(_raw_data_path("hat.json"));
-	if (j.is_empty()) {
-		MESSAGE("[CassieBorderDiff] hat cumulative skipped: hat.json not found (lake exe hat_dump in modules/cassie/lean writes it)");
+// The constraints Unity applied to one hat stroke: intersections join the
+// graph, mirror-plane hits become the twin's crossings of its original.
+struct HatStrokeConstraints {
+	PackedVector3Array intersections;
+	PackedVector3Array mirror_hits;
+	bool closed = false;
+};
+
+static const real_t HAT_MIRROR_X = real_t(0.125);
+
+static Vector3 _hat_mirror(const Vector3 &p) {
+	return Vector3(real_t(2) * HAT_MIRROR_X - p.x, p.y, p.z);
+}
+
+// Canvas-space hand position from a logged state; the handedness flip commutes
+// with the canvas transform, so log coordinates are used throughout.
+static Vector3 _hat_canvas_space(const Dictionary &p_state, const Vector3 &p_hand) {
+	const Array rot = p_state.get("canvasRot", Array());
+	const Vector3 canvas_pos = _v3_from_json(p_state.get("canvasPos", Array()));
+	const real_t scale = real_t(double(p_state.get("canvasScale", 1.0)));
+	const Quaternion q = Quaternion(real_t(double(rot[0])), real_t(double(rot[1])), real_t(double(rot[2])), real_t(double(rot[3])));
+	return q.inverse().xform(p_hand - canvas_pos) / scale;
+}
+
+static void _hat_constraints(const Dictionary &p_json, HashMap<int, HatStrokeConstraints> &r_out) {
+	const Array strokes = p_json.get("allSketchedStrokes", Array());
+	for (int i = 0; i < strokes.size(); ++i) {
+		const Dictionary s = strokes[i];
+		HatStrokeConstraints c;
+		c.closed = bool(s.get("closedLoop", false));
+		const Array applied = s.get("appliedConstraints", Array());
+		for (int k = 0; k < applied.size(); ++k) {
+			const Dictionary a = applied[k];
+			const Vector3 p = _v3_from_json(a.get("position", Array()));
+			if (bool(a.get("isIntersection", false))) {
+				c.intersections.push_back(p);
+			} else if (Math::abs(p.x - HAT_MIRROR_X) < real_t(1e-4)) {
+				c.mirror_hits.push_back(p);
+			}
+		}
+		r_out.insert(int(s.get("id", -1)), c);
+	}
+}
+
+// One stroke's place in the replay: its polyline, the constraints Unity
+// applied, and the stroke it is paired with across the mirror plane
+// (MirrorPlane.MirroredStrokes: a twin pairs with its original, a stroke
+// drawn in the plane pairs with itself, anything else has no image).
+struct HatReplayStroke {
+	int poly_idx = -1;
+	int mirror_of = -1;
+	bool sketched = false;
+};
+
+// Adds the stroke drawn as sid, then its mirror twin when the fixture
+// carries one, with the constraints Unity applied: the twin takes its
+// original's, reflected, plus the original's mirror-plane hits.
+static void _hat_replay_add(Ref<CassieSketchGraph> &g, int p_sid, const TypedArray<PackedVector3Array> &p_polylines,
+		const HashMap<int, HatStrokeConstraints> &p_constraints, HashMap<int, HatReplayStroke> &r_strokes,
+		real_t p_small_distance, int &r_unreached, int &r_twins, int &r_unmirrored) {
+	const HatStrokeConstraints &c = p_constraints[p_sid];
+	const HatReplayStroke me = r_strokes[p_sid];
+	r_unreached += g->add_stroke_constrained(p_polylines[me.poly_idx], c.closed, c.intersections, PackedInt32Array(),
+			p_small_distance, p_small_distance * real_t(0.5), p_small_distance * real_t(2), me.poly_idx);
+	if (me.mirror_of != p_sid + 1 || !r_strokes.has(p_sid + 1)) {
 		return;
 	}
-	HashSet<String> alg_border_sigs;
+	const PackedInt32Array sources = g->get_last_constraint_sources();
+	REQUIRE_EQ(sources.size(), c.intersections.size());
+	PackedVector3Array cons;
+	PackedInt32Array targets;
+	for (int i = 0; i < c.intersections.size(); ++i) {
+		int image = -1;
+		if (sources[i] >= 0) {
+			for (const KeyValue<int, HatReplayStroke> &kv : r_strokes) {
+				if (kv.value.poly_idx == sources[i] && r_strokes.has(kv.value.mirror_of)) {
+					image = r_strokes[kv.value.mirror_of].poly_idx;
+				}
+			}
+		}
+		if (image < 0) {
+			r_unmirrored++;
+			continue;
+		}
+		cons.push_back(_hat_mirror(c.intersections[i]));
+		targets.push_back(image);
+	}
+	for (int i = 0; i < c.mirror_hits.size(); ++i) {
+		cons.push_back(c.mirror_hits[i]);
+		targets.push_back(me.poly_idx);
+	}
+	const HatReplayStroke twin = r_strokes[p_sid + 1];
+	r_unreached += g->add_stroke_constrained(p_polylines[twin.poly_idx], c.closed, cons, targets,
+			p_small_distance, p_small_distance * real_t(0.5), p_small_distance * real_t(2), twin.poly_idx);
+	r_twins++;
+}
+
+// DrawingCanvas.Delete: the pairing goes either way; the twin goes too
+// only while mirroring is on and it is a different stroke.
+static void _hat_replay_delete(Ref<CassieSketchGraph> &g, int p_sid, bool p_mirroring, HashMap<int, HatReplayStroke> &r_strokes) {
+	HatReplayStroke &me = r_strokes[p_sid];
+	const int twin = me.mirror_of;
+	me.mirror_of = -1;
+	if (twin >= 0 && twin != p_sid) {
+		r_strokes[twin].mirror_of = -1;
+		if (p_mirroring) {
+			g->remove_stroke(r_strokes[twin].poly_idx);
+		}
+	}
+	g->remove_stroke(me.poly_idx);
+}
+
+static String _hat_cycle_signature(const Ref<CassieSketchGraph> &g, const PackedInt32Array &p_cycle, const Vector<int> &p_poly_idx_to_sid) {
+	Vector<int> ids;
+	for (int c = 0; c < p_cycle.size(); ++c) {
+		ids.push_back(p_poly_idx_to_sid[g->get_edge(p_cycle[c])->get_source_polyline_idx()]);
+	}
+	return _stroke_set_signature(ids);
+}
+
+// Replays hat.json's systemStates in order: StrokeAdd commits the stroke
+// (and its twin) and runs one cycle search, StrokeDelete removes it and
+// runs one, SurfaceDelete drops the patch by hand. Unity logs the patches
+// a search found just before the stroke event that ran it, at the same
+// timestamp, so each search has an expected set to diff against. Patches
+// the user placed by hand (foundByAlgo false) come from a guided search
+// this port does not carry; they are counted, never replayed.
+// p_small_distance is the upstream SmallDistance; snap, merge and reach are
+// its 1x, 0.5x and 2x multiples from CASSIEParameters.
+static void _hat_replay_diff(real_t p_small_distance) {
+	const Dictionary j = _load_raw_data_json(_raw_data_path("hat.json"));
+	if (j.is_empty()) {
+		MESSAGE("[CassieBorderDiff] hat replay skipped: hat.json not found (lake exe hat_dump in modules/cassie/lean writes it)");
+		return;
+	}
+	HashMap<int, String> patch_sig;
+	HashMap<int, bool> patch_by_algo;
 	const Array patches = j.get("allCreatedPatches", Array());
 	for (int i = 0; i < patches.size(); ++i) {
 		const Dictionary p = patches[i];
@@ -1118,40 +1264,254 @@ static void _hat_cumulative_diff(real_t p_proximity) {
 		for (int k = 0; k < sids.size(); ++k) {
 			ids.push_back(int(sids[k]));
 		}
-		alg_border_sigs.insert(_stroke_set_signature(ids));
+		patch_sig.insert(int(p.get("id", -1)), _stroke_set_signature(ids));
+		patch_by_algo.insert(int(p.get("id", -1)), bool(p.get("foundByAlgo", false)));
 	}
+	HashMap<int, HatStrokeConstraints> constraints;
+	_hat_constraints(j, constraints);
 	Vector<int> poly_idx_to_sid;
-	const TypedArray<PackedVector3Array> polylines = _hat_fixture_polylines(1, &poly_idx_to_sid);
-	HashSet<String> cum_sigs;
-	const uint64_t t0 = Time::get_singleton()->get_ticks_usec();
-	for (int k = 1; k <= polylines.size(); ++k) {
-		TypedArray<PackedVector3Array> prefix;
-		for (int i = 0; i < k; ++i) {
-			prefix.push_back(polylines[i]);
-		}
-		Ref<CassieSketchGraph> pg;
-		pg.instantiate();
-		pg->set_merge_epsilon(p_proximity);
-		pg->build_from_polylines(prefix, p_proximity);
-		const Array pc = pg->find_cycles();
-		for (int i = 0; i < pc.size(); ++i) {
-			const PackedInt32Array cycle = pc[i];
-			Vector<int> ids;
-			for (int c = 0; c < cycle.size(); ++c) {
-				ids.push_back(poly_idx_to_sid[pg->get_edge(cycle[c])->get_source_polyline_idx()]);
+	const int tempdump_spp = OS::get_singleton()->get_environment("CASSIE_SPP").to_int(); // TEMPDUMP
+	const TypedArray<PackedVector3Array> polylines = _hat_fixture_polylines(1, &poly_idx_to_sid, tempdump_spp);
+	HashMap<int, HatReplayStroke> strokes;
+	for (int k = 0; k < polylines.size(); ++k) {
+		const int sid = poly_idx_to_sid[k];
+		HatReplayStroke s;
+		s.poly_idx = k;
+		s.sketched = constraints.has(sid);
+		if (!s.sketched) {
+			s.mirror_of = sid - 1;
+		} else if (k + 1 < polylines.size() && poly_idx_to_sid[k + 1] == sid + 1 && !constraints.has(sid + 1)) {
+			s.mirror_of = sid + 1;
+		} else {
+			const PackedVector3Array poly = polylines[k];
+			bool planar = true;
+			for (int i = 0; i < poly.size(); ++i) {
+				planar = planar && Math::abs(poly[i].x - HAT_MIRROR_X) < real_t(1e-4);
 			}
-			cum_sigs.insert(_stroke_set_signature(ids));
+			s.mirror_of = planar ? sid : -1;
 		}
+		strokes.insert(sid, s);
+	}
+
+	Ref<CassieSketchGraph> g;
+	g.instantiate();
+	HashSet<String> alg_sigs;
+	HashSet<String> cum_sigs;
+	int unreached = 0;
+	int twins = 0;
+	int unmirrored = 0;
+	int manual = 0;
+	HashSet<String> hand_sigs;
+	int hand_prev = -1;
+	Vector3 hand_prev_pos;
+	int hand_presses = 0;
+	int hand_expected_total = 0;
+	int hand_hit = 0;
+	int surface_deletes = 0;
+	int surface_delete_misses = 0;
+	int searches = 0;
+	int searches_exact = 0;
+	int expected_total = 0;
+	int expected_hit = 0;
+	int found_total = 0;
+	int found_extra = 0;
+	HashSet<String> expected;
+	const Array states = j.get("systemStates", Array());
+	const uint64_t t0 = Time::get_singleton()->get_ticks_usec();
+	for (int i = 0; i < states.size(); ++i) {
+		const Dictionary st = states[i];
+		const int type = int(st.get("interactionType", 0));
+		const int element = int(st.get("elementID", -1));
+		const bool mirroring = bool(st.get("mirroring", false));
+		if (type == 3) {
+			REQUIRE_MESSAGE(patch_sig.has(element), vformat("hat SurfaceAdd names patch %d, which allCreatedPatches lacks", element));
+			if (patch_by_algo[element]) {
+				expected.insert(patch_sig[element]);
+				alg_sigs.insert(patch_sig[element]);
+				continue;
+			}
+			manual++;
+			hand_sigs.insert(patch_sig[element]);
+			// One mirrored press logs two patches at the same hand position;
+			// the second is the twin the press already searched for.
+			const Vector3 hand = _v3_from_json(st.get("primaryHandPos", Array()));
+			const bool twin_of_previous = hand_prev >= 0 && hand_prev == i - 1 && hand.distance_to(hand_prev_pos) < real_t(1e-6);
+			hand_prev = i;
+			hand_prev_pos = hand;
+			if (twin_of_previous) {
+				continue;
+			}
+			hand_presses++;
+			HashSet<String> before_sigs;
+			const Array before = g->get_live_cycles();
+			for (int c = 0; c < before.size(); ++c) {
+				before_sigs.insert(_hat_cycle_signature(g, before[c], poly_idx_to_sid));
+			}
+			const Vector3 pos = _hat_canvas_space(st, hand);
+			{
+				String polys;
+				for (int k = 0; k < poly_idx_to_sid.size(); ++k) {
+					if (patch_sig[element].split(",").has(itos(poly_idx_to_sid[k]))) {
+						polys += vformat(" sid%d=poly%d", poly_idx_to_sid[k], k);
+					}
+				}
+				print_line(vformat("TEMPDUMP press hand %d pos=(%.4f, %.4f, %.4f) mirroring=%d expects {%s}:%s", element, pos.x, pos.y, pos.z, int(mirroring), patch_sig[element], polys));
+			}
+			bool look_at_non_manifold = false;
+			bool success = !g->find_cycle_at(pos, look_at_non_manifold).is_empty();
+			if (!success) {
+				look_at_non_manifold = true;
+				success = !g->find_cycle_at(pos, look_at_non_manifold).is_empty();
+			}
+			if (success && mirroring) {
+				g->find_cycle_at(_hat_mirror(pos), look_at_non_manifold);
+			}
+			g->update_cycles();
+			HashSet<String> hand_expected;
+			hand_expected.insert(patch_sig[element]);
+			if (i + 1 < states.size()) {
+				const Dictionary nx = states[i + 1];
+				const int nx_el = int(nx.get("elementID", -1));
+				if (int(nx.get("interactionType", 0)) == 3 && patch_sig.has(nx_el) && !patch_by_algo[nx_el] && _v3_from_json(nx.get("primaryHandPos", Array())).distance_to(hand) < real_t(1e-6)) {
+					hand_expected.insert(patch_sig[nx_el]);
+				}
+			}
+			HashSet<String> found_sigs;
+			const Array after = g->get_live_cycles();
+			for (int c = 0; c < after.size(); ++c) {
+				const String sg = _hat_cycle_signature(g, after[c], poly_idx_to_sid);
+				if (!before_sigs.has(sg)) {
+					found_sigs.insert(sg);
+					cum_sigs.insert(sg);
+				}
+			}
+			int hit = 0;
+			for (const String &sg : hand_expected) {
+				hit += found_sigs.has(sg) ? 1 : 0;
+			}
+			hand_expected_total += int(hand_expected.size());
+			hand_hit += hit;
+			if (hit != int(hand_expected.size()) || hit != int(found_sigs.size())) {
+				String want;
+				for (const String &sg : hand_expected) {
+					want += "{" + sg + "} ";
+				}
+				String got;
+				for (const String &sg : found_sigs) {
+					got += "{" + sg + "} ";
+				}
+				print_line(vformat("TEMPDUMP event hand %d: unity %s| ours %s", element, want, got));
+			}
+			continue;
+		}
+		if (type == 4) {
+			surface_deletes++;
+			REQUIRE_MESSAGE(patch_sig.has(element), vformat("hat SurfaceDelete names patch %d, which allCreatedPatches lacks", element));
+			const Array live = g->get_live_cycles();
+			bool dropped = false;
+			for (int c = 0; c < live.size() && !dropped; ++c) {
+				if (_hat_cycle_signature(g, live[c], poly_idx_to_sid) == patch_sig[element]) {
+					dropped = g->remove_cycle(live[c]);
+				}
+			}
+			surface_delete_misses += dropped ? 0 : 1;
+			continue;
+		}
+		if (type != 1 && type != 2) {
+			continue;
+		}
+		const bool known = strokes.has(element) && (type == 2 || strokes[element].sketched);
+		REQUIRE_MESSAGE(known, vformat("hat stroke event names stroke %d, which the fixture lacks", element));
+		// Unity logs a patch only when its cycle was not live before the event:
+		// a cycle cut and closed again in the same update keeps its patch id.
+		HashSet<String> before_sigs;
+		const Array before = g->get_live_cycles();
+		for (int c = 0; c < before.size(); ++c) {
+			before_sigs.insert(_hat_cycle_signature(g, before[c], poly_idx_to_sid));
+		}
+		// CASSIEParameters.SmallDistance is defaultSmallDistance / canvas scale.
+		const real_t scale = real_t(double(st.get("canvasScale", 1.0)));
+		const real_t small = p_small_distance / (scale > real_t(0) ? scale : real_t(1));
+		if (type == 1) {
+			_hat_replay_add(g, element, polylines, constraints, strokes, small, unreached, twins, unmirrored);
+		} else {
+			_hat_replay_delete(g, element, mirroring, strokes);
+		}
+		g->update_cycles();
+		HashSet<String> found_sigs;
+		const Array after = g->get_live_cycles();
+		for (int c = 0; c < after.size(); ++c) {
+			const String sg = _hat_cycle_signature(g, after[c], poly_idx_to_sid);
+			if (!before_sigs.has(sg)) {
+				found_sigs.insert(sg);
+			}
+		}
+		searches++;
+		int hit = 0;
+		for (const String &sg : expected) {
+			hit += found_sigs.has(sg) ? 1 : 0;
+		}
+		expected_total += int(expected.size());
+		expected_hit += hit;
+		found_total += int(found_sigs.size());
+		found_extra += int(found_sigs.size()) - hit;
+		searches_exact += (hit == int(expected.size()) && hit == int(found_sigs.size())) ? 1 : 0;
+		if (hit != int(expected.size()) || hit != int(found_sigs.size())) {
+			String want;
+			for (const String &sg : expected) {
+				want += "{" + sg + "} ";
+			}
+			String got;
+			for (const String &sg : found_sigs) {
+				got += "{" + sg + "} ";
+			}
+			print_line(vformat("TEMPDUMP event %s%d: unity %s| ours %s", type == 1 ? "add " : "del ", element, want, got));
+		}
+		for (const String &sg : found_sigs) {
+			cum_sigs.insert(sg);
+		}
+		if (searches < 40) {
+			String live_s;
+			const Array live = g->get_live_cycles();
+			for (int c = 0; c < live.size(); ++c) {
+				live_s += "{" + _hat_cycle_signature(g, live[c], poly_idx_to_sid) + "} ";
+			}
+			print_line(vformat("TEMPDUMP after %s%d live: %s", type == 1 ? "add " : "del ", element, live_s));
+		}
+		expected.clear();
 	}
 	int matched = 0;
-	for (const String &sig : cum_sigs) {
-		matched += alg_border_sigs.has(sig) ? 1 : 0;
+	int matched_all = 0;
+	for (const String &sg : cum_sigs) {
+		matched += alg_sigs.has(sg) ? 1 : 0;
+		matched_all += (alg_sigs.has(sg) || hand_sigs.has(sg)) ? 1 : 0;
+	}
+	HashSet<String> all_sigs;
+	for (const String &sg : alg_sigs) {
+		all_sigs.insert(sg);
+	}
+	for (const String &sg : hand_sigs) {
+		all_sigs.insert(sg);
+	}
+	for (const String &sg : all_sigs) {
+		if (!cum_sigs.has(sg)) {
+			print_line(vformat("TEMPDUMP missing %s{%s}", hand_sigs.has(sg) ? "hand " : "algo ", sg));
+		}
+	}
+	for (const String &sg : cum_sigs) {
+		if (!all_sigs.has(sg)) {
+			print_line(vformat("TEMPDUMP extra {%s}", sg));
+		}
 	}
 	MESSAGE(vformat(
-			"[CassieBorderDiff] hat fixture @%.4f  cumulative over %d prefixes in %d us: alg_borders=%d  detected=%d  matched=%d  false_pos=%d  false_neg=%d",
-			p_proximity, polylines.size(), int(Time::get_singleton()->get_ticks_usec() - t0),
-			int(alg_border_sigs.size()), int(cum_sigs.size()), matched,
-			int(cum_sigs.size()) - matched, int(alg_border_sigs.size()) - matched));
+			"[CassieBorderDiff] hat fixture @%.4f  replay of %d searches (%d twins, %d constraints unreached, %d not mirrored, %d hand patches over %d presses: hand_expected=%d hand_hit=%d, %d of %d hand deletes missed) in %d us: exact_searches=%d  expected=%d hit=%d  found=%d extra=%d  cumulative alg_borders=%d detected=%d matched=%d false_pos=%d false_neg=%d  all_borders=%d matched_all=%d  nodes=%d edges=%d",
+			p_small_distance, searches, twins, unreached, unmirrored, manual, hand_presses, hand_expected_total, hand_hit, surface_delete_misses, surface_deletes,
+			int(Time::get_singleton()->get_ticks_usec() - t0),
+			searches_exact, expected_total, expected_hit, found_total, found_extra,
+			int(alg_sigs.size()), int(cum_sigs.size()), matched,
+			int(cum_sigs.size()) - matched, int(alg_sigs.size()) - matched,
+			int(all_sigs.size()), matched_all,
+			g->get_node_count(), g->get_edge_count()));
 }
 
 // Witness for the transport walk: the hat fixture at the Lean arrangement
@@ -1216,8 +1576,7 @@ TEST_CASE("[Cassie][SketchGraph] Hat fixture witness: transport walk against the
 TEST_CASE_PENDING("[Cassie][PipelineBench] Border-set diff: hat / flower / vintage_car") {
 	_border_set_diff("hat", "hat.json");
 	_border_set_diff("hat@0.0017", "hat.json", real_t(0.0017));
-	_hat_cumulative_diff(real_t(0.0017));
-	_hat_cumulative_diff(real_t(0.02));
+	_hat_replay_diff(real_t(0.02));
 	_border_set_diff("flower", "flower.json");
 	_border_set_diff("vintage_car", "vintage_car.json");
 }
