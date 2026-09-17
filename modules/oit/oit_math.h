@@ -56,3 +56,11 @@ inline uint32_t oit_depth_to_slice(float p_near, float p_far, float p_linearizat
 	float clamped = scaled < 0.0f ? 0.0f : (scaled > upper ? upper : scaled);
 	return uint32_t(clamped);
 }
+
+// Mirrors the packing in oit_voxelize.glsl; -log(1 - alpha) scaled to uint for atomicAdd.
+inline uint32_t oit_pack_extinction(float p_alpha) {
+	float a = p_alpha < 0.0f ? 0.0f : (p_alpha > 0.999f ? 0.999f : p_alpha);
+	float scaled = -std::log(1.0f - a) * 65536.0f;
+	float clamped = scaled < 0.0f ? 0.0f : (scaled > 4.29e9f ? 4.29e9f : scaled);
+	return uint32_t(clamped);
+}

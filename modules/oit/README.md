@@ -32,7 +32,7 @@ All under `rendering/oit/`:
 | `tile_size`            | Vector2 | (6, 6)    | Screen-space tile size for splat resolution |
 | `near_plane`           | float   | 0.1       | Frustum near for slice curve fit           |
 | `far_plane`            | float   | 500.0     | Frustum far for slice curve fit            |
-| `linearization_factor` | float   | 0.5       | Log-Z curve shape                          |
+| `linearization_factor` | float   | 1000.0    | Log-Z curve shape; below ~10 it is linear  |
 
 ## Wiring
 

@@ -18,9 +18,9 @@ namespace Oit.Extinction
     Matches the compute shader body:
     `float extinction = -log(1 - alpha);`
     `uint packed = uint(clamp(extinction * 65536.0, 0.0, 4.29e9));` -/
-@[inline] def packExtinction (alpha : Float) : UInt32 :=
+@[inline] def packExtinction (alpha : Float32) : UInt32 :=
   let a := if alpha < 0.0 then 0.0 else if alpha > 0.999 then 0.999 else alpha
-  let ext := -Float.log (1.0 - a)
+  let ext := -Float32.log (1.0 - a)
   let scaled := ext * 65536.0
   let clamped := if scaled < 0.0 then 0.0
                  else if scaled > 4.29e9 then 4.29e9
@@ -41,15 +41,61 @@ example (a b c : UInt32) : (a + b) + c = a + (b + c) := by
 example (a b : UInt32) : a + b = b + a := by
   exact UInt32.add_comm a b
 
-/-- `unpackExtinction packed` = extinction as `Float`. Matches
+/-- `unpackExtinction packed` = extinction as `Float32`. Matches
     `float extinction = float(raw) / 65536.0;` in `oit_integrate.glsl`. -/
-@[inline] def unpackExtinction (packed : UInt32) : Float :=
-  packed.toFloat / 65536.0
+@[inline] def unpackExtinction (packed : UInt32) : Float32 :=
+  packed.toFloat32 / 65536.0
 
 /-- Round-trip within saturation: `unpackExtinction (packExtinction 0.5)`
     is within `1/65536` of `-log(0.5)`. `native_decide` at the machine
     level checks byte-exact equality of the packed uint. -/
-example : unpackExtinction (packExtinction 0.5) - (-Float.log 0.5) < 1e-4 := by
+example : unpackExtinction (packExtinction 0.5) - (-Float32.log 0.5) < 1e-4 := by
+  native_decide
+
+/-! ## Ten-row table
+
+The C++ `oit_pack_extinction` pins the same integers in
+`tests/test_oit.h`. The 0.999 clamp is what keeps `-log 0` out, so
+0.999 and 1.0 share a row. -/
+
+def alphas : Array Float32 :=
+  #[0.0, 0.001, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 0.999, 1.0]
+
+example : alphas.map packExtinction
+    = #[0, 65, 6904, 18853, 45426, 90852, 150902, 301804, 452707, 452707] := by
+  native_decide
+
+def nonDecreasing (xs : Array UInt32) : Bool :=
+  (List.range (xs.size - 1)).all fun i => xs[i]! ≤ xs[i + 1]!
+
+example : nonDecreasing (alphas.map packExtinction) := by native_decide
+example : nonDecreasing #[0, 65, 64] = false := by native_decide
+
+/-- Out-of-range alpha clamps rather than wrapping. -/
+example : packExtinction (-1.0) = 0 := by native_decide
+example : packExtinction 7.0 = 452707 := by native_decide
+
+/-! ## Summing packed extinction composites alpha
+
+`-log(1 - a) + -log(1 - b) = -log((1 - a)(1 - b))`, so the atomic sum
+of two packed values is the packed value of the composited alpha
+`1 - (1 - a)(1 - b)`, to within one unit of truncation. This is the
+property the integrate pass relies on when it sums a froxel. -/
+
+def composite (a b : Float32) : Float32 := 1.0 - (1.0 - a) * (1.0 - b)
+
+def sumGap (a b : Float32) : UInt32 :=
+  let s := packExtinction a + packExtinction b
+  let c := packExtinction (composite a b)
+  if s ≥ c then s - c else c - s
+
+example :
+    #[sumGap 0.5 0.5, sumGap 0.25 0.75, sumGap 0.1 0.9,
+      sumGap 0.3 0.3, sumGap 0.5 0.25]
+    = #[0, 0, 1, 0, 0] := by native_decide
+
+/-- Control: summing packed values of `a` and `b` is not packing `a + b`. -/
+example : packExtinction 0.5 + packExtinction 0.5 ≠ packExtinction 1.0 := by
   native_decide
 
 end Oit.Extinction

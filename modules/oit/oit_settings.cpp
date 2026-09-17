@@ -38,5 +38,5 @@ void oit_register_project_settings() {
 	GLOBAL_DEF(PropertyInfo(Variant::VECTOR2I, "rendering/oit/tile_size"), Vector2i(6, 6));
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/oit/near_plane", PROPERTY_HINT_RANGE, "0.01,10.0,0.01"), 0.1);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/oit/far_plane", PROPERTY_HINT_RANGE, "1.0,10000.0,1.0"), 500.0);
-	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/oit/linearization_factor", PROPERTY_HINT_RANGE, "0.001,4.0,0.001"), 0.5);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/oit/linearization_factor", PROPERTY_HINT_RANGE, "0.001,100000.0,0.001,exp"), 1000.0);
 }
