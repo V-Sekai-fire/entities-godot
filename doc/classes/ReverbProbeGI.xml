@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ReverbProbeGI" inherits="Node3D" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Bakes a grid of reverb probes for a scene and interpolates them at runtime.
+	</brief_description>
+	<description>
+		Traces rays through the scene from a set of probe positions to estimate the local RT60 and reflection gain, and stores the result in a [ReverbBakeData]. At runtime, the [ResonanceAudioServer] reads the bake to drive the reverb heard at the listener's position.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="bake">
+			<return type="int" enum="ReverbProbeGI.BakeError" />
+			<param index="0" name="from_node" type="Node" />
+			<param index="1" name="probe_positions" type="PackedVector3Array" />
+			<param index="2" name="ray_count" type="int" default="50000" />
+			<param index="3" name="max_bounces" type="int" default="100" />
+			<description>
+				Bakes the reverb probes into [member bake_data]. Rays are traced against the meshes under [param from_node]; [param probe_positions] gives the world-space sample points, [param ray_count] the rays per probe, and [param max_bounces] the reflection budget per ray.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="bake_data" type="ReverbBakeData" setter="set_bake_data" getter="get_bake_data">
+			Output resource written by [method bake] and read by the runtime.
+		</member>
+		<member name="material_map" type="ResonanceAudioMaterialMap" setter="set_material_map" getter="get_material_map">
+			Mapping from scene materials to acoustic wall materials, used to look up the absorption of each ray hit during a bake.
+		</member>
+		<member name="wall_material" type="int" setter="set_wall_material" getter="get_wall_material" enum="ReverbProbeGI.WallMaterial" default="16">
+			Fallback wall material used when [member material_map] has no entry for a surface.
+		</member>
+	</members>
+	<constants>
+		<constant name="MATERIAL_TRANSPARENT" value="0" enum="WallMaterial">
+			Passes sound through without absorption. Use for openings.
+		</constant>
+		<constant name="MATERIAL_ACOUSTIC_CEILING_TILES" value="1" enum="WallMaterial">
+			Acoustic ceiling tiles.
+		</constant>
+		<constant name="MATERIAL_BRICK_BARE" value="2" enum="WallMaterial">
+			Bare brick.
+		</constant>
+		<constant name="MATERIAL_BRICK_PAINTED" value="3" enum="WallMaterial">
+			Painted brick.
+		</constant>
+		<constant name="MATERIAL_CONCRETE_BLOCK_COARSE" value="4" enum="WallMaterial">
+			Coarse concrete block.
+		</constant>
+		<constant name="MATERIAL_CONCRETE_BLOCK_PAINTED" value="5" enum="WallMaterial">
+			Painted concrete block.
+		</constant>
+		<constant name="MATERIAL_CURTAIN_HEAVY" value="6" enum="WallMaterial">
+			Heavy curtain fabric.
+		</constant>
+		<constant name="MATERIAL_FIBER_GLASS_INSULATION" value="7" enum="WallMaterial">
+			Fibreglass insulation.
+		</constant>
+		<constant name="MATERIAL_GLASS_THIN" value="8" enum="WallMaterial">
+			Thin glass pane.
+		</constant>
+		<constant name="MATERIAL_GLASS_THICK" value="9" enum="WallMaterial">
+			Thick glass pane.
+		</constant>
+		<constant name="MATERIAL_GRASS" value="10" enum="WallMaterial">
+			Grass.
+		</constant>
+		<constant name="MATERIAL_LINOLEUM_ON_CONCRETE" value="11" enum="WallMaterial">
+			Linoleum laid over concrete.
+		</constant>
+		<constant name="MATERIAL_MARBLE" value="12" enum="WallMaterial">
+			Marble.
+		</constant>
+		<constant name="MATERIAL_METAL" value="13" enum="WallMaterial">
+			Metal panel.
+		</constant>
+		<constant name="MATERIAL_PARQUET_ON_CONCRETE" value="14" enum="WallMaterial">
+			Parquet flooring on concrete.
+		</constant>
+		<constant name="MATERIAL_PLASTER_ROUGH" value="15" enum="WallMaterial">
+			Rough plaster.
+		</constant>
+		<constant name="MATERIAL_PLASTER_SMOOTH" value="16" enum="WallMaterial">
+			Smooth plaster. Default wall material.
+		</constant>
+		<constant name="MATERIAL_PLYWOOD_PANEL" value="17" enum="WallMaterial">
+			Plywood panel.
+		</constant>
+		<constant name="MATERIAL_POLISHED_CONCRETE_OR_TILE" value="18" enum="WallMaterial">
+			Polished concrete or ceramic tile.
+		</constant>
+		<constant name="MATERIAL_SHEETROCK" value="19" enum="WallMaterial">
+			Sheetrock (gypsum board).
+		</constant>
+		<constant name="MATERIAL_WATER_OR_ICE_SURFACE" value="20" enum="WallMaterial">
+			Water or ice surface.
+		</constant>
+		<constant name="MATERIAL_WOOD_CEILING" value="21" enum="WallMaterial">
+			Wood ceiling.
+		</constant>
+		<constant name="MATERIAL_WOOD_PANEL" value="22" enum="WallMaterial">
+			Wood wall panel.
+		</constant>
+		<constant name="MATERIAL_UNIFORM" value="23" enum="WallMaterial">
+			Broadband uniform absorber.
+		</constant>
+		<constant name="BAKE_ERROR_OK" value="0" enum="BakeError">
+			The bake completed.
+		</constant>
+		<constant name="BAKE_ERROR_NO_MESHES" value="1" enum="BakeError">
+			No mesh geometry was found under the [code]from_node[/code] argument of [method bake].
+		</constant>
+		<constant name="BAKE_ERROR_NO_PROBES" value="2" enum="BakeError">
+			The [code]probe_positions[/code] argument of [method bake] was empty.
+		</constant>
+	</constants>
+</class>

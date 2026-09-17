@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ResonanceAudioMaterialMap" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Maps rendering-material paths to acoustic wall materials for reverb baking.
+	</brief_description>
+	<description>
+		Associates each scene [Material] with a [enum ReverbProbeGI.WallMaterial], so a [ReverbProbeGI] bake can look up the acoustic properties of any surface it hits by the material assigned to it in the scene.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="clear_mappings">
+			<return type="void" />
+			<description>
+				Removes every material mapping.
+			</description>
+		</method>
+		<method name="get_material_mapping" qualifiers="const">
+			<return type="int" enum="ReverbProbeGI.WallMaterial" />
+			<param index="0" name="material_path" type="String" />
+			<description>
+				Returns the acoustic material mapped to [param material_path], or [member default_material] if no mapping exists.
+			</description>
+		</method>
+		<method name="get_material_mappings" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns every stored mapping as a [Dictionary] of material path to [enum ReverbProbeGI.WallMaterial].
+			</description>
+		</method>
+		<method name="has_material_mapping" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="material_path" type="String" />
+			<description>
+				Returns [code]true[/code] if [param material_path] has an explicit mapping.
+			</description>
+		</method>
+		<method name="remove_material_mapping">
+			<return type="void" />
+			<param index="0" name="material_path" type="String" />
+			<description>
+				Removes the mapping for [param material_path], falling back to [member default_material] for that material.
+			</description>
+		</method>
+		<method name="scan_scene">
+			<return type="void" />
+			<param index="0" name="root" type="Node" />
+			<description>
+				Walks the [param root] subtree and registers every [Material] found on visible meshes, so each one can be assigned a wall material in the editor.
+			</description>
+		</method>
+		<method name="set_material_mapping">
+			<return type="void" />
+			<param index="0" name="material_path" type="String" />
+			<param index="1" name="acoustic_material" type="int" enum="ReverbProbeGI.WallMaterial" />
+			<description>
+				Maps [param material_path] to [param acoustic_material].
+			</description>
+		</method>
+		<method name="set_material_mappings">
+			<return type="void" />
+			<param index="0" name="mappings" type="Dictionary" />
+			<description>
+				Replaces every mapping with the contents of [param mappings].
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="default_material" type="int" setter="set_default_material" getter="get_default_material" enum="ReverbProbeGI.WallMaterial" default="16">
+			Wall material returned for any surface without an explicit mapping.
+		</member>
+	</members>
+</class>
