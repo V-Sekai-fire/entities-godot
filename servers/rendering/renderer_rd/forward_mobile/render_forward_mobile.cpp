@@ -3866,6 +3866,11 @@ RenderForwardMobile::~RenderForwardMobile() {
 #ifdef MODULE_OIT_ENABLED
 void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview) {
 	if (!GLOBAL_GET("rendering/oit/enabled")) {
+		if (oit_effect) {
+			// Otherwise the alpha pass keeps sampling the last integrated transmittance.
+			memdelete(oit_effect);
+			oit_effect = nullptr;
+		}
 		return;
 	}
 	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
