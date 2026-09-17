@@ -4,6 +4,8 @@
 import Oit.SliceCurve
 import Oit.Extinction
 import Oit.PrefixSum
+import Oit.Voxelize
+import Oit.Integrate
 
 /-!
 # Adaptive Volumetric Boundary OIT (Drobot, SIGGRAPH 2025)
