@@ -19,7 +19,7 @@ Recording needs a driver with a RenderingDevice. The OpenGL driver has none, and
 falls back to a blocking viewport readback there.
 
 Running the scene without `--write-movie` checks only that the module is present and prints
-its settings. The class is absent on non x86 builds, which `config.py` excludes.
+its settings. On arm64 the codec's SSE reaches NEON through sse2neon.
 
 Settings live under `editor/movie_writer/cineform/`: `quality`, `thread_count` and
 `keep_alpha`. Alpha encodes RGBA 4:4:4:4 and costs about a third more time and a fifth more
