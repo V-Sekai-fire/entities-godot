@@ -149,6 +149,7 @@ private:
 		// PASS_MODE_SDF,
 		PASS_MODE_MOTION_VECTORS,
 		PASS_MODE_OIT_SPLAT,
+		PASS_MODE_OIT_ACCUMULATE,
 	};
 
 	struct RenderElementInfo;
@@ -451,6 +452,10 @@ private:
 	_FORCE_INLINE_ void _render_list_template(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element);
 	void _render_list(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element);
 	void _render_list_with_draw_list(RenderListParameters *p_params, RID p_framebuffer, BitField<RD::DrawFlags> p_clear_colors = RD::DRAW_DEFAULT_ALL, const Vector<Color> &p_clear_color_values = Vector<Color>(), float p_clear_depth_value = 0.0, uint32_t p_clear_stencil_value = 0, const Rect2 &p_region = Rect2());
+#ifdef MODULE_OIT_ENABLED
+	uint32_t _oit_partition_alpha_list();
+	void _oit_accumulate(RenderDataRD *p_render_data, const RenderListParameters *p_params, uint32_t p_element_count, uint32_t p_breadcrumb);
+#endif
 
 	RenderList render_list[RENDER_LIST_MAX];
 

@@ -30,6 +30,9 @@
 
 #include "oit_effect.h"
 
+#include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
+#include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
+
 OITEffect::OITEffect() {
 	Vector<String> defines;
 	defines.push_back("");
@@ -41,10 +44,31 @@ OITEffect::OITEffect() {
 	integrate_shader.initialize(defines);
 	integrate_shader_version = integrate_shader.version_create();
 	integrate_pipeline = RD::get_singleton()->compute_pipeline_create(integrate_shader.version_get_shader(integrate_shader_version, 0));
+
+	resolve_shader.initialize(defines);
+	resolve_shader_version = resolve_shader.version_create();
+
+	// Premultiplied over: the resolve carries 1 - T in alpha so the background keeps T.
+	RD::PipelineColorBlendState::Attachment blend_attachment;
+	blend_attachment.enable_blend = true;
+	blend_attachment.color_blend_op = RD::BLEND_OP_ADD;
+	blend_attachment.src_color_blend_factor = RD::BLEND_FACTOR_ONE;
+	blend_attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	blend_attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+	blend_attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+	blend_attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	RD::PipelineColorBlendState blend_state;
+	blend_state.attachments.push_back(blend_attachment);
+	resolve_pipeline.setup(resolve_shader.version_get_shader(resolve_shader_version, 0), RD::RENDER_PRIMITIVE_TRIANGLES, RD::PipelineRasterizationState(), RD::PipelineMultisampleState(), RD::PipelineDepthStencilState(), blend_state, 0);
 }
 
 OITEffect::~OITEffect() {
 	_free_buffers();
+	_free_accumulation();
+	resolve_pipeline.clear();
+	if (resolve_shader_version.is_valid()) {
+		resolve_shader.version_free(resolve_shader_version);
+	}
 	if (voxelize_shader_version.is_valid()) {
 		voxelize_shader.version_free(voxelize_shader_version);
 	}
@@ -75,6 +99,24 @@ void OITEffect::_free_buffers() {
 	extinction_bytes = 0;
 	voxelize_uniform_set = RID();
 	integrate_uniform_set = RID();
+}
+
+void OITEffect::_free_accumulation() {
+	RenderingDevice *rd = RD::get_singleton();
+	if (rd->framebuffer_is_valid(accumulation_framebuffer)) {
+		rd->free_rid(accumulation_framebuffer);
+	}
+	accumulation_framebuffer = RID();
+	if (accumulated_color.is_valid()) {
+		rd->free_rid(accumulated_color);
+		accumulated_color = RID();
+	}
+	if (accumulated_extinction.is_valid()) {
+		rd->free_rid(accumulated_extinction);
+		accumulated_extinction = RID();
+	}
+	accumulation_size = Vector2i();
+	accumulation_depth = RID();
 }
 
 RID OITEffect::_uniform_set(RID &r_cached, const Vector<RD::Uniform> &p_uniforms, RID p_shader) {
@@ -218,4 +260,49 @@ void OITEffect::integrate(RID p_params_buffer) {
 	rd->compute_list_bind_uniform_set(compute_list, uniform_set, 0);
 	rd->compute_list_dispatch(compute_list, froxel_dims.x, froxel_dims.y, 1);
 	rd->compute_list_end();
+}
+
+void OITEffect::configure_accumulation(const Vector2i &p_size, RID p_depth_texture) {
+	ERR_FAIL_COND(p_size.x <= 0 || p_size.y <= 0);
+	ERR_FAIL_COND(!p_depth_texture.is_valid());
+
+	RenderingDevice *rd = RD::get_singleton();
+	if (p_size == accumulation_size && p_depth_texture == accumulation_depth && rd->framebuffer_is_valid(accumulation_framebuffer)) {
+		return;
+	}
+
+	_free_accumulation();
+	accumulation_size = p_size;
+	accumulation_depth = p_depth_texture;
+
+	RD::TextureFormat fmt;
+	fmt.width = p_size.x;
+	fmt.height = p_size.y;
+	fmt.usage_bits = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT;
+	fmt.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
+	accumulated_color = rd->texture_create(fmt, RD::TextureView());
+	fmt.format = RD::DATA_FORMAT_R16_SFLOAT;
+	accumulated_extinction = rd->texture_create(fmt, RD::TextureView());
+
+	Vector<RID> attachments;
+	attachments.push_back(accumulated_color);
+	attachments.push_back(accumulated_extinction);
+	attachments.push_back(p_depth_texture);
+	accumulation_framebuffer = rd->framebuffer_create(attachments);
+}
+
+void OITEffect::resolve(RD::DrawListID p_draw_list, RD::FramebufferFormatID p_framebuffer_format) {
+	ERR_FAIL_COND(!accumulation_framebuffer.is_valid());
+	RenderingDevice *rd = RD::get_singleton();
+	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
+	ERR_FAIL_NULL(uniform_set_cache);
+
+	RID sampler = RendererRD::MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+	RD::Uniform u_color(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ sampler, accumulated_color }));
+	RD::Uniform u_extinction(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ sampler, accumulated_extinction }));
+
+	RID shader = resolve_shader.version_get_shader(resolve_shader_version, 0);
+	rd->draw_list_bind_render_pipeline(p_draw_list, resolve_pipeline.get_render_pipeline(RD::INVALID_ID, p_framebuffer_format));
+	rd->draw_list_bind_uniform_set(p_draw_list, uniform_set_cache->get_cache(shader, 0, u_color, u_extinction), 0);
+	rd->draw_list_draw(p_draw_list, false, 1u, 3u);
 }
