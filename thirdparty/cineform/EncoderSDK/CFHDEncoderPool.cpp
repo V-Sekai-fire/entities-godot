@@ -122,7 +122,6 @@ CFHD_CreateEncoderPool(CFHD_EncoderPoolRef *encoderPoolRefOut,
 #endif
 		return CFHD_ERROR_OKAY;
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 /*!
@@ -151,7 +150,6 @@ CFHD_GetAsyncInputFormats(CFHD_EncoderPoolRef encoderPoolRef,
 											inputFormatArrayLength,
 											actualInputFormatCountOut);
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 /*!
@@ -184,7 +182,6 @@ CFHD_PrepareEncoderPool(CFHD_EncoderPoolRef encoderPoolRef,
 		return encoderPool->PrepareToEncode(frameWidth, frameHeight, pixelFormat,
 											encodedFormat, encodingFlags, encodingQuality);
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 /*!
@@ -225,7 +222,6 @@ CFHD_SetEncoderPoolLicense(CFHD_EncoderPoolRef encoderPoolRef,
 		else
 			return CFHD_ERROR_OKAY;
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 
@@ -277,7 +273,6 @@ CFHD_SetEncoderPoolLicense2(CFHD_EncoderPoolRef encoderPoolRef,
 		else
 			return CFHD_ERROR_OKAY;
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 /*!
@@ -330,7 +325,6 @@ CFHD_AttachEncoderPoolMetadata(CFHD_EncoderPoolRef encoderPoolRef,
 
 		return encoderPool->AttachMetadata(encoderMetadata);
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 /*!
@@ -357,7 +351,6 @@ CFHD_StartEncoderPool(CFHD_EncoderPoolRef encoderPoolRef)
 		}
 		return encoderPool->StartEncoders();
 	}
-	return CFHD_ERROR_UNEXPECTED;
 
 	return CFHD_ERROR_OKAY;
 }
@@ -388,7 +381,6 @@ CFHD_StopEncoderPool(CFHD_EncoderPoolRef encoderPoolRef)
 		}
 		return encoderPool->StopEncoders();
 	}
-	return CFHD_ERROR_UNEXPECTED;
 
 	return CFHD_ERROR_OKAY;
 }
@@ -437,7 +429,6 @@ CFHD_EncodeAsyncSample(CFHD_EncoderPoolRef encoderPoolRef,
 		bool keyFrame = true;
 		return encoderPool->EncodeSample(frameNumber, (uint8_t *)frameBuffer, framePitch, keyFrame, encoderMetadata);
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 /*!
@@ -480,7 +471,6 @@ CFHD_WaitForSample(CFHD_EncoderPoolRef encoderPoolRef,
 		*sampleBufferRefOut = reinterpret_cast<CFHD_SampleBufferRef>(sampleBuffer);
 		return CFHD_ERROR_OKAY;
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 /*!
@@ -524,7 +514,6 @@ CFHD_TestForSample(CFHD_EncoderPoolRef encoderPoolRef,
 		*sampleBufferRefOut = reinterpret_cast<CFHD_SampleBufferRef>(sampleBuffer);
 		return CFHD_ERROR_OKAY;
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 /*!
@@ -557,7 +546,6 @@ CFHD_GetEncodedSample(CFHD_SampleBufferRef sampleBufferRef,
 		*sampleSizeOut = sample->Size();
 		return CFHD_ERROR_OKAY;
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 /*!
@@ -687,7 +675,6 @@ CFHD_GetSampleThumbnail(CFHD_SampleBufferRef sampleBufferRef,
 			}
 		}
 	}
-	return CFHD_ERROR_UNEXPECTED;
 
 	// Could not parse the sample or generate the thumbnail image
 	return CFHD_ERROR_CODEC_ERROR;
@@ -721,7 +708,6 @@ CFHD_ReleaseSampleBuffer(CFHD_EncoderPoolRef encoderPoolRef,
 		}
 		return encoderPool->ReleaseSampleBuffer(sampleBuffer);
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }
 
 /*!
@@ -754,5 +740,4 @@ CFHD_ReleaseEncoderPool(CFHD_EncoderPoolRef encoderPoolRef)
 #endif
 		return CFHD_ERROR_OKAY;
 	}
-	return CFHD_ERROR_UNEXPECTED;
 }

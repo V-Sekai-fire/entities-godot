@@ -205,6 +205,10 @@ void MovieWriterCineForm::_drain(bool p_block) {
 		CFHD_Error err = p_block ? CFHD_WaitForSample(pool, &number, &buffer)
 								 : CFHD_TestForSample(pool, &number, &buffer);
 		if (err != CFHD_ERROR_OKAY || buffer == nullptr) {
+			if (p_block) {
+				ERR_PRINT(vformat("CFHD_WaitForSample failed with code %d; %d queued frames are lost.", int(err), queued));
+				queued = 0;
+			}
 			break;
 		}
 		void *data = nullptr;

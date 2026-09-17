@@ -491,7 +491,6 @@ CFHD_ParseSampleHeader(void *samplePtr,
 
 		sampleHeader->SetFrameSize(header.width, header.height);
 	}
-	return CFHD_ERROR_INTERNAL;
 
 finish:
 
@@ -733,7 +732,6 @@ CFHD_DecodeSample(CFHD_DecoderRef decoderRef,
 				test_mem[-(len + outputPitch)] = 0;
 		}
 	}
-	return CFHD_ERROR_DECODE_BUFFER_SIZE;
 
 	errorCode = decoder->DecodeSample(samplePtr, sampleSize, outputBuffer, outputPitch);
 	if (errorCode != CFHD_ERROR_OKAY) {
