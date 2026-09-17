@@ -120,6 +120,57 @@ TEST_CASE("[Cassie][SketchGraph] three strokes forming a triangle yield exactly 
 					first_cycle.size()));
 }
 
+TEST_CASE("[Cassie][SketchGraph] add_stroke_intersecting splits three overshooting strokes into a cycle") {
+	// The pen-demo run of 2026-09-17: three strokes that overshoot each
+	// corner. Each pair crosses once, so the arrangement is 3 crossing
+	// nodes + 6 free ends, 9 edges, and one 3-edge cycle.
+	const PackedVector3Array s0 = _segment(Vector3(-1.2, 0, 0), Vector3(1.2, 0, 0), 16);
+	const PackedVector3Array s1 = _segment(Vector3(1.1, -0.3, 0), Vector3(-0.2, 1.8, 0), 16);
+	const PackedVector3Array s2 = _segment(Vector3(0.2, 1.8, 0), Vector3(-1.1, -0.3, 0), 16);
+
+	Ref<CassieSketchGraph> g;
+	g.instantiate();
+	int added = 0;
+	added += g->add_stroke_intersecting(s0, _up_normals(s0.size()), 0.02);
+	added += g->add_stroke_intersecting(s1, _up_normals(s1.size()), 0.02);
+	added += g->add_stroke_intersecting(s2, _up_normals(s2.size()), 0.02);
+	CHECK_EQ(added, 9);
+	CHECK_EQ(g->get_edge_count(), 9);
+	CHECK_EQ(g->get_node_count(), 9);
+	const Array cycles = g->find_cycles();
+	REQUIRE_MESSAGE(cycles.size() >= 1, "crossing strokes must close one cycle");
+	const PackedInt32Array cycle = cycles[0];
+	CHECK_EQ(cycle.size(), 3);
+
+	// Control: the endpoint-merge path on the same strokes finds nothing.
+	Ref<CassieSketchGraph> plain;
+	plain.instantiate();
+	plain->add_stroke(s0, _up_normals(s0.size()));
+	plain->add_stroke(s1, _up_normals(s1.size()));
+	plain->add_stroke(s2, _up_normals(s2.size()));
+	CHECK_EQ(plain->get_edge_count(), 3);
+	CHECK_EQ(plain->get_node_count(), 6);
+	CHECK_EQ(plain->find_cycles().size(), 0);
+}
+
+TEST_CASE("[Cassie][SketchGraph] add_stroke_intersecting keeps ids of edges it does not cross") {
+	Ref<CassieSketchGraph> g;
+	g.instantiate();
+	const PackedVector3Array far_away = _segment(Vector3(5, 5, 0), Vector3(6, 5, 0));
+	const PackedVector3Array base = _segment(Vector3(-1, 0, 0), Vector3(1, 0, 0));
+	const PackedVector3Array cross = _segment(Vector3(0, -1, 0), Vector3(0, 1, 0));
+	g->add_stroke_intersecting(far_away, _up_normals(far_away.size()), 0.02);
+	g->add_stroke_intersecting(base, _up_normals(base.size()), 0.02);
+	CHECK(g->get_edge(0).is_valid());
+	CHECK(g->get_edge(1).is_valid());
+	g->add_stroke_intersecting(cross, _up_normals(cross.size()), 0.02);
+	CHECK_MESSAGE(g->get_edge(0).is_valid(), "the untouched edge keeps id 0");
+	CHECK_MESSAGE(g->get_edge(1).is_null(), "the crossed edge is replaced by its halves");
+	CHECK_EQ(g->get_edge_count(), 5);
+	CHECK_EQ(g->get_node_count(), 7);
+	CHECK_EQ(g->get_node(g->get_edge(2)->get_node_b_id())->get_degree(), 4);
+}
+
 TEST_CASE("[Cassie][SketchGraph] triangle cycle → sample_cycle_boundary → CassieTriangulator produces a valid mesh") {
 	// End-to-end: the cycle→patch path. Three strokes form a triangle,
 	// find_cycles returns one cycle, sample_cycle_boundary emits a CCW

@@ -30,6 +30,7 @@
 
 #include "cassie_sketch_graph.h"
 
+#include "core/math/aabb.h"
 #include "core/math/math_funcs.h"
 #include "core/object/class_db.h"
 #include "core/templates/local_vector.h"
@@ -324,26 +325,169 @@ int CassieSketchGraph::add_stroke(const PackedVector3Array &p_points,
 	return eid;
 }
 
+void CassieSketchGraph::_remove_edge(int p_edge_id) {
+	HashMap<int, Ref<CassieSketchGraphEdge>>::Iterator it = edges.find(p_edge_id);
+	if (!it) {
+		return;
+	}
+	const int ends[2] = { it->value->get_node_a_id(), it->value->get_node_b_id() };
+	for (int e = 0; e < 2; ++e) {
+		HashMap<int, Ref<CassieSketchGraphNode>>::Iterator nit = nodes.find(ends[e]);
+		if (!nit) {
+			continue;
+		}
+		PackedInt32Array ids = nit->value->get_edge_ids();
+		const int at = ids.find(p_edge_id);
+		if (at >= 0) {
+			ids.remove_at(at);
+		}
+		nit->value->set_edge_ids(ids);
+	}
+	edges.remove(it);
+}
+
+void CassieSketchGraph::_cumulative_lengths(const PackedVector3Array &p_poly,
+		LocalVector<real_t> &r_cum) {
+	r_cum.resize(p_poly.size());
+	if (p_poly.is_empty()) {
+		return;
+	}
+	r_cum[0] = 0;
+	for (int k = 1; k < p_poly.size(); ++k) {
+		r_cum[k] = r_cum[k - 1] + p_poly[k - 1].distance_to(p_poly[k]);
+	}
+}
+
+// Pairwise segment-segment closest-pair tests between two polylines with a
+// per-polyline and a per-segment AABB cull. Each hit within p_proximity is
+// recorded on both polylines as the midpoint of the closest pair, so the
+// crossing is one position from both points of view; merge_epsilon then
+// collapses it to one graph node.
+void CassieSketchGraph::_crossings(const PackedVector3Array &p_a,
+		const PackedVector3Array &p_b, real_t p_proximity,
+		LocalVector<SplitPt> &r_a, LocalVector<SplitPt> &r_b) {
+	const int na = p_a.size();
+	const int nb = p_b.size();
+	if (na < 2 || nb < 2) {
+		return;
+	}
+	AABB box_a(p_a[0], Vector3());
+	for (int k = 1; k < na; ++k) {
+		box_a.expand_to(p_a[k]);
+	}
+	AABB box_b(p_b[0], Vector3());
+	for (int k = 1; k < nb; ++k) {
+		box_b.expand_to(p_b[k]);
+	}
+	if (!box_a.grow(p_proximity).intersects(box_b.grow(p_proximity))) {
+		return;
+	}
+	LocalVector<real_t> cum_a;
+	LocalVector<real_t> cum_b;
+	_cumulative_lengths(p_a, cum_a);
+	_cumulative_lengths(p_b, cum_b);
+	const real_t prox2 = p_proximity * p_proximity;
+	for (int a = 0; a < na - 1; ++a) {
+		const Vector3 a0 = p_a[a];
+		const Vector3 a1 = p_a[a + 1];
+		AABB seg_a(a0, Vector3());
+		seg_a.expand_to(a1);
+		seg_a = seg_a.grow(p_proximity);
+		for (int b = 0; b < nb - 1; ++b) {
+			const Vector3 b0 = p_b[b];
+			const Vector3 b1 = p_b[b + 1];
+			AABB seg_b(b0, Vector3());
+			seg_b.expand_to(b1);
+			if (!seg_a.intersects(seg_b)) {
+				continue;
+			}
+			real_t s, t, d2;
+			_segment_segment_closest(a0, a1, b0, b1, s, t, d2);
+			if (d2 > prox2) {
+				continue;
+			}
+			const Vector3 mid = (a0 + (a1 - a0) * s + b0 + (b1 - b0) * t) * real_t(0.5);
+			const SplitPt sa = { cum_a[a] + s * (cum_a[a + 1] - cum_a[a]), mid };
+			const SplitPt sb = { cum_b[b] + t * (cum_b[b + 1] - cum_b[b]), mid };
+			r_a.push_back(sa);
+			r_b.push_back(sb);
+		}
+	}
+}
+
+// Sorts p_splits by arc length, drops near-coincident ones, and emits one
+// edge per slice of p_poly between consecutive splits. The endpoint merge
+// inside add_stroke snaps each slice end to the shared crossing node.
+int CassieSketchGraph::_add_polyline_sliced(const PackedVector3Array &p_poly,
+		LocalVector<SplitPt> &p_splits, int p_source_idx) {
+	const int n = p_poly.size();
+	if (n < 2) {
+		return 0;
+	}
+	for (uint32_t a = 1; a < p_splits.size(); ++a) {
+		for (uint32_t b = a; b > 0; --b) {
+			if (p_splits[b].t >= p_splits[b - 1].t) {
+				break;
+			}
+			const SplitPt tmp = p_splits[b];
+			p_splits[b] = p_splits[b - 1];
+			p_splits[b - 1] = tmp;
+		}
+	}
+	LocalVector<SplitPt> uniq;
+	for (uint32_t k = 0; k < p_splits.size(); ++k) {
+		if (!uniq.is_empty() &&
+				p_splits[k].pos.distance_to(uniq[uniq.size() - 1].pos) <= merge_epsilon) {
+			continue;
+		}
+		uniq.push_back(p_splits[k]);
+	}
+
+	LocalVector<real_t> cl;
+	_cumulative_lengths(p_poly, cl);
+	const PackedVector3Array empty_normals;
+	int added = 0;
+	PackedVector3Array current;
+	current.push_back(p_poly[0]);
+	uint32_t s_ix = 0;
+	for (int k = 0; k < n - 1; ++k) {
+		const real_t seg_end_t = cl[k + 1];
+		while (s_ix < uniq.size() && uniq[s_ix].t <= seg_end_t) {
+			const Vector3 cut = uniq[s_ix].pos;
+			if (current.size() > 0 &&
+					cut.distance_to(current[current.size() - 1]) > merge_epsilon) {
+				current.push_back(cut);
+			}
+			if (current.size() >= 2) {
+				const int new_eid = add_stroke(current, empty_normals);
+				if (new_eid >= 0) {
+					edges[new_eid]->set_source_polyline_idx(p_source_idx);
+					added++;
+				}
+			}
+			current = PackedVector3Array();
+			current.push_back(cut);
+			s_ix++;
+		}
+		const Vector3 next = p_poly[k + 1];
+		if (current.size() == 0 ||
+				next.distance_to(current[current.size() - 1]) > merge_epsilon) {
+			current.push_back(next);
+		}
+	}
+	if (current.size() >= 2) {
+		const int new_eid = add_stroke(current, empty_normals);
+		if (new_eid >= 0) {
+			edges[new_eid]->set_source_polyline_idx(p_source_idx);
+			added++;
+		}
+	}
+	return added;
+}
+
 // One-shot planar arrangement build for offline replay. See header comment.
-//
-// Strategy:
-//  1. Snapshot every segment of every polyline as a candidate, tagged with
-//     (polyline_idx, seg_idx, t0, t1) where t0/t1 are the parametric
-//     positions along the WHOLE polyline (cumulative arc length normalized).
-//  2. Pairwise segment-segment closest-pair tests with two cheap culls:
-//     per-polyline AABB intersection and per-segment AABB intersection.
-//     Each hit within p_proximity becomes a candidate crossing position.
-//  3. Cluster crossing positions into unique node positions via the
-//     existing _find_or_create_node merge (radius merge_epsilon).
-//  4. For each polyline, collect all of its split parameters, dedupe,
-//     sort, and slice the polyline at those parameters; the resulting
-//     sub-polylines are added as edges via the simple endpoint-merge
-//     path (which finds the shared nodes we just created).
-//
-// Cost: O(P² × S²) closest-pair tests in the worst case where P=polyline
-// count and S=avg segments per polyline, with the AABB culls eliminating
-// most pairs in practice. For hat (120 polylines × ~5 segs each) this
-// runs in tens of ms.
+// O(P² × S²) closest-pair tests worst case, P polylines of S segments; the
+// AABB culls drop most pairs. Hat (120 polylines × ~5 segs) runs in tens of ms.
 int CassieSketchGraph::build_from_polylines(
 		const TypedArray<PackedVector3Array> &p_polylines,
 		real_t p_proximity) {
@@ -352,211 +496,56 @@ int CassieSketchGraph::build_from_polylines(
 	if (P == 0) {
 		return 0;
 	}
-	const real_t prox2 = p_proximity * p_proximity;
-
-	// Per-polyline copy + AABB.
 	LocalVector<PackedVector3Array> polys;
 	polys.resize(P);
-	LocalVector<Vector3> poly_min;
-	LocalVector<Vector3> poly_max;
-	poly_min.resize(P);
-	poly_max.resize(P);
 	for (int i = 0; i < P; ++i) {
 		polys[i] = p_polylines[i];
-		const PackedVector3Array &poly = polys[i];
-		Vector3 mn = poly[0];
-		Vector3 mx = poly[0];
-		for (int k = 1; k < poly.size(); ++k) {
-			const Vector3 p = poly[k];
-			if (p.x < mn.x) {
-				mn.x = p.x;
-			}
-			if (p.x > mx.x) {
-				mx.x = p.x;
-			}
-			if (p.y < mn.y) {
-				mn.y = p.y;
-			}
-			if (p.y > mx.y) {
-				mx.y = p.y;
-			}
-			if (p.z < mn.z) {
-				mn.z = p.z;
-			}
-			if (p.z > mx.z) {
-				mx.z = p.z;
-			}
-		}
-		const Vector3 pad(p_proximity, p_proximity, p_proximity);
-		poly_min[i] = mn - pad;
-		poly_max[i] = mx + pad;
 	}
-
-	// Cumulative arc lengths per polyline — used to express crossing
-	// positions as monotone parameters along the whole polyline.
-	LocalVector<LocalVector<real_t>> cum_len;
-	cum_len.resize(P);
-	for (int i = 0; i < P; ++i) {
-		const PackedVector3Array &poly = polys[i];
-		LocalVector<real_t> &cl = cum_len[i];
-		cl.resize(poly.size());
-		cl[0] = 0;
-		for (int k = 1; k < poly.size(); ++k) {
-			cl[k] = cl[k - 1] + poly[k - 1].distance_to(poly[k]);
-		}
-	}
-
-	// One split point per polyline. (t along whole polyline, world pos).
-	struct SplitPt {
-		real_t t; // arc-length along the polyline, monotonically increasing
-		Vector3 pos;
-	};
 	LocalVector<LocalVector<SplitPt>> splits_per_poly;
 	splits_per_poly.resize(P);
-
-	// Phase 1 — pairwise crossing detection with AABB culls.
 	for (int i = 0; i < P; ++i) {
-		const PackedVector3Array &pi = polys[i];
-		const int ni = pi.size();
 		for (int j = i + 1; j < P; ++j) {
-			// Polyline AABB cull.
-			if (poly_max[i].x < poly_min[j].x ||
-					poly_min[i].x > poly_max[j].x ||
-					poly_max[i].y < poly_min[j].y ||
-					poly_min[i].y > poly_max[j].y ||
-					poly_max[i].z < poly_min[j].z ||
-					poly_min[i].z > poly_max[j].z) {
-				continue;
-			}
-			const PackedVector3Array &pj = polys[j];
-			const int nj = pj.size();
-			for (int a = 0; a < ni - 1; ++a) {
-				const Vector3 a0 = pi[a];
-				const Vector3 a1 = pi[a + 1];
-				// Per-segment AABB cull.
-				const real_t a_minx = MIN(a0.x, a1.x) - p_proximity;
-				const real_t a_maxx = MAX(a0.x, a1.x) + p_proximity;
-				const real_t a_miny = MIN(a0.y, a1.y) - p_proximity;
-				const real_t a_maxy = MAX(a0.y, a1.y) + p_proximity;
-				const real_t a_minz = MIN(a0.z, a1.z) - p_proximity;
-				const real_t a_maxz = MAX(a0.z, a1.z) + p_proximity;
-				for (int b = 0; b < nj - 1; ++b) {
-					const Vector3 b0 = pj[b];
-					const Vector3 b1 = pj[b + 1];
-					if (a_maxx < MIN(b0.x, b1.x) ||
-							a_minx > MAX(b0.x, b1.x) ||
-							a_maxy < MIN(b0.y, b1.y) ||
-							a_miny > MAX(b0.y, b1.y) ||
-							a_maxz < MIN(b0.z, b1.z) ||
-							a_minz > MAX(b0.z, b1.z)) {
-						continue;
-					}
-					real_t s, t, d2;
-					_segment_segment_closest(a0, a1, b0, b1, s, t, d2);
-					if (d2 > prox2) {
-						continue;
-					}
-					// Crossing position: midpoint of the closest pair. This
-					// is the same node from both polylines' point of view;
-					// merge_epsilon will collapse it to a single graph node.
-					const Vector3 cp_a = a0 + (a1 - a0) * s;
-					const Vector3 cp_b = b0 + (b1 - b0) * t;
-					const Vector3 mid = (cp_a + cp_b) * real_t(0.5);
-					// Arc-length parameter on each polyline.
-					const real_t seg_len_a = cum_len[i][a + 1] - cum_len[i][a];
-					const real_t seg_len_b = cum_len[j][b + 1] - cum_len[j][b];
-					SplitPt sa = { cum_len[i][a] + s * seg_len_a, mid };
-					SplitPt sb = { cum_len[j][b] + t * seg_len_b, mid };
-					splits_per_poly[i].push_back(sa);
-					splits_per_poly[j].push_back(sb);
-				}
-			}
+			_crossings(polys[i], polys[j], p_proximity,
+					splits_per_poly[i], splits_per_poly[j]);
 		}
 	}
-
-	// Phase 2 — for each polyline, sort split positions by arc length,
-	// dedupe near-coincident ones (within merge_epsilon spatially), then
-	// emit edges between consecutive splits (and from each end of the
-	// polyline). The endpoint-merge inside add_stroke's _find_or_create
-	// snaps the slice endpoints to the unique node positions.
-	const PackedVector3Array empty_normals;
 	int total_edges = 0;
 	for (int i = 0; i < P; ++i) {
-		const PackedVector3Array &poly = polys[i];
-		const int n = poly.size();
-		LocalVector<SplitPt> &sp = splits_per_poly[i];
-		// Sort by arc-length t. Tiny lists — insertion sort.
-		for (uint32_t a = 1; a < sp.size(); ++a) {
-			for (uint32_t b = a; b > 0; --b) {
-				if (sp[b].t >= sp[b - 1].t) {
-					break;
-				}
-				const SplitPt tmp = sp[b];
-				sp[b] = sp[b - 1];
-				sp[b - 1] = tmp;
-			}
-		}
-		// Dedupe within merge_epsilon spatially.
-		LocalVector<SplitPt> uniq;
-		for (uint32_t k = 0; k < sp.size(); ++k) {
-			if (!uniq.is_empty() &&
-					sp[k].pos.distance_to(uniq[uniq.size() - 1].pos) <=
-							merge_epsilon) {
-				continue;
-			}
-			uniq.push_back(sp[k]);
-		}
-
-		// Slice the polyline at each split's arc-length parameter, emit
-		// each slice as an edge. The cumulative-length array lets us find
-		// the source segment for each split position quickly.
-		const LocalVector<real_t> &cl = cum_len[i];
-		PackedVector3Array current;
-		current.push_back(poly[0]);
-		uint32_t s_ix = 0;
-		for (int k = 0; k < n - 1; ++k) {
-			const real_t seg_end_t = cl[k + 1];
-			while (s_ix < uniq.size() && uniq[s_ix].t <= seg_end_t) {
-				const Vector3 cut = uniq[s_ix].pos;
-				// If cut is past the current tail, include it as the
-				// boundary vertex. If it's coincident (within
-				// merge_epsilon), the existing tail already represents
-				// the same shared node, so we don't add a duplicate.
-				if (current.size() > 0 &&
-						cut.distance_to(current[current.size() - 1]) >
-								merge_epsilon) {
-					current.push_back(cut);
-				}
-				// Emit the sub-polyline up to (and including) this cut.
-				if (current.size() >= 2) {
-					const int new_eid = add_stroke(current, empty_normals);
-					if (new_eid >= 0) {
-						edges[new_eid]->set_source_polyline_idx(i);
-						total_edges++;
-					}
-				}
-				current = PackedVector3Array();
-				current.push_back(cut);
-				s_ix++;
-			}
-			if (k + 1 < n) {
-				const Vector3 next = poly[k + 1];
-				if (current.size() == 0 ||
-						next.distance_to(current[current.size() - 1]) >
-								merge_epsilon) {
-					current.push_back(next);
-				}
-			}
-		}
-		if (current.size() >= 2) {
-			const int new_eid = add_stroke(current, empty_normals);
-			if (new_eid >= 0) {
-				edges[new_eid]->set_source_polyline_idx(i);
-				total_edges++;
-			}
-		}
+		total_edges += _add_polyline_sliced(polys[i], splits_per_poly[i], i);
 	}
 	return total_edges;
+}
+
+int CassieSketchGraph::add_stroke_intersecting(const PackedVector3Array &p_points,
+		const PackedVector3Array &p_normals, real_t p_proximity) {
+	if (p_points.size() < 2) {
+		return 0;
+	}
+	LocalVector<SplitPt> new_splits;
+	LocalVector<int> hit_ids;
+	LocalVector<PackedVector3Array> hit_points;
+	LocalVector<int> hit_source;
+	LocalVector<LocalVector<SplitPt>> hit_splits;
+	for (const KeyValue<int, Ref<CassieSketchGraphEdge>> &kv : edges) {
+		LocalVector<SplitPt> on_edge;
+		_crossings(p_points, kv.value->get_points(), p_proximity, new_splits, on_edge);
+		if (on_edge.is_empty()) {
+			continue;
+		}
+		hit_ids.push_back(kv.key);
+		hit_points.push_back(kv.value->get_points());
+		hit_source.push_back(kv.value->get_source_polyline_idx());
+		hit_splits.push_back(on_edge);
+	}
+	int added = 0;
+	for (uint32_t h = 0; h < hit_ids.size(); ++h) {
+		_remove_edge(hit_ids[h]);
+		added += _add_polyline_sliced(hit_points[h], hit_splits[h], hit_source[h]) - 1;
+	}
+	if (new_splits.is_empty()) {
+		return added + (add_stroke(p_points, p_normals) >= 0 ? 1 : 0);
+	}
+	return added + _add_polyline_sliced(p_points, new_splits, -1);
 }
 
 Ref<CassieSketchGraphNode> CassieSketchGraph::get_node(int p_id) const {
@@ -825,22 +814,40 @@ Array CassieSketchGraph::find_cycles() const {
 	}
 	Vector3 graph_plane_normal(0, 1, 0);
 	{
+		// Power iteration on (trace·I − C) from a single seed cannot leave
+		// the seed's invariant subspace: a sketch on z=0 seeded from Y-up
+		// never gains a z component. Iterate from each axis and keep the
+		// result with the smallest Rayleigh quotient.
 		const real_t trace = cxx + cyy + czz;
-		Vector3 n = graph_plane_normal;
-		for (int it = 0; it < 8; ++it) {
+		const Vector3 seeds[3] = { Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0) };
+		real_t best_q = Math::INF;
+		for (int s = 0; s < 3; ++s) {
+			Vector3 n = seeds[s];
+			for (int it = 0; it < 8; ++it) {
+				const Vector3 cn(
+						cxx * n.x + cxy * n.y + cxz * n.z,
+						cxy * n.x + cyy * n.y + cyz * n.z,
+						cxz * n.x + cyz * n.y + czz * n.z);
+				Vector3 r = n * trace - cn;
+				const real_t r2 = r.length_squared();
+				if (r2 < real_t(1e-20)) {
+					break;
+				}
+				n = r / Math::sqrt(r2);
+			}
+			if (n.length_squared() < real_t(1e-10)) {
+				continue;
+			}
+			n.normalize();
 			const Vector3 cn(
 					cxx * n.x + cxy * n.y + cxz * n.z,
 					cxy * n.x + cyy * n.y + cyz * n.z,
 					cxz * n.x + cyz * n.y + czz * n.z);
-			Vector3 r = n * trace - cn;
-			const real_t r2 = r.length_squared();
-			if (r2 < real_t(1e-20)) {
-				break;
+			const real_t q = n.dot(cn);
+			if (q < best_q) {
+				best_q = q;
+				graph_plane_normal = n;
 			}
-			n = r / Math::sqrt(r2);
-		}
-		if (n.length_squared() > real_t(1e-10)) {
-			graph_plane_normal = n.normalized();
 		}
 	}
 	// Half-edge visit set: (edge_id << 32) | start_node_id.
@@ -876,7 +883,6 @@ Array CassieSketchGraph::find_cycles() const {
 			// orientation; for fully 3D networks it's the best single
 			// plane and downstream walks override it from the same source.
 			Vector3 current_normal = graph_plane_normal;
-			bool reversed = false;
 
 			LocalVector<int> path;
 			HashSet<int> path_set;
@@ -914,26 +920,18 @@ Array CassieSketchGraph::find_cycles() const {
 				} else {
 					transported = current_normal;
 				}
-				// Sign-align the next node's stored plane normal to the
-				// transported one. When they oppose, the local CCW
-				// convention has flipped, so we flip `reversed` and the
-				// angular selector picks the opposite-direction next edge.
-				Ref<CassieSketchGraphNode> nnode = get_node(next_nid);
-				if (nnode.is_valid()) {
-					const Vector3 nn = nnode->get_normal();
-					if (nn.length_squared() > real_t(1e-10) &&
-							nn.dot(transported) < 0) {
-						reversed = !reversed;
-					}
-				}
+				// The angular pick sorts around the transported normal, which
+				// is already sign-coherent along the walk. The node's stored
+				// normal carries an arbitrary sign at a crossing (the
+				// tangent-covariance fallback has no preferred side), so it is
+				// not consulted here: flipping on it sent the walk down the
+				// dangling stub at every overshooting corner.
 				current_normal = transported;
 				const int next_eid = _next_edge_at(next_nid, current_eid,
-						current_normal, /*p_want_next=*/!reversed);
+						current_normal, /*p_want_next=*/true);
 				if (next_eid < 0) {
 					break;
 				}
-				// reversed flag stays put — we already sign-aligned plane_n
-				// above, so we don't need a normal-flip detection step.
 				if (next_eid == eid && next_nid == start_nid) {
 					if (path.size() >= 3) {
 						PackedInt32Array cycle;
@@ -1095,6 +1093,8 @@ void CassieSketchGraph::_bind_methods() {
 			&CassieSketchGraph::add_stroke);
 	ClassDB::bind_method(D_METHOD("build_from_polylines", "polylines", "proximity"),
 			&CassieSketchGraph::build_from_polylines);
+	ClassDB::bind_method(D_METHOD("add_stroke_intersecting", "points", "normals", "proximity"),
+			&CassieSketchGraph::add_stroke_intersecting);
 	ClassDB::bind_method(D_METHOD("get_edge_count"),
 			&CassieSketchGraph::get_edge_count);
 	ClassDB::bind_method(D_METHOD("get_node_count"),
