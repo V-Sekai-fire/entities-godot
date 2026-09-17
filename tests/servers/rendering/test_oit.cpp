@@ -497,6 +497,34 @@ TEST_CASE("[OIT] resolve: control, alpha scaled into a sorted over-blend attenua
 	CHECK(oit_resolve(a, 0.0f) == doctest::Approx(oit_resolve(resolve_accumulate(swapped, true), 0.0f)).epsilon(1e-4));
 }
 
+TEST_CASE("[OIT] resolve: multisample folds to the mean of the per-sample resolves") {
+	LocalVector<ResolveEvent> stack;
+	for (const ResolveEvent &e : RESOLVE_STACK) {
+		stack.push_back(e);
+	}
+	OITAccum covered = resolve_accumulate(stack, false);
+	OITAccum half[4] = { covered, covered, OITAccum(), OITAccum() };
+	CHECK(oit_resolve_samples(half, 4, 1.0f) == doctest::Approx((2.0f * RESOLVE_REFERENCE + 2.0f) / 4.0f).epsilon(1e-4));
+
+	OITAccum full[4] = { covered, covered, covered, covered };
+	CHECK(oit_resolve_samples(full, 4, 1.0f) == doctest::Approx(oit_resolve(covered, 1.0f)).epsilon(1e-4));
+}
+
+TEST_CASE("[OIT] resolve: control, averaging the accumulators before the resolve darkens the edge") {
+	LocalVector<ResolveEvent> stack;
+	for (const ResolveEvent &e : RESOLVE_STACK) {
+		stack.push_back(e);
+	}
+	OITAccum covered = resolve_accumulate(stack, false);
+	OITAccum mean;
+	mean.color = covered.color / 2.0f;
+	mean.alpha = covered.alpha / 2.0f;
+	mean.extinction = covered.extinction / 2.0f;
+	float wrong = oit_resolve(mean, 1.0f);
+	CHECK(wrong == doctest::Approx(0.612132f).epsilon(1e-4));
+	CHECK(wrong != doctest::Approx((2.0f * RESOLVE_REFERENCE + 2.0f) / 4.0f).epsilon(1e-4));
+}
+
 struct DepthPair {
 	float near_plane;
 	float far_plane;
