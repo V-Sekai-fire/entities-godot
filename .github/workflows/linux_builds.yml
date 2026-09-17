@@ -243,6 +243,10 @@ jobs:
           ${{ matrix.bin }} --help
           ${{ matrix.bin }} --headless --test --force-colors
 
+      - name: OIT tests
+        run: |
+          BIN=${{ matrix.bin }} bash misc/scripts/oit_tests.sh
+
       - name: .NET source generators tests
         if: matrix.build-mono
         run: |
