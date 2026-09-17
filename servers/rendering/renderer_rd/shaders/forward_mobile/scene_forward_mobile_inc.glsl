@@ -483,7 +483,7 @@ float oit_transmittance_in_front(vec2 screen_uv, uint view, float view_z) {
 		return 1.0;
 	}
 	float slice_uv = (float(slice) - 0.5) / oit_params.slice_curve.w;
-	// Clamped to the half-texel so bilinear filtering never reads the neighbouring view's column.
+	// Clamped to the half-texel so bilinear filtering never reads the neighboring view's column.
 	float half_column = 0.5 / float(oit_params.froxel_dims.x);
 	float u = (clamp(screen_uv.x, half_column, 1.0 - half_column) + float(view)) / float(oit_params.froxel_dims.w);
 	return texture(oit_transmittance, vec3(u, screen_uv.y, slice_uv)).r;
