@@ -39,6 +39,10 @@
 #include <algorithm>
 #include <cstring>
 
+// The Web target builds without RD_ENABLED and without RenderingDevice, so
+// the dispatcher compiles to an unavailable stub there.
+#ifdef RD_ENABLED
+
 // Per-entry SPIR-V byte arrays. Generated at SCons build time by
 // modules/cassie/spv_to_header.py from
 // modules/cassie/thirdparty/avbd/mas_precond.<entry>.spv. The byte
@@ -985,3 +989,36 @@ void CassieMasGpu::destroy_mas_state(MasGpuHandle &r_handle) {
 }
 
 } // namespace cassie_mas_gpu
+
+#else // RD_ENABLED
+
+namespace cassie_mas_gpu {
+
+CassieMasGpu::CassieMasGpu() {}
+CassieMasGpu::CassieMasGpu(RenderingDevice *) {}
+CassieMasGpu::~CassieMasGpu() {}
+void CassieMasGpu::_destroy() {}
+bool CassieMasGpu::_load_pipeline(int, const String &) {
+	return false;
+}
+MasGpuHandle CassieMasGpu::build_mas_state(const cassie_pcg::CSRMatrix &, const Vector3 *) {
+	return MasGpuHandle();
+}
+bool CassieMasGpu::apply_mas_gpu(const MasGpuHandle &, const float *, float *) {
+	return false;
+}
+bool CassieMasGpu::apply_mas_to_compute_list(const MasGpuHandle &, RID, RID, RenderingDevice::ComputeListID) {
+	return false;
+}
+CassieMasGpu::ExternalApplySets CassieMasGpu::build_external_uniform_sets(const MasGpuHandle &, RID, RID) {
+	return ExternalApplySets();
+}
+void CassieMasGpu::free_external_uniform_sets(ExternalApplySets &) {}
+bool CassieMasGpu::apply_mas_to_compute_list_cached(const MasGpuHandle &, const ExternalApplySets &, RenderingDevice::ComputeListID) {
+	return false;
+}
+void CassieMasGpu::destroy_mas_state(MasGpuHandle &) {}
+
+} // namespace cassie_mas_gpu
+
+#endif // RD_ENABLED

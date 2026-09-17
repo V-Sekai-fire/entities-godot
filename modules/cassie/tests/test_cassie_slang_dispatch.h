@@ -31,11 +31,9 @@
 #pragma once
 
 #include "../src/solver/cassie_pcg.h"
-#include "../src/solver/slang_dispatch/saxpby_dispatch.h"
-#ifdef RD_ENABLED
 #include "../src/solver/slang_dispatch/cassie_mas_gpu.h"
 #include "../src/solver/slang_dispatch/cassie_slang_gpu.h"
-#endif
+#include "../src/solver/slang_dispatch/saxpby_dispatch.h"
 
 #include "core/os/time.h"
 #include "tests/test_macros.h"
@@ -126,10 +124,6 @@ TEST_CASE("[Cassie][SlangDispatch] saxpby matches textbook reference fma") {
 						i, double(dst_ref[i]), double(dst_slang[i]), double(diff)));
 	}
 }
-
-// The GPU dispatchers are only built where RD_ENABLED is set (see SCsub);
-// the Web target links without them.
-#ifdef RD_ENABLED
 
 TEST_CASE("[Cassie][SlangDispatch][GPU] spmv matches CPU oracle when RD available") {
 	// The --test harness runs on the mock DisplayServer, so no local RD exists
@@ -483,7 +477,5 @@ TEST_CASE("[Cassie][SlangDispatch][MasMultiLevel] identity L_II → z = num_leve
 	mas.destroy_mas_state(h);
 	CHECK_FALSE(h.is_valid());
 }
-
-#endif // RD_ENABLED
 
 } // namespace TestCassieSlangDispatch
