@@ -137,6 +137,21 @@ class CassieSketchGraph : public Resource {
 	void _update_node_sharpness(int p_node_id);
 	void _update_node_normal(int p_node_id);
 	int _find_or_create_node(const Vector3 &p_pos, const Vector3 &p_normal);
+	void _remove_edge(int p_edge_id);
+
+	// A place to cut a polyline: arc length from its start, and the world
+	// position both crossing polylines agree on.
+	struct SplitPt {
+		real_t t;
+		Vector3 pos;
+	};
+	static void _cumulative_lengths(const PackedVector3Array &p_poly,
+			LocalVector<real_t> &r_cum);
+	static void _crossings(const PackedVector3Array &p_a,
+			const PackedVector3Array &p_b, real_t p_proximity,
+			LocalVector<SplitPt> &r_a, LocalVector<SplitPt> &r_b);
+	int _add_polyline_sliced(const PackedVector3Array &p_poly,
+			LocalVector<SplitPt> &p_splits, int p_source_idx);
 
 	// CycleDetection.cs port: angular ordering at a node. Projects all
 	// incident edge tangents into the plane perpendicular to `normal`, picks
@@ -186,6 +201,13 @@ public:
 	// number of edges added.
 	int build_from_polylines(const TypedArray<PackedVector3Array> &p_polylines,
 			real_t p_proximity);
+
+	// The online counterpart: adds one stroke and splits it, and every
+	// existing edge it crosses within p_proximity, at the crossings.
+	// Untouched edges keep their ids, so patch signatures over them
+	// survive. Returns the number of edges added.
+	int add_stroke_intersecting(const PackedVector3Array &p_points,
+			const PackedVector3Array &p_normals, real_t p_proximity);
 
 	int get_edge_count() const { return edges.size(); }
 	int get_node_count() const { return nodes.size(); }

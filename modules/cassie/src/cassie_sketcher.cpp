@@ -211,7 +211,8 @@ Dictionary CassieSketcher::_run_chain_locally(
 	}
 	PackedVector3Array empty_normals;
 	if (points.size() >= 2) {
-		sketch_graph->add_stroke(points, empty_normals);
+		sketch_graph->add_stroke_intersecting(points, empty_normals,
+				MAX(snap_threshold, sketch_graph->get_merge_epsilon()));
 	}
 
 	const Dictionary patch_update = surface_manager->update();
