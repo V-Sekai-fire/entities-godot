@@ -994,8 +994,12 @@ void CassieMasGpu::destroy_mas_state(MasGpuHandle &r_handle) {
 
 namespace cassie_mas_gpu {
 
-CassieMasGpu::CassieMasGpu() {}
-CassieMasGpu::CassieMasGpu(RenderingDevice *) {}
+CassieMasGpu::CassieMasGpu() {
+	owns_rd = true;
+}
+CassieMasGpu::CassieMasGpu(RenderingDevice *) {
+	owns_rd = false;
+}
 CassieMasGpu::~CassieMasGpu() {}
 void CassieMasGpu::_destroy() {}
 bool CassieMasGpu::_load_pipeline(int, const String &) {
