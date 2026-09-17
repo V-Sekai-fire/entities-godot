@@ -4,14 +4,13 @@
 
 #VERSION_DEFINES
 
-// AVBOIT integration: one workgroup per (x, y) column, Hillis-Steele
-// prefix sum along Z, single workgroup avoids cross-workgroup barriers.
-
-// One workgroup per (x, y), threads along local_x drive the Z prefix sum.
-// Metal caps local_size_z below 128 on Apple Silicon, so Z lives on local_x.
+// One workgroup per (x, y) column, Z on local_x since Metal caps local_size_z below 128.
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
-layout(r32ui, set = 0, binding = 0) uniform restrict readonly uimage3D extinction_buffer;
+layout(set = 0, binding = 0, std430) restrict readonly buffer Extinction {
+	uint data[];
+}
+extinction;
 layout(rgba8, set = 0, binding = 1) uniform restrict writeonly image3D integrated_buffer;
 
 layout(set = 0, binding = 2, std140) uniform Params {
@@ -34,7 +33,7 @@ void main() {
 		return;
 	}
 
-	uint raw = imageLoad(extinction_buffer, ivec3(xy, int(z))).x;
+	uint raw = extinction.data[(uint(xy.x) * params.froxel_dims.y + uint(xy.y)) * slice_count + z];
 	shared_extinction[z] = float(raw) / 65536.0;
 	memoryBarrierShared();
 	barrier();
