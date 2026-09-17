@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the OIT (AVBOIT) test suite and refuses the silent-empty-filter trap:
+# Runs the OIT test suite (tests/servers/rendering/test_oit.cpp) and refuses the silent-empty-filter trap:
 # doctest reports Status: SUCCESS even when 0 test cases matched, so a
 # mis-quoted --test-case pattern can silently green a CI run.
 set -euo pipefail
