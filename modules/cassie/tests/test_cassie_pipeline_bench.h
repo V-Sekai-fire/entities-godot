@@ -878,7 +878,10 @@ static String _stroke_set_signature(Vector<int> p_ids) {
 	p_ids.sort();
 	String sig;
 	for (int i = 0; i < p_ids.size(); ++i) {
-		if (i > 0) {
+		if (i > 0 && p_ids[i] == p_ids[i - 1]) {
+			continue;
+		}
+		if (!sig.is_empty()) {
 			sig += ",";
 		}
 		sig += itos(p_ids[i]);
@@ -886,7 +889,7 @@ static String _stroke_set_signature(Vector<int> p_ids) {
 	return sig;
 }
 
-static void _border_set_diff(const String &p_label, const String &p_filename) {
+static void _border_set_diff(const String &p_label, const String &p_filename, real_t p_proximity = real_t(-1)) {
 	const String path = _raw_data_path(p_filename);
 	const Dictionary j = _load_raw_data_json(path);
 	if (j.is_empty()) {
@@ -906,6 +909,9 @@ static void _border_set_diff(const String &p_label, const String &p_filename) {
 	// source_polyline_idx to populate eid_to_sid.
 	Ref<CassieSketchGraph> graph;
 	graph.instantiate();
+	if (p_proximity > 0) {
+		graph->set_merge_epsilon(p_proximity);
+	}
 	HashMap<int, int> sid_to_eid;
 	HashMap<int, int> eid_to_sid;
 	const Time *time = Time::get_singleton();
@@ -1014,6 +1020,39 @@ static void _border_set_diff(const String &p_label, const String &p_filename) {
 	const int false_pos = det_total - matched;
 	const int false_neg = alg_border_total - matched;
 
+	// Unity's patch list is cumulative over the session: a patch found
+	// after stroke k stays recorded when a later stroke splits it. Replay
+	// the prefixes and union every cycle each prefix closes.
+	HashSet<String> cum_sigs;
+	for (int k = 1; k <= polylines.size(); ++k) {
+		TypedArray<PackedVector3Array> prefix;
+		for (int i = 0; i < k; ++i) {
+			prefix.push_back(polylines[i]);
+		}
+		Ref<CassieSketchGraph> pg;
+		pg.instantiate();
+		if (p_proximity > 0) {
+			pg->set_merge_epsilon(p_proximity);
+		}
+		pg->build_from_polylines(prefix, pg->get_merge_epsilon());
+		const Array pc = pg->find_cycles();
+		for (int i = 0; i < pc.size(); ++i) {
+			const PackedInt32Array cycle = pc[i];
+			Vector<int> ids;
+			for (int c = 0; c < cycle.size(); ++c) {
+				const int pi = pg->get_edge(cycle[c])->get_source_polyline_idx();
+				if (pi >= 0 && pi < poly_idx_to_sid.size()) {
+					ids.push_back(poly_idx_to_sid[pi]);
+				}
+			}
+			cum_sigs.insert(_stroke_set_signature(ids));
+		}
+	}
+	int cum_matched = 0;
+	for (const String &sig : cum_sigs) {
+		cum_matched += alg_border_sigs.has(sig) ? 1 : 0;
+	}
+
 	MESSAGE(vformat(
 			"[CassieBorderDiff] %s  strokes_in_json=%d  loaded=%d  "
 			"graph_nodes=%d  graph_edges=%d  populate=%d us  find_cycles=%d us",
@@ -1026,10 +1065,159 @@ static void _border_set_diff(const String &p_label, const String &p_filename) {
 			"cycles_w_unknown_edges=%d",
 			p_label, alg_border_total, alg_auto, alg_manual,
 			det_total, matched, false_pos, false_neg, det_with_unknown_edge));
+	MESSAGE(vformat(
+			"[CassieBorderDiff] %s  cumulative over %d prefixes: detected=%d  matched=%d  false_neg=%d",
+			p_label, polylines.size(), int(cum_sigs.size()), cum_matched, alg_border_total - cum_matched));
+}
+
+// The tracked Lean hat fixture: 138 pre-flattened strokes, the input of
+// Fixtures/HatCycleCount.lean. Strokes are returned in file order; pass
+// a stride to keep every p_keep_every-th stroke only.
+static TypedArray<PackedVector3Array> _hat_fixture_polylines(int p_keep_every = 1, Vector<int> *r_ids = nullptr) {
+	TypedArray<PackedVector3Array> out;
+	const Dictionary j = _load_raw_data_json(
+			"modules/cassie/lean/CassieAvbd/CycleDetect/Fixtures/hat_polylines.json");
+	const Array strokes = j.get("strokes", Array());
+	for (int i = 0; i < strokes.size(); ++i) {
+		if (i % p_keep_every != 0) {
+			continue;
+		}
+		const Dictionary s = strokes[i];
+		const Array pts = s.get("pts", Array());
+		PackedVector3Array poly;
+		for (int k = 0; k < pts.size(); ++k) {
+			poly.push_back(_v3_from_json(pts[k]));
+		}
+		if (poly.size() >= 2) {
+			out.push_back(poly);
+			if (r_ids) {
+				r_ids->push_back(int(s.get("id", -1)));
+			}
+		}
+	}
+	return out;
+}
+
+// Unity's patch list is cumulative over the session, and 18 of the hat's
+// strokes were deleted before the capture ended, so the final 120-stroke
+// graph can reach 142 of the 202 borders at best. Replaying the tracked
+// 138-stroke fixture prefix by prefix and taking the union of every cycle
+// each prefix closes is the like-for-like comparison.
+static void _hat_cumulative_diff(real_t p_proximity) {
+	const Dictionary j = _load_raw_data_json(_raw_data_path("hat.json"));
+	if (j.is_empty()) {
+		MESSAGE("[CassieBorderDiff] hat cumulative skipped: hat.json not found (lake exe hat_dump in modules/cassie/lean writes it)");
+		return;
+	}
+	HashSet<String> alg_border_sigs;
+	const Array patches = j.get("allCreatedPatches", Array());
+	for (int i = 0; i < patches.size(); ++i) {
+		const Dictionary p = patches[i];
+		const Array sids = p.get("strokesID", Array());
+		Vector<int> ids;
+		for (int k = 0; k < sids.size(); ++k) {
+			ids.push_back(int(sids[k]));
+		}
+		alg_border_sigs.insert(_stroke_set_signature(ids));
+	}
+	Vector<int> poly_idx_to_sid;
+	const TypedArray<PackedVector3Array> polylines = _hat_fixture_polylines(1, &poly_idx_to_sid);
+	HashSet<String> cum_sigs;
+	const uint64_t t0 = Time::get_singleton()->get_ticks_usec();
+	for (int k = 1; k <= polylines.size(); ++k) {
+		TypedArray<PackedVector3Array> prefix;
+		for (int i = 0; i < k; ++i) {
+			prefix.push_back(polylines[i]);
+		}
+		Ref<CassieSketchGraph> pg;
+		pg.instantiate();
+		pg->set_merge_epsilon(p_proximity);
+		pg->build_from_polylines(prefix, p_proximity);
+		const Array pc = pg->find_cycles();
+		for (int i = 0; i < pc.size(); ++i) {
+			const PackedInt32Array cycle = pc[i];
+			Vector<int> ids;
+			for (int c = 0; c < cycle.size(); ++c) {
+				ids.push_back(poly_idx_to_sid[pg->get_edge(cycle[c])->get_source_polyline_idx()]);
+			}
+			cum_sigs.insert(_stroke_set_signature(ids));
+		}
+	}
+	int matched = 0;
+	for (const String &sig : cum_sigs) {
+		matched += alg_border_sigs.has(sig) ? 1 : 0;
+	}
+	MESSAGE(vformat(
+			"[CassieBorderDiff] hat fixture @%.4f  cumulative over %d prefixes in %d us: alg_borders=%d  detected=%d  matched=%d  false_pos=%d  false_neg=%d",
+			p_proximity, polylines.size(), int(Time::get_singleton()->get_ticks_usec() - t0),
+			int(alg_border_sigs.size()), int(cum_sigs.size()), matched,
+			int(cum_sigs.size()) - matched, int(alg_border_sigs.size()) - matched));
+}
+
+// Witness for the transport walk: the hat fixture at the Lean arrangement
+// parameters (proximity 0.0017, merge 0.0017, 8 samples per cubic).
+// Pinned measurement, not a target. The arrangement matches the Lean model
+// exactly. The walk closes 88 cycles where Lean closes 65, and the three
+// departures are deliberate: the plane fit is converged rather than eight
+// Y-up power iterations, the normal is carried across a node from the
+// direction of travel rather than the back tangent, and `reversed` is
+// decided at each node rather than toggled after it. Each one is measured
+// by a fixture in test_cassie_sketch_graph.h that the model gets wrong
+// (cube 0 of 6 faces, grid 1 of 4 cells).
+TEST_CASE("[Cassie][SketchGraph] Hat fixture witness: transport walk against the Lean model") {
+	const TypedArray<PackedVector3Array> polylines = _hat_fixture_polylines();
+	REQUIRE_MESSAGE(polylines.size() == 138, vformat("hat_polylines.json: %d strokes read, expected 138", polylines.size()));
+	const real_t prox = real_t(0.0017);
+	Ref<CassieSketchGraph> g;
+	g.instantiate();
+	g->set_merge_epsilon(prox);
+	g->build_from_polylines(polylines, prox);
+	const Array cycles = g->find_cycles();
+	MESSAGE(vformat("[CassieHatWitness] nodes=%d edges=%d cycles=%d  (Lean 227 / 399 / 65, Unity 234 patches)",
+			g->get_node_count(), g->get_edge_count(), cycles.size()));
+	CHECK_EQ(g->get_node_count(), 227);
+	CHECK_EQ(g->get_edge_count(), 399);
+	CHECK_EQ(cycles.size(), 88);
+
+	// Every cycle is a closed chain of at least two distinct edges.
+	int malformed = 0;
+	for (int i = 0; i < cycles.size(); ++i) {
+		const PackedInt32Array cycle = cycles[i];
+		bool ok = cycle.size() >= 2;
+		HashSet<int> distinct;
+		for (int k = 0; ok && k < cycle.size(); ++k) {
+			distinct.insert(cycle[k]);
+			const Ref<CassieSketchGraphEdge> a = g->get_edge(cycle[k]);
+			const Ref<CassieSketchGraphEdge> b = g->get_edge(cycle[(k + 1) % cycle.size()]);
+			const bool shares = a->get_node_a_id() == b->get_node_a_id() || a->get_node_a_id() == b->get_node_b_id() ||
+					a->get_node_b_id() == b->get_node_a_id() || a->get_node_b_id() == b->get_node_b_id();
+			ok = ok && shares;
+		}
+		malformed += (ok && int(distinct.size()) == cycle.size()) ? 0 : 1;
+	}
+	CHECK_EQ(malformed, 0);
+
+	// The walk is a pure function of the graph: a second pass is identical.
+	const Array again = g->find_cycles();
+	REQUIRE_EQ(again.size(), cycles.size());
+	for (int i = 0; i < cycles.size(); ++i) {
+		CHECK(PackedInt32Array(again[i]) == PackedInt32Array(cycles[i]));
+	}
+
+	// Control: half the strokes is a different sketch and must not land on
+	// the pinned count.
+	Ref<CassieSketchGraph> half;
+	half.instantiate();
+	half->set_merge_epsilon(prox);
+	half->build_from_polylines(_hat_fixture_polylines(2), prox);
+	CHECK_NE(half->find_cycles().size(), cycles.size());
 }
 
 TEST_CASE_PENDING("[Cassie][PipelineBench] Border-set diff: hat / flower / vintage_car") {
 	_border_set_diff("hat", "hat.json");
+	_border_set_diff("hat@0.0017", "hat.json", real_t(0.0017));
+	_hat_cumulative_diff(real_t(0.0017));
+	_hat_cumulative_diff(real_t(0.02));
 	_border_set_diff("flower", "flower.json");
 	_border_set_diff("vintage_car", "vintage_car.json");
 }
