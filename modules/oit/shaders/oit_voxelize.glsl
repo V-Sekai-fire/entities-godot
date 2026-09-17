@@ -8,10 +8,14 @@
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(r32ui, set = 0, binding = 0) uniform restrict uimage3D extinction_buffer;
+layout(set = 0, binding = 0, std430) restrict buffer Extinction {
+	uint data[];
+}
+extinction;
 
 layout(set = 0, binding = 1, std140) uniform Params {
 	mat4 view_matrix;
+	mat4 projection_matrix;
 	vec4 slice_curve;
 	uvec4 froxel_dims;
 	vec4 tile_size;
@@ -42,6 +46,10 @@ uint depth_to_slice(float view_z) {
 	return uint(clamp(t * slices, 0.0, slices - 1.0));
 }
 
+uint flat_index(uvec3 froxel) {
+	return (froxel.x * params.froxel_dims.y + froxel.y) * params.froxel_dims.z + froxel.z;
+}
+
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
 	if (idx >= splat_count.count.x) {
@@ -56,8 +64,8 @@ void main() {
 		return;
 	}
 
-	vec2 ndc = view_pos.xy / max(-view_pos.z, 0.001);
-	vec2 uv = ndc * 0.5 + 0.5;
+	vec4 clip = params.projection_matrix * view_pos;
+	vec2 uv = clip.xy / max(clip.w, 0.001) * 0.5 + 0.5;
 	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
 		return;
 	}
@@ -68,7 +76,7 @@ void main() {
 			depth_to_slice(view_z));
 	froxel = min(froxel, params.froxel_dims.xyz - uvec3(1));
 
-	float extinction = -log(1.0 - alpha);
-	uint packed = uint(clamp(extinction * 65536.0, 0.0, 4.29e9));
-	imageAtomicAdd(extinction_buffer, ivec3(froxel), packed);
+	float ext = -log(1.0 - alpha);
+	uint packed = uint(clamp(ext * 65536.0, 0.0, 4.29e9));
+	atomicAdd(extinction.data[flat_index(froxel)], packed);
 }

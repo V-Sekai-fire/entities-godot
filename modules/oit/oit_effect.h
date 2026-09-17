@@ -48,11 +48,15 @@ class OITEffect {
 	RID integrate_pipeline;
 
 	Vector3i froxel_dims;
+	uint32_t extinction_bytes = 0;
 	RID extinction_buffer;
 	RID transmittance_buffer;
 	RID transmittance_sampler;
+	RID voxelize_uniform_set;
+	RID integrate_uniform_set;
 
 	void _free_buffers();
+	RID _uniform_set(RID &r_cached, const Vector<RD::Uniform> &p_uniforms, RID p_shader);
 
 public:
 	void configure(const Vector2i &p_screen_size, int p_slice_count, const Vector2i &p_tile_size);

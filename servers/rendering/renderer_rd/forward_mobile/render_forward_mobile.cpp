@@ -3826,15 +3826,18 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
 
 	struct OITParams {
 		float view_matrix[16];
+		float projection_matrix[16];
 		float slice_curve[4];
 		uint32_t froxel_dims[4];
 		float tile_size[4];
 	};
 	OITParams params;
 	Projection view = p_render_data->scene_data->cam_transform.affine_inverse();
+	Projection projection = p_render_data->scene_data->cam_projection;
 	for (int i = 0; i < 4; i++) {
 		for (int j = 0; j < 4; j++) {
 			params.view_matrix[i * 4 + j] = view.columns[i][j];
+			params.projection_matrix[i * 4 + j] = projection.columns[i][j];
 		}
 	}
 	params.slice_curve[0] = float(GLOBAL_GET("rendering/oit/near_plane"));
@@ -3856,10 +3859,7 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
 	}
 	RD::get_singleton()->buffer_update(oit_params_buffer, 0, sizeof(OITParams), &params);
 
-	// Gather one splat per transparent surface at the AABB center. Alpha is
-	// a placeholder 0.5 — proper per-material alpha extraction needs the
-	// material UBO walk, which the follow-up commit adds. This still gives
-	// visible extinction accumulation where transparent surfaces overlap.
+	// One splat per transparent surface at its AABB center; alpha is a placeholder until the raster splat lands.
 	Vector<float> splat_scratch;
 	uint32_t splat_count = 0;
 	{
@@ -3914,7 +3914,6 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data) {
 	oit_effect->integrate(integrate_params);
 	RD::get_singleton()->free_rid(integrate_params);
 
-	// Scene-shader UBO — read by oit_apply in scene_forward_mobile.
 	struct SceneOITParams {
 		float slice_curve[4];
 		uint32_t froxel_dims[4];

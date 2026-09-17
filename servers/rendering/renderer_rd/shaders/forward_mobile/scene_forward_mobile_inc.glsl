@@ -441,7 +441,7 @@ layout(set = 1, binding = 27, std140) uniform OITParams {
 }
 oit_params;
 
-float oit_apply(vec3 view_pos, float alpha) {
+float oit_apply(vec3 view_pos, mat4 projection, float alpha) {
 	if (oit_params.froxel_dims.w == 0u) {
 		return alpha;
 	}
@@ -449,8 +449,8 @@ float oit_apply(vec3 view_pos, float alpha) {
 	if (view_z <= 0.0) {
 		return alpha;
 	}
-	vec2 ndc = view_pos.xy / max(-view_pos.z, 0.001);
-	vec2 uv = ndc * 0.5 + 0.5;
+	vec4 clip = projection * vec4(view_pos, 1.0);
+	vec2 uv = clip.xy / max(clip.w, 0.001) * 0.5 + 0.5;
 	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
 		return alpha;
 	}
