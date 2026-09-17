@@ -208,13 +208,10 @@ def nextEdgePort (g : Graph) (nid : NodeId) (incoming : EdgeId)
     -- incoming wasn't in the sorted list (shouldn't happen) — fall back.
     return NodeAugment.getInPlane g nid incoming transportedNormal
       (¬ reversed) eids
-  -- Minimal-face turn: always step clockwise (−1) in the CCW-sorted neighbor
-  -- ring from the incoming edge, rather than toggling with `reversed`. The
-  -- normal-driven `reversed` flip (ported from Unity for genuinely 3D sheets)
-  -- mis-fires on the near-planar hat and closed superset loops; a consistent
-  -- clockwise turn traces the minimal planar face. Measured parity 48→50/234,
-  -- supersets 137→102. (CCW/+1 gives 47; the `reversed` toggle gives 48.)
-  let step : Int := -1
+  -- Unity smooth-node step: `reversed` toggles `GetPrevious` (CW, -1) vs
+  -- `GetNext` (CCW, +1) around the CCW-sorted neighbor ring. Kept in sync
+  -- with the sharp branch above, where `wantNext = ¬ reversed`.
+  let step : Int := if reversed then -1 else 1
   let nextIdx := (((idx : Int) + step) + (eids.size : Int)) % (eids.size : Int)
   return some eids[nextIdx.toNat]!
 
