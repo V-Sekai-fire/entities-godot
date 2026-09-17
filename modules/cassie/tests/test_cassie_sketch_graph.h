@@ -38,6 +38,11 @@
 #include "core/templates/hash_map.h"
 #include "tests/test_macros.h"
 
+#include <thirdparty/witness-cpp/include/witness/ladder.h>
+
+#include <functional>
+#include <ostream>
+
 namespace TestCassieSketchGraph {
 
 static PackedVector3Array _segment(const Vector3 &a, const Vector3 &b,
@@ -438,6 +443,90 @@ TEST_CASE("[Cassie][SketchGraph] cycle set is invariant under rigid motion, mirr
 			CHECK_NE(_size_multiset(_build(_transformed(w.strokes, flatten))->find_cycles()), expected);
 		}
 	}
+}
+
+struct SketchSimilarity {
+	int fixture = 0;
+	Transform3D xf;
+	uint64_t order_seed = 0;
+	bool flatten = false;
+};
+
+// A random similarity: rotation about a random axis, translation, uniform
+// scale in [0.5, 4], a mirror half the time, and a stroke permutation.
+static SketchSimilarity _gen_similarity(::witness::RNG &p_rng, const ::witness::Level &) {
+	SketchSimilarity s;
+	s.fixture = p_rng.int_range(0, 2);
+	const Vector3 axis(p_rng.float_range(-1, 1), p_rng.float_range(-1, 1), p_rng.float_range(-1, 1));
+	Basis b;
+	if (axis.length() > real_t(1e-3)) {
+		b = Basis(axis.normalized(), real_t(p_rng.float_range(-Math::PI, Math::PI)));
+	}
+	const real_t k = real_t(p_rng.float_range(0.5, 4.0));
+	const real_t mx = p_rng.int_range(0, 1) ? real_t(-1) : real_t(1);
+	b = b.scaled(Vector3(k * mx, k, k));
+	s.xf = Transform3D(b, Vector3(p_rng.float_range(-10, 10), p_rng.float_range(-10, 10), p_rng.float_range(-10, 10)));
+	s.order_seed = p_rng.next_u64();
+	return s;
+}
+
+static SketchSimilarity _gen_flattened(::witness::RNG &p_rng, const ::witness::Level &p_lvl) {
+	SketchSimilarity s = _gen_similarity(p_rng, p_lvl);
+	s.fixture = p_rng.int_range(0, 1);
+	s.flatten = true;
+	return s;
+}
+
+static void _print_similarity(std::ostream &p_os, const SketchSimilarity &p_s) {
+	p_os << "fixture=" << p_s.fixture << " scale=" << p_s.xf.basis.get_scale().x
+		 << " det=" << p_s.xf.basis.determinant() << " order_seed=" << p_s.order_seed
+		 << (p_s.flatten ? " flattened" : "");
+}
+
+static bool _similarity_keeps_cycles(const SketchSimilarity &p_s) {
+	static const WireFixture fixtures[3] = { _tet_fixture(), _cube_fixture(), _grid_fixture() };
+	const WireFixture &w = fixtures[p_s.fixture];
+	Transform3D xf = p_s.xf;
+	if (p_s.flatten) {
+		xf.basis = Basis().scaled(Vector3(1, 1, 0)) * xf.basis;
+	}
+	const TypedArray<PackedVector3Array> moved = _transformed(w.strokes, xf);
+	TypedArray<PackedVector3Array> shuffled;
+	Vector<int> order;
+	for (int i = 0; i < moved.size(); ++i) {
+		order.push_back(i);
+	}
+	::witness::RNG order_rng(p_s.order_seed);
+	for (int i = order.size() - 1; i > 0; --i) {
+		const int j = order_rng.int_range(0, i);
+		SWAP(order.write[i], order.write[j]);
+	}
+	for (int i = 0; i < order.size(); ++i) {
+		shuffled.push_back(moved[order[i]]);
+	}
+	return _size_multiset(_build(shuffled)->find_cycles()) == _size_multiset(_build(w.strokes)->find_cycles());
+}
+
+// The witness ladder over the same invariance: 300 random similarities and
+// stroke orders, pinned to one seed so a failure reproduces in CI. The
+// control plants a flattening and must be falsified on the first rung.
+TEST_CASE("[Cassie][SketchGraph] witness: cycle multiset holds under random similarities and stroke orders") {
+	const ::witness::Level ladder[2] = { { 0, 64, 256, 100 }, { 1, 512, 1024, 200 } };
+	::witness::Generator<SketchSimilarity> gen = &_gen_similarity;
+	std::function<bool(const SketchSimilarity &)> pred = &_similarity_keeps_cycles;
+	::witness::Shrinker<SketchSimilarity> no_shrink = &::witness::no_shrink<SketchSimilarity>;
+	std::function<void(std::ostream &, const SketchSimilarity &)> printer = &_print_similarity;
+	const ::witness::Trial t = ::witness::resolve_with_ladder<SketchSimilarity>(
+			"similarity keeps the cycle multiset", ladder, gen, pred, no_shrink, printer, 0x5CA55EULL);
+	INFO(t.message);
+	CHECK(t.outcome == ::witness::Outcome::PROVABLY_NONE);
+
+	::witness::Generator<SketchSimilarity> gen_flat = &_gen_flattened;
+	const ::witness::Trial c = ::witness::resolve_with_ladder<SketchSimilarity>(
+			"flattening keeps the cycle multiset", ladder, gen_flat, pred, no_shrink, printer, 0x5CA55EULL);
+	INFO(c.message);
+	CHECK(c.outcome == ::witness::Outcome::FOUND);
+	CHECK_EQ(c.level, 0);
 }
 
 // Twelve of the hat capture's 234 patches are bordered by two strokes, so a
