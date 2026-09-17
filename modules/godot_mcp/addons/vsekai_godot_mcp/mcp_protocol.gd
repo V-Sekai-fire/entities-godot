@@ -143,7 +143,7 @@ func _tool_defs() -> Array:
 		["create_scene", "Create + save a new .tscn with a typed root.", { "path": "string", "root_type": "string", "root_name": "string" }],
 		["instance_scene", "Instance a PackedScene under a parent.", { "scene": "string", "parent": "string" }],
 		["save_branch_as_scene", "Pack a node subtree and save it as a .tscn.", { "path": "string", "scene": "string" }],
-		["reimport_asset", "Reimport one or more assets after their source changed on disk (EditorFileSystem.reimport_files) — the analogue of Unity-MCP's asset refresh. Pass a single 'path' or a 'paths' array of res:// paths.", { "path": "string", "paths": "array" }],
+		["reimport_asset", "Reimport one or more assets after their source changed on disk (EditorFileSystem.reimport_files) Pass a single 'path' or a 'paths' array of res:// paths.", { "path": "string", "paths": "array" }],
 		["rescan_filesystem", "Rescan the project filesystem for added/removed/changed files (EditorFileSystem.scan).", {}],
 		["get_project_setting", "Read a ProjectSettings value.", { "setting": "string" }],
 		["set_project_setting", "Set a ProjectSettings value.", { "setting": "string", "value": "any" }],
