@@ -86,7 +86,7 @@ func _run() -> void:
 	# Parse error -> JSON-RPC -32700
 	var pe := h.route("POST", "/mcp", {}, "{ this is not json")
 	var pe_obj = JSON.parse_string(pe.body)
-	_check(pe.code == 200 and pe_obj.error.code == -32700, "unparseable body -> -32700")
+	_check(pe.code == 200 and pe_obj.error.code == -32700, "unparsable body -> -32700")
 	# JSON-RPC response (no "method") -> 202 accepted, no reply
 	_check(h.route("POST", "/mcp", {}, '{"jsonrpc":"2.0","id":9,"result":{}}').code == 202, "response (no method) -> 202")
 

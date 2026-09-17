@@ -71,7 +71,7 @@ func route(method: String, path: String, headers: Dictionary, body: String) -> D
 		return { "code": 400, "ctype": "application/json",
 			"body": JSON.stringify(protocol.parse_error_response(-32600, "unsupported MCP-Protocol-Version: " + pv)) }
 
-	# Parse (MUST -32700 on an unparseable non-empty body).
+	# Parse (MUST -32700 on an unparsable non-empty body).
 	var req = JSON.parse_string(body)
 	if req == null and body.strip_edges() != "":
 		return { "code": 200, "ctype": "application/json",
@@ -139,11 +139,11 @@ func _try_parse(buf: PackedByteArray):
 		var idx := lines[i].find(":")
 		if idx > 0:
 			headers[lines[i].substr(0, idx).strip_edges().to_lower()] = lines[i].substr(idx + 1).strip_edges()
-	var clen := int(headers.get("content-length", "0"))
+	var content_length := int(headers.get("content-length", "0"))
 	var body_start := sep + 4
-	if buf.size() < body_start + clen:
+	if buf.size() < body_start + content_length:
 		return null                                   # body incomplete
-	var body: String = buf.slice(body_start, body_start + clen).get_string_from_utf8()
+	var body: String = buf.slice(body_start, body_start + content_length).get_string_from_utf8()
 	# NOTE: callers drop the connection after one response; we don't reslice buf.
 	return {
 		"method": (rl[0] if rl.size() > 0 else ""),
