@@ -459,20 +459,22 @@ uint oit_depth_to_slice(float view_z) {
 	return uint(clamp(oit_slice_uv(view_z) * slices, 0.0, slices - 1.0));
 }
 
+// Views pack side by side along X; froxel_dims.w is the view count and 0 means OIT is off.
 // Accumulates this fragment's extinction into the froxel that owns it; the framebuffer is at froxel resolution.
-void oit_splat(vec2 frag_coord, float view_z, float alpha) {
+void oit_splat(vec2 frag_coord, uint view, float view_z, float alpha) {
 	if (oit_params.froxel_dims.w == 0u || view_z <= 0.0 || alpha <= 0.0) {
 		return;
 	}
 	uvec3 froxel = uvec3(uvec2(frag_coord), oit_depth_to_slice(view_z));
 	froxel = min(froxel, oit_params.froxel_dims.xyz - uvec3(1u));
+	froxel.x += view * oit_params.froxel_dims.x;
 	uint index = (froxel.x * oit_params.froxel_dims.y + froxel.y) * oit_params.froxel_dims.z + froxel.z;
 	float ext = -log(1.0 - clamp(alpha, 0.0, 0.999));
 	atomicAdd(oit_extinction.data[index], uint(clamp(ext * 65536.0, 0.0, 4.29e9)));
 }
 
 // Transmittance through every slice in front of this fragment's own slice.
-float oit_transmittance_in_front(vec2 screen_uv, float view_z) {
+float oit_transmittance_in_front(vec2 screen_uv, uint view, float view_z) {
 	if (oit_params.froxel_dims.w == 0u || view_z <= 0.0) {
 		return 1.0;
 	}
@@ -481,11 +483,14 @@ float oit_transmittance_in_front(vec2 screen_uv, float view_z) {
 		return 1.0;
 	}
 	float slice_uv = (float(slice) - 0.5) / oit_params.slice_curve.w;
-	return texture(oit_transmittance, vec3(screen_uv, slice_uv)).r;
+	// Clamped to the half-texel so bilinear filtering never reads the neighbouring view's column.
+	float half_column = 0.5 / float(oit_params.froxel_dims.x);
+	float u = (clamp(screen_uv.x, half_column, 1.0 - half_column) + float(view)) / float(oit_params.froxel_dims.w);
+	return texture(oit_transmittance, vec3(u, screen_uv.y, slice_uv)).r;
 }
 
-float oit_apply(vec2 screen_uv, float view_z, float alpha) {
-	return alpha * oit_transmittance_in_front(screen_uv, view_z);
+float oit_apply(vec2 screen_uv, uint view, float view_z, float alpha) {
+	return alpha * oit_transmittance_in_front(screen_uv, view, view_z);
 }
 
 /* Set 2 Skeleton & Instancing (can change per item) */

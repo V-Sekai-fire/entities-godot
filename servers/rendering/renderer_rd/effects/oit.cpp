@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  oit_effect.cpp                                                        */
+/*  oit.cpp                                                               */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,10 +28,12 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "oit_effect.h"
+#include "oit.h"
 
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
+
+using namespace RendererRD;
 
 OITEffect::OITEffect() {
 	Vector<String> defines;
@@ -45,7 +47,10 @@ OITEffect::OITEffect() {
 	integrate_shader_version = integrate_shader.version_create();
 	integrate_pipeline = RD::get_singleton()->compute_pipeline_create(integrate_shader.version_get_shader(integrate_shader_version, 0));
 
-	resolve_shader.initialize(defines);
+	Vector<String> resolve_defines;
+	resolve_defines.push_back("");
+	resolve_defines.push_back("\n#define USE_MULTIVIEW\n");
+	resolve_shader.initialize(resolve_defines);
 	resolve_shader_version = resolve_shader.version_create();
 
 	// Premultiplied over: the resolve carries 1 - T in alpha so the background keeps T.
@@ -59,13 +64,17 @@ OITEffect::OITEffect() {
 	blend_attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 	RD::PipelineColorBlendState blend_state;
 	blend_state.attachments.push_back(blend_attachment);
-	resolve_pipeline.setup(resolve_shader.version_get_shader(resolve_shader_version, 0), RD::RENDER_PRIMITIVE_TRIANGLES, RD::PipelineRasterizationState(), RD::PipelineMultisampleState(), RD::PipelineDepthStencilState(), blend_state, 0);
+	for (int i = 0; i < RESOLVE_VARIANT_MAX; i++) {
+		resolve_pipelines[i].setup(resolve_shader.version_get_shader(resolve_shader_version, i), RD::RENDER_PRIMITIVE_TRIANGLES, RD::PipelineRasterizationState(), RD::PipelineMultisampleState(), RD::PipelineDepthStencilState(), blend_state, 0);
+	}
 }
 
 OITEffect::~OITEffect() {
 	_free_buffers();
 	_free_accumulation();
-	resolve_pipeline.clear();
+	for (int i = 0; i < RESOLVE_VARIANT_MAX; i++) {
+		resolve_pipelines[i].clear();
+	}
 	if (resolve_shader_version.is_valid()) {
 		resolve_shader.version_free(resolve_shader_version);
 	}
@@ -91,11 +100,16 @@ void OITEffect::_free_buffers() {
 		rd->free_rid(transmittance_sampler);
 		transmittance_sampler = RID();
 	}
-	if (splat_framebuffer.is_valid()) {
+	if (rd->framebuffer_is_valid(splat_framebuffer)) {
 		rd->free_rid(splat_framebuffer);
-		splat_framebuffer = RID();
+	}
+	splat_framebuffer = RID();
+	if (splat_placeholder.is_valid()) {
+		rd->free_rid(splat_placeholder);
+		splat_placeholder = RID();
 	}
 	froxel_dims = Vector3i();
+	view_count = 0;
 	extinction_bytes = 0;
 	voxelize_uniform_set = RID();
 	integrate_uniform_set = RID();
@@ -116,6 +130,7 @@ void OITEffect::_free_accumulation() {
 		accumulated_extinction = RID();
 	}
 	accumulation_size = Vector2i();
+	accumulation_view_count = 0;
 	accumulation_depth = RID();
 }
 
@@ -128,30 +143,33 @@ RID OITEffect::_uniform_set(RID &r_cached, const Vector<RD::Uniform> &p_uniforms
 	return r_cached;
 }
 
-void OITEffect::configure(const Vector2i &p_screen_size, int p_slice_count, const Vector2i &p_tile_size) {
+void OITEffect::configure(const Vector2i &p_screen_size, int p_slice_count, const Vector2i &p_tile_size, uint32_t p_view_count) {
 	ERR_FAIL_COND(p_screen_size.x <= 0 || p_screen_size.y <= 0);
 	ERR_FAIL_COND(p_slice_count <= 0);
 	ERR_FAIL_COND(p_tile_size.x <= 0 || p_tile_size.y <= 0);
+	ERR_FAIL_COND(p_view_count == 0);
 
 	Vector3i dims;
 	dims.x = MAX(1, (p_screen_size.x + p_tile_size.x - 1) / p_tile_size.x);
 	dims.y = MAX(1, (p_screen_size.y + p_tile_size.y - 1) / p_tile_size.y);
 	dims.z = p_slice_count;
 
-	if (dims == froxel_dims && extinction_buffer.is_valid()) {
+	if (dims == froxel_dims && p_view_count == view_count && extinction_buffer.is_valid()) {
 		return;
 	}
 
 	_free_buffers();
 	froxel_dims = dims;
+	view_count = p_view_count;
 
 	RenderingDevice *rd = RD::get_singleton();
 
-	extinction_bytes = uint32_t(dims.x) * uint32_t(dims.y) * uint32_t(dims.z) * sizeof(uint32_t);
+	uint32_t packed_x = uint32_t(dims.x) * p_view_count;
+	extinction_bytes = packed_x * uint32_t(dims.y) * uint32_t(dims.z) * sizeof(uint32_t);
 	extinction_buffer = rd->storage_buffer_create(extinction_bytes);
 
 	RD::TextureFormat transmittance_fmt;
-	transmittance_fmt.width = dims.x;
+	transmittance_fmt.width = packed_x;
 	transmittance_fmt.height = dims.y;
 	transmittance_fmt.depth = dims.z;
 	transmittance_fmt.array_layers = 1;
@@ -170,7 +188,16 @@ void OITEffect::configure(const Vector2i &p_screen_size, int p_slice_count, cons
 	transmittance_sampler = rd->sampler_create(sampler_state);
 
 	// The raster splat draws at froxel resolution so each surface lands once per covered column.
-	splat_framebuffer = rd->framebuffer_create_empty(Size2i(dims.x, dims.y));
+	// A layered depth attachment carries the view count, which an empty framebuffer cannot; the splat pipeline never tests it.
+	RD::TextureFormat placeholder_fmt;
+	placeholder_fmt.width = dims.x;
+	placeholder_fmt.height = dims.y;
+	placeholder_fmt.array_layers = p_view_count;
+	placeholder_fmt.texture_type = RD::TEXTURE_TYPE_2D_ARRAY;
+	placeholder_fmt.usage_bits = RD::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	placeholder_fmt.format = rd->texture_is_format_supported_for_usage(RD::DATA_FORMAT_D16_UNORM, placeholder_fmt.usage_bits) ? RD::DATA_FORMAT_D16_UNORM : RD::DATA_FORMAT_D32_SFLOAT;
+	splat_placeholder = rd->texture_create(placeholder_fmt, RD::TextureView());
+	splat_framebuffer = rd->framebuffer_create(Vector<RID>({ splat_placeholder }), RD::INVALID_ID, p_view_count);
 }
 
 void OITEffect::clear_extinction() {
@@ -258,26 +285,30 @@ void OITEffect::integrate(RID p_params_buffer) {
 	RD::ComputeListID compute_list = rd->compute_list_begin();
 	rd->compute_list_bind_compute_pipeline(compute_list, integrate_pipeline);
 	rd->compute_list_bind_uniform_set(compute_list, uniform_set, 0);
-	rd->compute_list_dispatch(compute_list, froxel_dims.x, froxel_dims.y, 1);
+	rd->compute_list_dispatch(compute_list, froxel_dims.x * view_count, froxel_dims.y, 1);
 	rd->compute_list_end();
 }
 
-void OITEffect::configure_accumulation(const Vector2i &p_size, RID p_depth_texture) {
+void OITEffect::configure_accumulation(const Vector2i &p_size, RID p_depth_texture, uint32_t p_view_count) {
 	ERR_FAIL_COND(p_size.x <= 0 || p_size.y <= 0);
 	ERR_FAIL_COND(!p_depth_texture.is_valid());
+	ERR_FAIL_COND(p_view_count == 0);
 
 	RenderingDevice *rd = RD::get_singleton();
-	if (p_size == accumulation_size && p_depth_texture == accumulation_depth && rd->framebuffer_is_valid(accumulation_framebuffer)) {
+	if (p_size == accumulation_size && p_depth_texture == accumulation_depth && p_view_count == accumulation_view_count && rd->framebuffer_is_valid(accumulation_framebuffer)) {
 		return;
 	}
 
 	_free_accumulation();
 	accumulation_size = p_size;
 	accumulation_depth = p_depth_texture;
+	accumulation_view_count = p_view_count;
 
 	RD::TextureFormat fmt;
 	fmt.width = p_size.x;
 	fmt.height = p_size.y;
+	fmt.array_layers = p_view_count;
+	fmt.texture_type = p_view_count > 1 ? RD::TEXTURE_TYPE_2D_ARRAY : RD::TEXTURE_TYPE_2D;
 	fmt.usage_bits = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT;
 	fmt.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
 	accumulated_color = rd->texture_create(fmt, RD::TextureView());
@@ -288,7 +319,7 @@ void OITEffect::configure_accumulation(const Vector2i &p_size, RID p_depth_textu
 	attachments.push_back(accumulated_color);
 	attachments.push_back(accumulated_extinction);
 	attachments.push_back(p_depth_texture);
-	accumulation_framebuffer = rd->framebuffer_create(attachments);
+	accumulation_framebuffer = rd->framebuffer_create(attachments, RD::INVALID_ID, p_view_count);
 }
 
 void OITEffect::resolve(RD::DrawListID p_draw_list, RD::FramebufferFormatID p_framebuffer_format) {
@@ -301,8 +332,9 @@ void OITEffect::resolve(RD::DrawListID p_draw_list, RD::FramebufferFormatID p_fr
 	RD::Uniform u_color(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ sampler, accumulated_color }));
 	RD::Uniform u_extinction(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ sampler, accumulated_extinction }));
 
-	RID shader = resolve_shader.version_get_shader(resolve_shader_version, 0);
-	rd->draw_list_bind_render_pipeline(p_draw_list, resolve_pipeline.get_render_pipeline(RD::INVALID_ID, p_framebuffer_format));
+	int variant = accumulation_view_count > 1 ? RESOLVE_VARIANT_MULTIVIEW : RESOLVE_VARIANT_MONO;
+	RID shader = resolve_shader.version_get_shader(resolve_shader_version, variant);
+	rd->draw_list_bind_render_pipeline(p_draw_list, resolve_pipelines[variant].get_render_pipeline(RD::INVALID_ID, p_framebuffer_format));
 	rd->draw_list_bind_uniform_set(p_draw_list, uniform_set_cache->get_cache(shader, 0, u_color, u_extinction), 0);
 	rd->draw_list_draw(p_draw_list, false, 1u, 3u);
 }

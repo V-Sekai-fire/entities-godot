@@ -50,9 +50,7 @@
 #ifdef MODULE_TEXTURE_STREAMING_ENABLED
 #include "modules/texture_streaming/texture_streaming.h"
 #endif
-#ifdef MODULE_OIT_ENABLED
-#include "modules/oit/oit_effect.h"
-#endif
+#include "servers/rendering/renderer_rd/effects/oit.h"
 
 #define PRELOAD_PIPELINES_ON_SURFACE_CACHE_CONSTRUCTION 1
 
@@ -751,11 +749,9 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 		u.binding = 26;
 		u.uniform_type = RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
 		RID transmittance = oit_default_transmittance;
-#ifdef MODULE_OIT_ENABLED
-		if (p_render_list == RENDER_LIST_ALPHA && oit_effect && oit_effect->is_configured()) {
+		if (p_render_list == RENDER_LIST_ALPHA && oit_frame_active && oit_effect && oit_effect->is_configured()) {
 			transmittance = oit_effect->get_transmittance_texture();
 		}
-#endif
 		u.append_id(oit_default_transmittance_sampler);
 		u.append_id(transmittance);
 		uniforms.push_back(u);
@@ -765,11 +761,9 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 		u.binding = 27;
 		u.uniform_type = RD::UNIFORM_TYPE_UNIFORM_BUFFER;
 		RID params = oit_default_params_buffer;
-#ifdef MODULE_OIT_ENABLED
-		if (p_render_list == RENDER_LIST_ALPHA && oit_scene_params_buffer.is_valid() && oit_effect && oit_effect->is_configured()) {
+		if (p_render_list == RENDER_LIST_ALPHA && oit_frame_active && oit_scene_params_buffer.is_valid() && oit_effect && oit_effect->is_configured()) {
 			params = oit_scene_params_buffer;
 		}
-#endif
 		u.append_id(params);
 		uniforms.push_back(u);
 	}
@@ -778,11 +772,9 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 		u.binding = 28;
 		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
 		RID extinction = oit_default_extinction_buffer;
-#ifdef MODULE_OIT_ENABLED
-		if (p_render_list == RENDER_LIST_ALPHA && oit_effect && oit_effect->is_configured()) {
+		if (p_render_list == RENDER_LIST_ALPHA && oit_frame_active && oit_effect && oit_effect->is_configured()) {
 			extinction = oit_effect->get_extinction_buffer();
 		}
-#endif
 		u.append_id(extinction);
 		uniforms.push_back(u);
 	}
@@ -1013,17 +1005,23 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 	}
 	render_list[RENDER_LIST_ALPHA].sort_by_reverse_depth_and_priority();
 
-#ifdef MODULE_OIT_ENABLED
-	if (rb_data.is_valid() && !is_reflection_probe && GLOBAL_GET("rendering/oit/enabled")) {
-		if (use_msaa || is_multiview) {
-			WARN_PRINT_ONCE("OIT compositing does not support MSAA or multiview; transparent surfaces fall back to sorted blending.");
-		} else {
-			oit_accumulate_count = _oit_partition_alpha_list();
-			merge_transparent_pass = false;
-			using_subpass_post_process = false;
+	oit_frame_active = false;
+	if (GLOBAL_GET("rendering/oit/enabled")) {
+		if (rb_data.is_valid() && !is_reflection_probe) {
+			if (use_msaa) {
+				WARN_PRINT_ONCE("OIT compositing does not support MSAA; transparent surfaces fall back to sorted blending.");
+			} else {
+				oit_frame_active = true;
+				oit_accumulate_count = _oit_partition_alpha_list();
+				merge_transparent_pass = false;
+				using_subpass_post_process = false;
+			}
 		}
+	} else if (oit_effect) {
+		// Otherwise the alpha pass keeps sampling the last integrated transmittance.
+		memdelete(oit_effect);
+		oit_effect = nullptr;
 	}
-#endif
 
 	_fill_instance_data(RENDER_LIST_OPAQUE);
 	_fill_instance_data(RENDER_LIST_ALPHA);
@@ -1277,11 +1275,9 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 			breadcrumb = RDD::BreadcrumbMarker::REFLECTION_PROBES;
 		}
 
-#ifdef MODULE_OIT_ENABLED
-		if (rb_data.is_valid()) {
+		if (oit_frame_active) {
 			_oit_prepass(p_render_data, base_specialization, radiance_texture, samplers, reverse_cull, is_multiview);
 		}
-#endif
 
 		if (rb_data.is_valid() && p_render_data->scene_data->calculate_motion_vectors) {
 			RID mv_fb = rb_data->get_motion_vectors_fb();
@@ -1457,19 +1453,15 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 				render_list_params.subpass = RD::get_singleton()->draw_list_get_current_pass(); // Should now always be 0.
 
 				uint32_t first_element = 0;
-#ifdef MODULE_OIT_ENABLED
 				if (oit_accumulate_count > 0 && oit_effect && oit_effect->is_configured()) {
 					_oit_accumulate(p_render_data, &render_list_params, oit_accumulate_count, breadcrumb);
 					first_element = oit_accumulate_count;
 				}
-#endif
 
 				draw_list = RD::get_singleton()->draw_list_begin(framebuffer, RD::DRAW_DEFAULT_ALL, Vector<Color>(), 1.0f, 0, p_render_data->render_region, breadcrumb);
-#ifdef MODULE_OIT_ENABLED
 				if (first_element > 0) {
 					oit_effect->resolve(draw_list, fb_format);
 				}
-#endif
 				_render_list(draw_list, fb_format, &render_list_params, first_element, render_list_params.element_count);
 				RD::get_singleton()->draw_list_end();
 
@@ -2673,12 +2665,10 @@ void RenderForwardMobile::_render_list_template(RenderingDevice::DrawListID p_dr
 				pipeline_key.version = SceneShaderForwardMobile::SHADER_VERSION_MOTION_VECTORS_MULTIVIEW;
 			} break;
 			case PASS_MODE_OIT_SPLAT: {
-				ERR_FAIL_COND_MSG(p_params->view_count > 1, "Multiview not supported for OIT splat pass");
-				pipeline_key.version = SceneShaderForwardMobile::SHADER_VERSION_OIT_SPLAT_PASS;
+				pipeline_key.version = p_params->view_count > 1 ? SceneShaderForwardMobile::SHADER_VERSION_OIT_SPLAT_PASS_MULTIVIEW : SceneShaderForwardMobile::SHADER_VERSION_OIT_SPLAT_PASS;
 			} break;
 			case PASS_MODE_OIT_ACCUMULATE: {
-				ERR_FAIL_COND_MSG(p_params->view_count > 1, "Multiview not supported for OIT accumulate pass");
-				pipeline_key.version = SceneShaderForwardMobile::SHADER_VERSION_OIT_ACCUMULATE_PASS;
+				pipeline_key.version = p_params->view_count > 1 ? SceneShaderForwardMobile::SHADER_VERSION_OIT_ACCUMULATE_PASS_MULTIVIEW : SceneShaderForwardMobile::SHADER_VERSION_OIT_ACCUMULATE_PASS;
 			} break;
 		}
 
@@ -3842,7 +3832,6 @@ RenderForwardMobile::~RenderForwardMobile() {
 		memdelete_arr(scene_state.lightmap_captures);
 	}
 
-#ifdef MODULE_OIT_ENABLED
 	if (oit_params_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(oit_params_buffer);
 	}
@@ -3855,24 +3844,17 @@ RenderForwardMobile::~RenderForwardMobile() {
 	if (oit_scene_params_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(oit_scene_params_buffer);
 	}
+	if (oit_integrate_params_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(oit_integrate_params_buffer);
+	}
 	if (oit_effect) {
 		memdelete(oit_effect);
 		oit_effect = nullptr;
 	}
-#endif
 	_oit_free_defaults();
 }
 
-#ifdef MODULE_OIT_ENABLED
 void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview) {
-	if (!GLOBAL_GET("rendering/oit/enabled")) {
-		if (oit_effect) {
-			// Otherwise the alpha pass keeps sampling the last integrated transmittance.
-			memdelete(oit_effect);
-			oit_effect = nullptr;
-		}
-		return;
-	}
 	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
 	if (rb.is_null()) {
 		return;
@@ -3885,11 +3867,16 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data, const SceneS
 	int slice_count = int(GLOBAL_GET("rendering/oit/slice_count"));
 	Vector2i tile_size = GLOBAL_GET("rendering/oit/tile_size");
 	int splat_mode = int(GLOBAL_GET("rendering/oit/splat_mode"));
+	uint32_t view_count = p_render_data->scene_data->view_count;
+	if (splat_mode != 0 && view_count > 1) {
+		WARN_PRINT_ONCE("OIT compute splat is single-view; using the raster splat for multiview.");
+		splat_mode = 0;
+	}
 
 	if (oit_effect == nullptr) {
-		oit_effect = memnew(OITEffect);
+		oit_effect = memnew(RendererRD::OITEffect);
 	}
-	oit_effect->configure(internal, slice_count, tile_size);
+	oit_effect->configure(internal, slice_count, tile_size, view_count);
 	Vector3i dims = oit_effect->get_froxel_dims();
 
 	struct SceneOITParams {
@@ -3904,7 +3891,7 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data, const SceneS
 	sp.froxel_dims[0] = dims.x;
 	sp.froxel_dims[1] = dims.y;
 	sp.froxel_dims[2] = dims.z;
-	sp.froxel_dims[3] = 1;
+	sp.froxel_dims[3] = view_count;
 	if (!oit_scene_params_buffer.is_valid()) {
 		oit_scene_params_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(SceneOITParams));
 	}
@@ -3923,14 +3910,15 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data, const SceneS
 		uint32_t froxel_dims[4];
 	};
 	IntegrateParams ip;
-	ip.froxel_dims[0] = dims.x;
+	ip.froxel_dims[0] = dims.x * view_count;
 	ip.froxel_dims[1] = dims.y;
 	ip.froxel_dims[2] = dims.z;
 	ip.froxel_dims[3] = 0;
-	RID integrate_params = RD::get_singleton()->uniform_buffer_create(sizeof(IntegrateParams));
-	RD::get_singleton()->buffer_update(integrate_params, 0, sizeof(IntegrateParams), &ip);
-	oit_effect->integrate(integrate_params);
-	RD::get_singleton()->free_rid(integrate_params);
+	if (!oit_integrate_params_buffer.is_valid()) {
+		oit_integrate_params_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(IntegrateParams));
+	}
+	RD::get_singleton()->buffer_update(oit_integrate_params_buffer, 0, sizeof(IntegrateParams), &ip);
+	oit_effect->integrate(oit_integrate_params_buffer);
 
 	RD::get_singleton()->draw_command_end_label();
 }
@@ -3938,10 +3926,6 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data, const SceneS
 void RenderForwardMobile::_oit_splat_raster(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview) {
 	oit_effect->clear_extinction();
 	if (render_list[RENDER_LIST_ALPHA].elements.is_empty()) {
-		return;
-	}
-	if (p_render_data->scene_data->view_count > 1) {
-		WARN_PRINT_ONCE("OIT raster splat does not support multiview yet; transparent surfaces render unmodulated.");
 		return;
 	}
 
@@ -4026,7 +4010,6 @@ void RenderForwardMobile::_oit_splat_compute(RenderDataRD *p_render_data, const 
 
 	oit_effect->voxelize(oit_splat_buffer, oit_splat_count_buffer, oit_params_buffer, splat_count);
 }
-#endif
 
 // Moves the surfaces the weighted resolve can composite, BLEND_MODE_MIX without premultiplied alpha,
 // ahead of the rest of the alpha list, keeping each group's back-to-front order.
@@ -4052,7 +4035,7 @@ uint32_t RenderForwardMobile::_oit_partition_alpha_list() {
 
 void RenderForwardMobile::_oit_accumulate(RenderDataRD *p_render_data, const RenderListParameters *p_params, uint32_t p_element_count, uint32_t p_breadcrumb) {
 	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
-	oit_effect->configure_accumulation(rb->get_internal_size(), rb->get_depth_texture());
+	oit_effect->configure_accumulation(rb->get_internal_size(), rb->get_depth_texture(), p_render_data->scene_data->view_count);
 	RID accumulation_fb = oit_effect->get_accumulation_framebuffer();
 	ERR_FAIL_COND(!accumulation_fb.is_valid());
 

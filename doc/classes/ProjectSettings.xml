@@ -3279,6 +3279,27 @@
 			[b]Note:[/b] [member rendering/mesh_lod/lod_change/threshold_pixels] does not affect [GeometryInstance3D] visibility ranges (also known as "manual" LOD or hierarchical LOD).
 			[b]Note:[/b] This property is only read when the project starts. To adjust the automatic LOD threshold at runtime, set [member Viewport.mesh_lod_threshold] on the root [Viewport].
 		</member>
+		<member name="rendering/oit/enabled" type="bool" setter="" getter="" default="false">
+			If [code]true[/code], the Mobile renderer composites transparent surfaces with [b]Mix[/b] blending through a froxel transmittance grid so their draw order no longer matters. Other blend modes and other renderers keep sorted blending.
+		</member>
+		<member name="rendering/oit/far_plane" type="float" setter="" getter="" default="500.0">
+			The view-space depth at which the last froxel slice ends.
+		</member>
+		<member name="rendering/oit/linearization_factor" type="float" setter="" getter="" default="1000.0">
+			Shape of the logarithmic depth curve that spaces the froxel slices. Values below about [code]10.0[/code] space the slices almost linearly.
+		</member>
+		<member name="rendering/oit/near_plane" type="float" setter="" getter="" default="0.1">
+			The view-space depth at which the first froxel slice starts.
+		</member>
+		<member name="rendering/oit/slice_count" type="int" setter="" getter="" default="128">
+			Number of depth slices in the froxel grid. Each slice costs one 32-bit value per screen tile.
+		</member>
+		<member name="rendering/oit/splat_mode" type="int" setter="" getter="" default="0">
+			How transparent surfaces are written into the froxel grid. [b]Raster[/b] draws the transparent list at tile resolution and is the shipping path; [b]Compute[/b] splats one point per surface at a fixed alpha and exists for debugging.
+		</member>
+		<member name="rendering/oit/tile_size" type="Vector2i" setter="" getter="" default="Vector2i(6, 6)">
+			Screen pixels covered by one froxel column, per axis. Larger tiles use less memory and blur the transmittance boundary.
+		</member>
 		<member name="rendering/occlusion_culling/bvh_build_quality" type="int" setter="" getter="" default="2">
 			The [url=https://en.wikipedia.org/wiki/Bounding_volume_hierarchy]Bounding Volume Hierarchy[/url] quality to use when rendering the occlusion culling buffer. Higher values will result in more accurate occlusion culling, at the cost of higher CPU usage. See also [member rendering/occlusion_culling/occlusion_rays_per_thread].
 			[b]Note:[/b] This property is only read when the project starts. To adjust the BVH build quality at runtime, use [method RenderingServer.viewport_set_occlusion_culling_build_quality].

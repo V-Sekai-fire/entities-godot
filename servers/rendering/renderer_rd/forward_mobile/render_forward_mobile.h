@@ -35,11 +35,9 @@
 #include "servers/rendering/renderer_rd/forward_mobile/scene_shader_forward_mobile.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 
-#include "modules/modules_enabled.gen.h"
-
-#ifdef MODULE_OIT_ENABLED
+namespace RendererRD {
 class OITEffect;
-#endif
+}
 
 #define RB_SCOPE_MOBILE SNAME("mobile")
 
@@ -66,17 +64,17 @@ private:
 	void _oit_ensure_defaults();
 	void _oit_free_defaults();
 
-#ifdef MODULE_OIT_ENABLED
-	OITEffect *oit_effect = nullptr;
+	RendererRD::OITEffect *oit_effect = nullptr;
+	bool oit_frame_active = false;
 	RID oit_params_buffer;
 	RID oit_splat_count_buffer;
 	RID oit_splat_buffer;
 	uint32_t oit_splat_buffer_capacity = 0;
 	RID oit_scene_params_buffer;
+	RID oit_integrate_params_buffer;
 	void _oit_prepass(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview);
 	void _oit_splat_raster(RenderDataRD *p_render_data, const SceneShaderForwardMobile::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview);
 	void _oit_splat_compute(RenderDataRD *p_render_data, const float *p_slice_curve, const Vector3i &p_dims, const Vector2i &p_tile_size);
-#endif
 
 	/* Scene Shader */
 
@@ -452,10 +450,8 @@ private:
 	_FORCE_INLINE_ void _render_list_template(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element);
 	void _render_list(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element);
 	void _render_list_with_draw_list(RenderListParameters *p_params, RID p_framebuffer, BitField<RD::DrawFlags> p_clear_colors = RD::DRAW_DEFAULT_ALL, const Vector<Color> &p_clear_color_values = Vector<Color>(), float p_clear_depth_value = 0.0, uint32_t p_clear_stencil_value = 0, const Rect2 &p_region = Rect2());
-#ifdef MODULE_OIT_ENABLED
 	uint32_t _oit_partition_alpha_list();
 	void _oit_accumulate(RenderDataRD *p_render_data, const RenderListParameters *p_params, uint32_t p_element_count, uint32_t p_breadcrumb);
-#endif
 
 	RenderList render_list[RENDER_LIST_MAX];
 

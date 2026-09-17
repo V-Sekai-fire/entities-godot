@@ -68,6 +68,22 @@ inline uint32_t oit_flat_index(uint32_t p_dim_y, uint32_t p_dim_z, uint32_t p_x,
 	return (p_x * p_dim_y + p_y) * p_dim_z + p_z;
 }
 
+// Views share one froxel grid packed side by side along X (Oit/Views.lean).
+inline uint32_t oit_packed_column(uint32_t p_dim_x, uint32_t p_view, uint32_t p_x) {
+	return p_view * p_dim_x + p_x;
+}
+
+// Mirrors oit_transmittance_in_front: the eye's screen u clamped to its half-texel band, then offset into its slab.
+inline float oit_packed_u(uint32_t p_dim_x, uint32_t p_view_count, uint32_t p_view, float p_u) {
+	float half = 0.5f / float(p_dim_x);
+	float c = p_u < half ? half : (p_u > 1.0f - half ? 1.0f - half : p_u);
+	return (c + float(p_view)) / float(p_view_count);
+}
+
+inline uint32_t oit_sampled_column(uint32_t p_dim_x, uint32_t p_view_count, float p_packed_u) {
+	return uint32_t(std::floor(p_packed_u * float(p_dim_x * p_view_count)));
+}
+
 // Mirrors oit_apply: slice z reads the inclusive prefix of slice z - 1, and slice 0 reads 1.
 inline float oit_lookup_transmittance(const float *p_column, uint32_t p_slice) {
 	return p_slice == 0 ? 1.0f : p_column[p_slice - 1];

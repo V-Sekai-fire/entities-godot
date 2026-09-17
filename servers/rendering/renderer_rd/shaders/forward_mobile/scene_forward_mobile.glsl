@@ -2359,7 +2359,7 @@ void main() {
 #ifdef MODE_RENDER_DEPTH
 
 #ifdef MODE_OIT_SPLAT
-	oit_splat(gl_FragCoord.xy, -vertex.z, float(alpha));
+	oit_splat(gl_FragCoord.xy, uint(ViewIndex), -vertex.z, float(alpha));
 #endif // MODE_OIT_SPLAT
 
 #ifdef MODE_RENDER_MATERIAL
@@ -2383,9 +2383,9 @@ void main() {
 #else // MODE_RENDER_DEPTH
 
 #ifdef MODE_OIT_ACCUMULATE
-	float oit_front = oit_transmittance_in_front(screen_uv, -vertex.z);
+	float oit_front = oit_transmittance_in_front(screen_uv, uint(ViewIndex), -vertex.z);
 #else
-	alpha = half(oit_apply(screen_uv, -vertex.z, float(alpha)));
+	alpha = half(oit_apply(screen_uv, uint(ViewIndex), -vertex.z, float(alpha)));
 #endif // MODE_OIT_ACCUMULATE
 
 	// multiply by albedo
