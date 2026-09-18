@@ -36,6 +36,8 @@
 #include "platform/android/java_godot_io_wrapper.h"
 #include "platform/android/os_android.h"
 
+#include <optional>
+
 // Scope guard to ensure AImage instances are always deleted.
 class ScopedAImage {
 	AImage *image = nullptr;
