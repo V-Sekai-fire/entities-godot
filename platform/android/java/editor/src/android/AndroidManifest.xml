@@ -20,8 +20,7 @@
     <uses-permission android:name="android.permission.HEAD_TRACKING" />
 
     <application>
-        <!-- Required for spatial container support on AndroidXR. -->
-        <meta-data android:name="com.android.extensions.xr.uses_experimental_openxr_feature" android:value="true" />
+        <meta-data android:name="com.google.ar.core" android:value="optional" />
 
         <uses-native-library android:name="libopenxr.google.so" android:required="false" />
 
