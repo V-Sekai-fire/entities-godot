@@ -45,6 +45,7 @@ void GodotInstance::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("focus_out"), &GodotInstance::focus_out);
 	ClassDB::bind_method(D_METHOD("pause"), &GodotInstance::pause);
 	ClassDB::bind_method(D_METHOD("resume"), &GodotInstance::resume);
+	ClassDB::bind_method(D_METHOD("stop"), &GodotInstance::stop);
 }
 
 GodotInstance::GodotInstance() {
