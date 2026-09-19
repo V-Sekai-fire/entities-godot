@@ -30,7 +30,7 @@
 
 #pragma once
 #include "core/object/ref_counted.h"
-#include "core/variant/packed_arrays.h"
+#include "core/variant/variant.h"
 
 // A row-major [1, 1, 4096] F32 LLM2Vec embedding a caller hands to
 // KimodoPipeline.generate_from_embedding. The kimodo C ABI accepts
