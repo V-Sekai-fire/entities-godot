@@ -962,7 +962,7 @@ static bool _fit_plane(const Vector3 &p_pos, const LocalVector<Vector3> &p_vecto
 }
 
 // Node.SortSegments: insertion sort by angle about the normal, measured
-// from the first neighbour; near-equal tangents compare by chord instead.
+// from the first neighbor; near-equal tangents compare by chord instead.
 static void _sort_ring(const HashMap<int, Ref<CassieSketchGraphEdge>> &p_edges,
 		const HashMap<int, Ref<CassieSketchGraphNode>> &p_nodes, int p_nid,
 		const Vector3 &p_normal, LocalVector<int> &r_ring) {
@@ -1057,7 +1057,7 @@ static int _ring_step(const LocalVector<int> &p_ring, int p_eid, int p_step) {
 	return p_ring[uint32_t((idx + p_step + n) % n)];
 }
 
-// Node.GetInPlane: the neighbour next (or previous) to the incoming edge
+// Node.GetInPlane: the neighbor next (or previous) to the incoming edge
 // by angle in the plane of N, ignoring edges that project below 0.7.
 static int _get_in_plane(const HashMap<int, Ref<CassieSketchGraphEdge>> &p_edges,
 		int p_nid, int p_incoming, const Vector3 &p_n, bool p_want_next,
@@ -1133,7 +1133,7 @@ static Vector3 _transport_across_node(const HashMap<int, Ref<CassieSketchGraphEd
 
 // CycleDetection.ShouldReverse: flip when the carried normal, transported to
 // the next node, disagrees with that node's normal; when the two are near
-// perpendicular, flip when the ring's next neighbour sits past its previous
+// perpendicular, flip when the ring's next neighbor sits past its previous
 // in the carried plane instead.
 static void _should_reverse(const HashMap<int, Ref<CassieSketchGraphEdge>> &p_edges,
 		const HashMap<int, Ref<CassieSketchGraphNode>> &p_nodes, const WalkNodeMeta &p_next_meta,
@@ -1814,10 +1814,10 @@ int CassieSketchGraph::_closest_edge_to(const Vector3 &p_pos, bool p_look_at_non
 	return closest;
 }
 
-// Graph.FindClosestAmongNeighbors: the ring neighbour with the nearest of
-// five samples to the press. Reaching a neighbour that already borders two
+// Graph.FindClosestAmongNeighbors: the ring neighbor with the nearest of
+// five samples to the press. Reaching a neighbor that already borders two
 // cycles ends the scan where it stands, which is upstream's `break`.
-int CassieSketchGraph::_closest_neighbour_to(const Vector3 &p_pos, int p_node_id, int p_edge_id, bool p_look_at_non_manifold) const {
+int CassieSketchGraph::_closest_neighbor_to(const Vector3 &p_pos, int p_node_id, int p_edge_id, bool p_look_at_non_manifold) const {
 	WalkNodeMeta m;
 	_node_meta(edges, nodes, p_node_id, m);
 	int closest = -1;
@@ -1867,7 +1867,7 @@ Array CassieSketchGraph::find_cycle_at(const Vector3 &p_pos, bool p_look_at_non_
 		}
 		path.push_back(cur_eid);
 		cur_nid = edges[cur_eid]->get_opposite(cur_nid);
-		const int next_eid = _closest_neighbour_to(p_pos, cur_nid, cur_eid, p_look_at_non_manifold);
+		const int next_eid = _closest_neighbor_to(p_pos, cur_nid, cur_eid, p_look_at_non_manifold);
 		if (next_eid < 0) {
 			break;
 		}
