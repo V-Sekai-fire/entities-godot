@@ -16,6 +16,7 @@
 #include <iomanip>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <sstream>
 
 namespace skintokens {
