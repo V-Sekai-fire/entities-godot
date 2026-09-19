@@ -65,11 +65,11 @@
 #include <objc/message.h>
 #include <objc/objc.h>
 #include <objc/runtime.h>
-#include <optional>
 #include <os/log.h>
 #include <os/signpost.h>
 
 #include <algorithm>
+#include <optional>
 
 #ifndef MTLGPUAddress
 typedef uint64_t MTLGPUAddress;
