@@ -65,6 +65,7 @@
 #include <objc/message.h>
 #include <objc/objc.h>
 #include <objc/runtime.h>
+#include <optional>
 #include <os/log.h>
 #include <os/signpost.h>
 
