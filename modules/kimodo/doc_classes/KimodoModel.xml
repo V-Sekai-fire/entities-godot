@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="KimodoModel" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+	</brief_description>
+	<description>
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_abi_version" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_status_string" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="status" type="int" />
+			<description>
+				kimodo does not use a status enum; it reports errors through [code skip-lint]kimodo_model_last_error[/code] on a loaded model. Until a follow-up PR wires load and free as separate calls, this method returns an empty string.
+			</description>
+		</method>
+		<method name="generate_motion" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="motion_gguf" type="String" />
+			<param index="1" name="text_gguf" type="String" />
+			<param index="2" name="text_adapter_gguf" type="String" />
+			<param index="3" name="prompt" type="String" />
+			<param index="4" name="opts" type="Dictionary" />
+			<description>
+				Text-to-motion. Loads the motion, text, and (optional) text-adapter GGUFs, runs the diffusion denoiser against [param prompt], returns a [Dictionary] with:
+				[code skip-lint]frames[/code] ([int]), [code skip-lint]joints[/code] ([int]), [code skip-lint]local_rotations_xyzw[/code] ([PackedFloat32Array], frames * joints * 4), and [code skip-lint]root_positions[/code] ([PackedFloat32Array], frames * 3).
+				[param opts] optional keys: [code skip-lint]threads[/code], [code skip-lint]device[/code] (0 auto, 1 CPU, 2 Vulkan), [code skip-lint]seed[/code], [code skip-lint]frames[/code] (default 120), [code skip-lint]diffusion_steps[/code] (default 30), [code skip-lint]text_cfg_weight[/code] (default 5.0), [code skip-lint]constraint_cfg_weight[/code] (default 1.0).
+				Returns an empty [Dictionary] on any error; the reason is pushed through [method @GlobalScope.printerr] before returning.
+			</description>
+		</method>
+	</methods>
+</class>

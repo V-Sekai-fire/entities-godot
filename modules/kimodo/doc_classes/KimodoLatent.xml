@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="KimodoLatent" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		A row-major [code skip-lint][1, 1, 4096][/code] F32 LLM2Vec embedding handed to [method KimodoPipeline.generate_from_embedding].
+	</brief_description>
+	<description>
+		The kimodo denoiser accepts a precomputed LLM2Vec embedding directly through the C ABI ([code skip-lint]kimodo_generate_embedding[/code]), so a caller that produced the embedding through a separate encoder can drive the denoiser without loading kimodo's text runtime. The embedding must contain exactly 4096 float values.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_values" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the count of F32 values in [member embedding]. A well-formed latent has [code]4096[/code]; anything else is refused by [method KimodoPipeline.generate_from_embedding].
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="embedding" type="PackedFloat32Array" setter="set_embedding" getter="get_embedding" default="PackedFloat32Array()">
+			The LLM2Vec latent, 4096 F32 values row-major.
+		</member>
+	</members>
+</class>
