@@ -8,11 +8,6 @@
 	</description>
 	<tutorials>
 	</tutorials>
-	<members>
-		<member name="embedding" type="PackedFloat32Array" setter="set_embedding" getter="get_embedding" default="PackedFloat32Array()">
-			The LLM2Vec latent, 4096 F32 values row-major.
-		</member>
-	</members>
 	<methods>
 		<method name="get_values" qualifiers="const">
 			<return type="int" />
@@ -21,4 +16,9 @@
 			</description>
 		</method>
 	</methods>
+	<members>
+		<member name="embedding" type="PackedFloat32Array" setter="set_embedding" getter="get_embedding" default="PackedFloat32Array()">
+			The LLM2Vec latent, 4096 F32 values row-major.
+		</member>
+	</members>
 </class>
