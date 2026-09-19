@@ -746,33 +746,36 @@ inline std::string format_provably_none(const char *query, uint64_t seed) {
 
 } // namespace detail
 
+// MSVC and clang-cl deprecate getenv under /W4 -Werror; _dupenv_s is the
+// sanctioned spelling there.
+inline std::string read_env(const char *name) {
+#if defined(_MSC_VER)
+	char *buf = nullptr;
+	std::size_t len = 0;
+	if (_dupenv_s(&buf, &len, name) != 0 || buf == nullptr) {
+		return std::string();
+	}
+	std::string out(buf);
+	std::free(buf);
+	return out;
+#else
+	const char *env = std::getenv(name);
+	return env ? std::string(env) : std::string();
+#endif
+}
+
 inline uint64_t pick_seed(uint64_t caller_seed) {
 	if (caller_seed != 0) {
 		return caller_seed;
 	}
-#if defined(_MSC_VER)
-	{
-		char *env = nullptr;
-		size_t env_len = 0;
-		if (_dupenv_s(&env, &env_len, "PROPERTY_SEED") == 0 && env != nullptr) {
-			char *end = nullptr;
-			uint64_t parsed = std::strtoull(env, &end, 0);
-			bool ok = end != env && *end == '\0' && parsed != 0;
-			std::free(env);
-			if (ok) {
-				return parsed;
-			}
-		}
-	}
-#else
-	if (const char *env = std::getenv("PROPERTY_SEED")) {
+	const std::string env = read_env("PROPERTY_SEED");
+	if (!env.empty()) {
 		char *end = nullptr;
-		uint64_t parsed = std::strtoull(env, &end, 0);
-		if (end != env && *end == '\0' && parsed != 0) {
+		uint64_t parsed = std::strtoull(env.c_str(), &end, 0);
+		if (end != env.c_str() && *end == '\0' && parsed != 0) {
 			return parsed;
 		}
 	}
-#endif
 	std::random_device rd;
 	uint64_t s = (static_cast<uint64_t>(rd()) << 32) ^ static_cast<uint64_t>(rd());
 	if (s == 0) {
