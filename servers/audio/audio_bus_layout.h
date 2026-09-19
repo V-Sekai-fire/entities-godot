@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/io/resource.h"
+#include "servers/audio/audio_server_enums.h"
 
 class AudioEffect;
 
@@ -44,6 +45,7 @@ class AudioBusLayout : public Resource {
 		bool solo = false;
 		bool mute = false;
 		bool bypass = false;
+		AuSE::BusType type = AuSE::BUS_TYPE_CONVENTIONAL;
 
 		struct Effect {
 			Ref<AudioEffect> effect;
