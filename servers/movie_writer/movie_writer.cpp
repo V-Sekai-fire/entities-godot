@@ -285,8 +285,8 @@ void MovieWriter::_conform_image(Ref<Image> &r_image, bool p_hdr) const {
 		r_image->resize(movie_size.width, movie_size.height, Image::INTERPOLATE_BILINEAR);
 	}
 	if (p_hdr) {
-		r_image->convert(Image::FORMAT_RGBA8);
 		r_image->linear_to_srgb();
+		r_image->convert(Image::FORMAT_RGBA8);
 	}
 }
 
