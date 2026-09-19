@@ -84,10 +84,13 @@
 /modules/interactive_music/                   @godotengine/audio
 /modules/interactive_music/doc_classes/       @godotengine/audio @godotengine/documentation
 /modules/interactive_music/editor/            @godotengine/audio @godotengine/editor
+/modules/lasso/                               @fire
 /modules/mp3/                                 @godotengine/audio
 /modules/mp3/doc_classes/                     @godotengine/audio @godotengine/documentation
 /modules/ogg/                                 @godotengine/audio
 /modules/ogg/doc_classes/                     @godotengine/audio @godotengine/documentation
+/modules/open_telemetry/                      @V-Sekai/vsekai
+/modules/sqlite/                              @fire
 /modules/theora/                              @godotengine/audio
 /modules/theora/doc_classes/                  @godotengine/audio @godotengine/documentation
 /modules/theora/editor/                       @godotengine/audio @godotengine/editor
@@ -298,3 +301,7 @@
 *.py                                          @godotengine/buildsystem
 SConstruct                                    @godotengine/buildsystem
 SCsub                                         @godotengine/buildsystem
+
+# V-Sekai Lasso
+
+/modules/lasso/                               @fire
