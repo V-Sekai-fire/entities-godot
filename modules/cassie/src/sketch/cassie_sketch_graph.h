@@ -216,7 +216,7 @@ private:
 	int _live_degree(int p_node_id) const;
 	int _cycle_count(int p_edge_id) const;
 	int _closest_edge_to(const Vector3 &p_pos, bool p_look_at_non_manifold) const;
-	int _closest_neighbour_to(const Vector3 &p_pos, int p_node_id, int p_edge_id, bool p_look_at_non_manifold) const;
+	int _closest_neighbor_to(const Vector3 &p_pos, int p_node_id, int p_edge_id, bool p_look_at_non_manifold) const;
 
 protected:
 	static void _bind_methods();
@@ -301,7 +301,7 @@ public:
 
 	// Graph.TryFindCycleAt: the guided search behind a hand-placed patch.
 	// Starts from the edge nearest p_pos and at each node steps to the
-	// neighbour nearest it, accepting the walk if it returns to the start
+	// neighbor nearest it, accepting the walk if it returns to the start
 	// edge within ten turns. Edges bordering two cycles are skipped unless
 	// p_look_at_non_manifold. Returns the cycle accepted, as one edge list,
 	// or an empty Array.
