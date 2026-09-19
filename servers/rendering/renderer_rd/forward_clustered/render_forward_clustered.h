@@ -55,6 +55,10 @@
 #define RB_TEX_VOXEL_GI SNAME("voxel_gi")
 #define RB_TEX_VOXEL_GI_MSAA SNAME("voxel_gi_msaa")
 
+namespace RendererRD {
+class OITEffect;
+}
+
 namespace RendererSceneRenderImplementation {
 
 class RenderForwardClustered : public RendererSceneRenderRD {
@@ -207,6 +211,8 @@ private:
 		PASS_MODE_DEPTH_NORMAL_ROUGHNESS_VOXEL_GI,
 		PASS_MODE_DEPTH_MATERIAL,
 		PASS_MODE_SDF,
+		PASS_MODE_OIT_SPLAT,
+		PASS_MODE_OIT_ACCUMULATE,
 		PASS_MODE_MAX
 	};
 
@@ -460,6 +466,32 @@ private:
 	} scene_state;
 
 	static RenderForwardClustered *singleton;
+
+	// Persistent fallbacks bound into the scene shader's RENDER_PASS_UNIFORM_SET
+	// so bindings 39/40/41 always resolve even without a live OIT effect. The
+	// dummy transmittance stays (1,1,1,1) and the dummy params carry
+	// froxel_dims.w = 0, which makes the scene shader's oit_apply short
+	// circuit and pass alpha through unchanged.
+	RID oit_default_transmittance;
+	RID oit_default_transmittance_sampler;
+	RID oit_default_params_buffer;
+	RID oit_default_extinction_buffer;
+	void _oit_ensure_defaults();
+	void _oit_free_defaults();
+
+	RendererRD::OITEffect *oit_effect = nullptr;
+	bool oit_frame_active = false;
+	RID oit_params_buffer;
+	RID oit_splat_count_buffer;
+	RID oit_splat_buffer;
+	uint32_t oit_splat_buffer_capacity = 0;
+	RID oit_scene_params_buffer;
+	RID oit_integrate_params_buffer;
+	void _oit_prepass(RenderDataRD *p_render_data, const SceneShaderForwardClustered::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview, uint32_t p_uniform_buffer_index);
+	void _oit_splat_raster(RenderDataRD *p_render_data, const SceneShaderForwardClustered::ShaderSpecialization &p_base_specialization, RID p_radiance_texture, const RendererRD::MaterialStorage::Samplers &p_samplers, bool p_reverse_cull, bool p_is_multiview, uint32_t p_uniform_buffer_index);
+	void _oit_splat_compute(RenderDataRD *p_render_data, const float *p_slice_curve, const Vector3i &p_dims);
+	uint32_t _oit_partition_alpha_list();
+	void _oit_accumulate(RenderDataRD *p_render_data, const RenderListParameters *p_params, uint32_t p_element_count);
 
 	uint32_t _setup_environment(const RenderDataRD *p_render_data, bool p_no_fog, const Size2i &p_screen_size, const Size2 &p_viewport_size, const Color &p_default_bg_color, bool p_opaque_render_buffers = false, bool p_apply_alpha_multiplier = false, bool p_pancake_shadows = false);
 	void _setup_voxelgis(const PagedArray<RID> &p_voxelgis);
