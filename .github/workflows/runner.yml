@@ -1,5 +1,14 @@
 name: 🔗 GHA
-on: [push, pull_request, merge_group, workflow_dispatch]
+# A push to a branch other than the default one already skips every job below,
+# so triggering a run for it only queues work that does nothing. Filtering here
+# means the run is never created. Trigger filters take no expressions, so the
+# default branch is named rather than read from the repository.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}|${{ github.ref_name }}
