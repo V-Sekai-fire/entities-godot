@@ -241,7 +241,7 @@ RTC_WRAPPED(Certificate) Certificate::Generate(CertificateType type, const strin
 			psa_set_key_bits(&keyAttr, 256);
 			psa_set_key_usage_flags(&keyAttr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_SIGN_MESSAGE |
 			                                      PSA_KEY_USAGE_VERIFY_HASH | PSA_KEY_USAGE_EXPORT);
-			psa_set_key_algorithm(&keyAttr, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+			psa_set_key_algorithm(&keyAttr, PSA_ALG_ECDSA(PSA_ALG_ANY_HASH));
 			RTC_UNWRAP_CATCH(mbedtls::check(psa_generate_key(&keyAttr, &keyId),
 			               "Unable to generate ECDSA P-256 key pair"));
 			RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_pk_wrap_psa(pk.get(), keyId),
@@ -257,7 +257,7 @@ RTC_WRAPPED(Certificate) Certificate::Generate(CertificateType type, const strin
 			psa_set_key_bits(&keyAttr, nbits);
 			psa_set_key_usage_flags(&keyAttr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_SIGN_MESSAGE |
 			                                      PSA_KEY_USAGE_VERIFY_HASH | PSA_KEY_USAGE_EXPORT);
-			psa_set_key_algorithm(&keyAttr, PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_SHA_256));
+			psa_set_key_algorithm(&keyAttr, PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_ANY_HASH));
 			RTC_UNWRAP_CATCH(mbedtls::check(psa_generate_key(&keyAttr, &keyId),
 			               "Unable to generate RSA key pair"));
 			RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_pk_wrap_psa(pk.get(), keyId),
