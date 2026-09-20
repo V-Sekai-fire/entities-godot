@@ -380,7 +380,7 @@ const mbedtls_ssl_srtp_profile srtpSupportedProtectionProfiles[] = {
 DtlsTransport::DtlsTransport(shared_ptr<IceTransport> lower, certificate_ptr certificate,
                              optional<size_t> mtu, verifier_callback verifierCallback,
                              state_callback stateChangeCallback)
-    : Transport(lower, std::move(stateChangeCallback)), mMtu(mtu),
+    : Transport(lower, std::move(stateChangeCallback)), mMtu(mtu), mCertificate(certificate),
       mVerifierCallback(std::move(verifierCallback)),
       mIsClient(lower->role() == Description::Role::Active) {
 }

@@ -59,7 +59,9 @@ template <typename T> RTC_WRAPPED(T) to_integer(string_view s) {
 	const string str(s);
 	char *p;
 	T ret = std::is_signed<T>::value ? T(strtol(str.c_str(), &p, 10)) : T(strtoul(str.c_str(), &p, 10));
-	if (*p == 0) {
+	// strtol leaves *p at the terminator when it consumed the whole string,
+	// so a zero here means success, not failure.
+	if (*p != 0) {
 		RTC_THROW RTC_INVALID_ARGUMENT("Invalid integer \"" + str + "\" in description");
 	}
 	return ret;
