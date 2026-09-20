@@ -250,12 +250,7 @@ Error MovieWriterCineForm::write_frame(const Ref<Image> &p_image, const int32_t 
 			const uint16_t *s = hin + comps * uint32_t(size.height - 1 - y);
 			uint16_t *d = hout + comps * uint32_t(y);
 			for (uint32_t i = 0; i < comps; i++) {
-				const float lin = CLAMP(Math::half_to_float(s[i]), 0.0f, 1.0f);
-				// Alpha carries no transfer function.
-				const float enc = (i % 4 == 3) ? lin
-						: (lin <= 0.0031308f ? lin * 12.92f
-								: 1.055f * Math::pow(lin, 1.0f / 2.4f) - 0.055f);
-				d[i] = uint16_t(enc * 65535.0f);
+				d[i] = uint16_t(CLAMP(Math::half_to_float(s[i]), 0.0f, 1.0f) * 65535.0f);
 			}
 		}
 	} else {
