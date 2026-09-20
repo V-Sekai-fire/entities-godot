@@ -48,6 +48,9 @@ void initialize_cineform_module(ModuleInitializationLevel p_level) {
 						   "0,64,1"),
 				0);
 		GLOBAL_DEF("editor/movie_writer/cineform/keep_alpha", false);
+		GLOBAL_DEF(PropertyInfo(Variant::INT, "editor/movie_writer/cineform/bit_depth", PROPERTY_HINT_ENUM,
+						   "8-bit,16-bit"),
+				1);
 
 		if constexpr (GD_IS_CLASS_ENABLED(MovieWriterCineForm)) {
 			writer_cineform = memnew(MovieWriterCineForm);

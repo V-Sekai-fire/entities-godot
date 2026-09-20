@@ -73,6 +73,10 @@ AuSE::SpeakerMode MovieWriter::get_audio_speaker_mode() const {
 	return ret;
 }
 
+bool MovieWriter::wants_high_precision() const {
+	return false;
+}
+
 Error MovieWriter::write_begin(const Size2i &p_movie_size, uint32_t p_fps, const String &p_base_path) {
 	Error ret = ERR_UNCONFIGURED;
 	GDVIRTUAL_CALL(_write_begin, p_movie_size, p_fps, p_base_path, ret);
@@ -285,8 +289,12 @@ void MovieWriter::_conform_image(Ref<Image> &r_image, bool p_hdr) const {
 		r_image->resize(movie_size.width, movie_size.height, Image::INTERPOLATE_BILINEAR);
 	}
 	if (p_hdr) {
-		r_image->linear_to_srgb();
-		r_image->convert(Image::FORMAT_RGBA8);
+		// linear_to_srgb only accepts eight-bit formats, so a writer that wants
+		// depth is handed the linear frame and applies the transfer itself.
+		if (!wants_high_precision()) {
+			r_image->linear_to_srgb();
+			r_image->convert(Image::FORMAT_RGBA8);
+		}
 	}
 }
 
