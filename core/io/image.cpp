@@ -4332,12 +4332,52 @@ void Image::srgb_to_linear() {
 	}
 }
 
+static float _image_linear_to_srgb(float p_value) {
+	if (p_value <= 0.0031308f) {
+		return p_value * 12.92f;
+	}
+	return 1.055f * Math::pow(p_value, 1.0f / 2.4f) - 0.055f;
+}
+
 void Image::linear_to_srgb() {
 	if (data.is_empty()) {
 		return;
 	}
 
 	static const uint8_t lin2srgb[256] = { 0, 12, 21, 28, 33, 38, 42, 46, 49, 52, 55, 58, 61, 63, 66, 68, 70, 73, 75, 77, 79, 81, 82, 84, 86, 88, 89, 91, 93, 94, 96, 97, 99, 100, 102, 103, 104, 106, 107, 109, 110, 111, 112, 114, 115, 116, 117, 118, 120, 121, 122, 123, 124, 125, 126, 127, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 151, 152, 153, 154, 155, 156, 157, 157, 158, 159, 160, 161, 161, 162, 163, 164, 165, 165, 166, 167, 168, 168, 169, 170, 171, 171, 172, 173, 174, 174, 175, 176, 176, 177, 178, 179, 179, 180, 181, 181, 182, 183, 183, 184, 185, 185, 186, 187, 187, 188, 189, 189, 190, 191, 191, 192, 193, 193, 194, 194, 195, 196, 196, 197, 197, 198, 199, 199, 200, 201, 201, 202, 202, 203, 204, 204, 205, 205, 206, 206, 207, 208, 208, 209, 209, 210, 210, 211, 212, 212, 213, 213, 214, 214, 215, 215, 216, 217, 217, 218, 218, 219, 219, 220, 220, 221, 221, 222, 222, 223, 223, 224, 224, 225, 226, 226, 227, 227, 228, 228, 229, 229, 230, 230, 231, 231, 232, 232, 233, 233, 234, 234, 235, 235, 236, 236, 237, 237, 237, 238, 238, 239, 239, 240, 240, 241, 241, 242, 242, 243, 243, 244, 244, 245, 245, 245, 246, 246, 247, 247, 248, 248, 249, 249, 250, 250, 251, 251, 251, 252, 252, 253, 253, 254, 254, 255 };
+
+	// The eight-bit path is a lookup table; the float formats carry values a
+	// table cannot index, so they get the transfer computed instead.
+	switch (format) {
+		case FORMAT_RGBH:
+		case FORMAT_RGBAH: {
+			const int channels = format == FORMAT_RGBAH ? 4 : 3;
+			const int len = data.size() / 2;
+			uint16_t *halves = reinterpret_cast<uint16_t *>(data.ptrw());
+			for (int i = 0; i < len; i++) {
+				if (channels == 4 && (i % 4) == 3) {
+					continue; // alpha carries no transfer function
+				}
+				halves[i] = Math::make_half_float(_image_linear_to_srgb(Math::half_to_float(halves[i])));
+			}
+			return;
+		}
+		case FORMAT_RGBF:
+		case FORMAT_RGBAF: {
+			const int channels = format == FORMAT_RGBAF ? 4 : 3;
+			const int len = data.size() / 4;
+			float *floats = reinterpret_cast<float *>(data.ptrw());
+			for (int i = 0; i < len; i++) {
+				if (channels == 4 && (i % 4) == 3) {
+					continue;
+				}
+				floats[i] = _image_linear_to_srgb(floats[i]);
+			}
+			return;
+		}
+		default:
+			break;
+	}
 
 	ERR_FAIL_COND(format != FORMAT_RGB8 && format != FORMAT_RGBA8);
 

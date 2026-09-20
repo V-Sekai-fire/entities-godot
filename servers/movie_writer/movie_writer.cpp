@@ -289,10 +289,8 @@ void MovieWriter::_conform_image(Ref<Image> &r_image, bool p_hdr) const {
 		r_image->resize(movie_size.width, movie_size.height, Image::INTERPOLATE_BILINEAR);
 	}
 	if (p_hdr) {
-		// linear_to_srgb only accepts eight-bit formats, so a writer that wants
-		// depth is handed the linear frame and applies the transfer itself.
+		r_image->linear_to_srgb();
 		if (!wants_high_precision()) {
-			r_image->linear_to_srgb();
 			r_image->convert(Image::FORMAT_RGBA8);
 		}
 	}
