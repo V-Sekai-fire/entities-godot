@@ -1,0 +1,20 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+import os
+
+Import("env")
+Import("env_modules")
+
+env_pixel_stream = env_modules.Clone()
+
+# The wire contract is one header, owned by contract-pixel-stream and reached
+# through the workspace checkout rather than copied in, so the two cannot drift.
+# Absent it the module still builds and registers nothing, the way modules/http3
+# degrades without picoquic.
+contract_include = Dir("#../../2-contract/pixel-stream/include").abspath
+if os.path.isfile(os.path.join(contract_include, "pixel_stream", "wire.hpp")):
+    env_pixel_stream.Prepend(CPPPATH=[contract_include])
+    env_pixel_stream.Append(CPPDEFINES=["PIXEL_STREAM_HAS_CONTRACT"])
+
+env_pixel_stream.add_source_files(env.modules_sources, "*.cpp")
