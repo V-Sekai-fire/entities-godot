@@ -27,7 +27,10 @@ void Transport::registerIncoming() {
 		PLOG_VERBOSE << "Registering incoming callback";
 		mLower->onRecv([this](message_ptr message) -> void {
 			RTC_TRY {
-				Transport::incoming(message);
+				// Unqualified, so the derived transport's override runs. A
+				// qualified call here delivers every packet to the base and
+				// skips the layer entirely.
+				incoming(message);
 			} RTC_CATCH(RTC_EXCEPTION e) {
 				PLOG_WARNING << e.RTC_WHAT(); // FIXME
 			}
