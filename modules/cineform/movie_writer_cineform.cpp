@@ -110,9 +110,11 @@ Error MovieWriterCineForm::write_begin(const Size2i &p_movie_size, uint32_t p_fp
 	ERR_FAIL_COND_V_MSG(err != CFHD_ERROR_OKAY, ERR_CANT_CREATE,
 			vformat("CFHD_CreateEncoderPool failed with code %d.", int(err)));
 
-	const CFHD_EncodedFormat encoded = keep_alpha ? CFHD_ENCODED_FORMAT_RGBA_4444 : CFHD_ENCODED_FORMAT_RGB_444;
+	const CFHD_EncodedFormat encoded = keep_alpha ? CFHD_ENCODED_FORMAT_RGBA_4444
+			: (chroma_index == 0 ? CFHD_ENCODED_FORMAT_YUV_422 : CFHD_ENCODED_FORMAT_RGB_444);
 	err = CFHD_PrepareEncoderPool(pool, uint_least16_t(size.width), uint_least16_t(size.height),
-			CFHD_PIXEL_FORMAT_BGRA, encoded, CFHD_ENCODING_FLAGS_NONE, QUALITY_LADDER[quality_index]);
+			depth_index == 1 ? CFHD_PIXEL_FORMAT_RG64 : CFHD_PIXEL_FORMAT_BGRA, encoded,
+			CFHD_ENCODING_FLAGS_NONE, QUALITY_LADDER[quality_index]);
 	ERR_FAIL_COND_V_MSG(err != CFHD_ERROR_OKAY, ERR_CANT_CREATE,
 			vformat("CFHD_PrepareEncoderPool failed with code %d.", int(err)));
 
@@ -120,7 +122,7 @@ Error MovieWriterCineForm::write_begin(const Size2i &p_movie_size, uint32_t p_fp
 	ERR_FAIL_COND_V_MSG(err != CFHD_ERROR_OKAY, ERR_CANT_CREATE,
 			vformat("CFHD_StartEncoderPool failed with code %d.", int(err)));
 
-	staging.resize(size.width * size.height * 4);
+	staging.resize(size.width * size.height * (depth_index == 1 ? 8 : 4));
 
 	f = FileAccess::open(base_path, FileAccess::WRITE_READ);
 	ERR_FAIL_COND_V(f.is_null(), ERR_CANT_OPEN);
@@ -224,36 +226,50 @@ void MovieWriterCineForm::_drain(bool p_block) {
 Error MovieWriterCineForm::write_frame(const Ref<Image> &p_image, const int32_t *p_audio_data) {
 	ERR_FAIL_COND_V(f.is_null() || pool == nullptr, ERR_UNCONFIGURED);
 
+	const bool deep = depth_index == 1;
+	const Image::Format want = deep ? Image::FORMAT_RGBAH : Image::FORMAT_RGBA8;
 	Ref<Image> img = p_image;
-	if (img->get_format() != Image::FORMAT_RGBA8) {
+	if (img->get_format() != want) {
 		img = Image::create_from_data(img->get_width(), img->get_height(), false, img->get_format(), img->get_data());
-		img->convert(Image::FORMAT_RGBA8);
+		img->convert(want);
 	}
 
 	const Vector<uint8_t> src = img->get_data();
-	const uint32_t pitch = size.width * 4;
+	const uint32_t pitch = size.width * (deep ? 8 : 4);
 	ERR_FAIL_COND_V(uint32_t(src.size()) < pitch * uint32_t(size.height), ERR_INVALID_DATA);
-
-	// RGBA to BGRA with the rows reversed, as the encoder takes bottom-up input.
-	const __m128i swizzle = _mm_setr_epi8(2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
-	const int wide = int(pitch) & ~15;
-	const uint8_t *in = src.ptr();
 	uint8_t *out = staging.ptrw();
-	for (int y = 0; y < size.height; y++) {
-		const uint8_t *s = in + pitch * uint32_t(size.height - 1 - y);
-		uint8_t *d = out + pitch * uint32_t(y);
-		int b = 0;
-		for (; b < wide; b += 16) {
-			_mm_storeu_si128((__m128i *)(d + b), _mm_shuffle_epi8(_mm_loadu_si128((const __m128i *)(s + b)), swizzle));
+
+	if (deep) {
+		const uint16_t *hin = (const uint16_t *)src.ptr();
+		uint16_t *hout = (uint16_t *)out;
+		const uint32_t comps = uint32_t(size.width) * 4;
+		for (int y = 0; y < size.height; y++) {
+			const uint16_t *s = hin + comps * uint32_t(size.height - 1 - y);
+			uint16_t *d = hout + comps * uint32_t(y);
+			for (uint32_t i = 0; i < comps; i++) {
+				d[i] = uint16_t(CLAMP(Math::half_to_float(s[i]), 0.0f, 1.0f) * 65535.0f);
+			}
 		}
-		for (; b < int(pitch); b += 4) {
-			d[b + 0] = s[b + 2];
-			d[b + 1] = s[b + 1];
-			d[b + 2] = s[b + 0];
-			d[b + 3] = s[b + 3];
+	} else {
+		// RGBA to BGRA with the rows reversed, as the encoder takes bottom-up input.
+		const __m128i swizzle = _mm_setr_epi8(2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
+		const int wide = int(pitch) & ~15;
+		const uint8_t *in = src.ptr();
+		for (int y = 0; y < size.height; y++) {
+			const uint8_t *s = in + pitch * uint32_t(size.height - 1 - y);
+			uint8_t *d = out + pitch * uint32_t(y);
+			int b = 0;
+			for (; b < wide; b += 16) {
+				_mm_storeu_si128((__m128i *)(d + b), _mm_shuffle_epi8(_mm_loadu_si128((const __m128i *)(s + b)), swizzle));
+			}
+			for (; b < int(pitch); b += 4) {
+				d[b + 0] = s[b + 2];
+				d[b + 1] = s[b + 1];
+				d[b + 2] = s[b + 0];
+				d[b + 3] = s[b + 3];
+			}
 		}
 	}
-
 	CFHD_Error err = CFHD_EncodeAsyncSample(pool, submitted_count, out, intptr_t(pitch), nullptr);
 	ERR_FAIL_COND_V_MSG(err != CFHD_ERROR_OKAY, ERR_CANT_CREATE,
 			vformat("CFHD_EncodeAsyncSample failed on frame %d with code %d.", submitted_count, int(err)));
@@ -312,6 +328,8 @@ MovieWriterCineForm::MovieWriterCineForm() {
 	audio_bit_depth = GLOBAL_GET("editor/movie_writer/audio_bit_depth");
 	quality_index = CLAMP(int(GLOBAL_GET("editor/movie_writer/cineform/quality")), 0, 5);
 	keep_alpha = GLOBAL_GET("editor/movie_writer/cineform/keep_alpha");
+	chroma_index = CLAMP(int(GLOBAL_GET("editor/movie_writer/cineform/chroma")), 0, 1);
+	depth_index = CLAMP(int(GLOBAL_GET("editor/movie_writer/cineform/bit_depth")), 0, 1);
 }
 
 MovieWriterCineForm::~MovieWriterCineForm() {

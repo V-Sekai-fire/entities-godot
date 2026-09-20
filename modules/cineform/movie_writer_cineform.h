@@ -50,6 +50,8 @@ class MovieWriterCineForm : public MovieWriter {
 	Size2i size;
 	int quality_index = 2;
 	bool keep_alpha = false;
+	int chroma_index = 0;
+	int depth_index = 1;
 
 	uint32_t audio_block_size = 0;
 	uint32_t audio_frames = 0;
