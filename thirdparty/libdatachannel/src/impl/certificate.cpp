@@ -154,8 +154,9 @@ string make_fingerprint(mbedtls_x509_crt *crt) {
 	uint8_t buffer[size];
 	std::stringstream fingerprint;
 
-	(void)mbedtls::check(
-	    mbedtls_sha256(crt->raw.p, crt->raw.len, reinterpret_cast<unsigned char *>(buffer), 0),
+	size_t hashLen = 0;
+	(void)mbedtls::check(psa_hash_compute(PSA_ALG_SHA_256, crt->raw.p, crt->raw.len,
+	                         reinterpret_cast<unsigned char *>(buffer), size, &hashLen),
 	    "Failed to generate certificate fingerprint");
 
 	for (auto i = 0; i < size; i++) {
@@ -184,7 +185,7 @@ RTC_WRAPPED(Certificate) Certificate::FromString(string crt_pem, string key_pem)
 	               "Failed to parse certificate"));
 	RTC_UNWRAP_RETHROW(mbedtls::check(mbedtls_pk_parse_key(pk.get(),
 	                                    reinterpret_cast<const unsigned char *>(key_pem.c_str()),
-	                                    key_pem.size(), NULL, 0, NULL, 0),
+	                                    key_pem.size(), NULL, 0),
 	               "Failed to parse key"));
 
 	return Certificate(std::move(crt), std::move(pk));
@@ -200,7 +201,7 @@ RTC_WRAPPED(Certificate) Certificate::FromFile(const string &crt_pem_file, const
 
 	RTC_UNWRAP_RETHROW(mbedtls::check(mbedtls_x509_crt_parse_file(crt.get(), crt_pem_file.c_str()),
 	               "Failed to parse certificate"));
-	RTC_UNWRAP_RETHROW(mbedtls::check(mbedtls_pk_parse_keyfile(pk.get(), key_pem_file.c_str(), pass.c_str(), 0, NULL),
+	RTC_UNWRAP_RETHROW(mbedtls::check(mbedtls_pk_parse_keyfile(pk.get(), key_pem_file.c_str(), pass.c_str()),
 	               "Failed to parse key"));
 
 	return Certificate(std::move(crt), std::move(pk));
@@ -209,10 +210,13 @@ RTC_WRAPPED(Certificate) Certificate::FromFile(const string &crt_pem_file, const
 RTC_WRAPPED(Certificate) Certificate::Generate(CertificateType type, const string &commonName) {
 	PLOG_DEBUG << "Generating certificate (MbedTLS)";
 
+	// The wrapped PSA key must outlive the pk context that wraps it, so it is
+	// deliberately not destroyed here.
+	psa_key_attributes_t keyAttr = PSA_KEY_ATTRIBUTES_INIT;
+	mbedtls_svc_key_id_t keyId = MBEDTLS_SVC_KEY_ID_INIT;
 	mbedtls_entropy_context entropy;
 	mbedtls_ctr_drbg_context drbg;
 	mbedtls_x509write_cert wcrt;
-	mbedtls_mpi serial;
 	auto crt = mbedtls::new_x509_crt();
 	auto pk = mbedtls::new_pk_context();
 
@@ -220,7 +224,6 @@ RTC_WRAPPED(Certificate) Certificate::Generate(CertificateType type, const strin
 	mbedtls_ctr_drbg_init(&drbg);
 	mbedtls_ctr_drbg_set_prediction_resistance(&drbg, MBEDTLS_CTR_DRBG_PR_ON);
 	mbedtls_x509write_crt_init(&wcrt);
-	mbedtls_mpi_init(&serial);
 
 	RTC_TRY {
 		RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_ctr_drbg_seed(
@@ -234,20 +237,31 @@ RTC_WRAPPED(Certificate) Certificate::Generate(CertificateType type, const strin
 		// See https://www.rfc-editor.org/rfc/rfc8827.html#section-6.5
 		case CertificateType::Default:
 		case CertificateType::Ecdsa: {
-			RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_pk_setup(pk.get(), mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY))));
-			RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(*pk.get()),
-			                                   mbedtls_ctr_drbg_random, &drbg),
+			psa_set_key_type(&keyAttr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+			psa_set_key_bits(&keyAttr, 256);
+			psa_set_key_usage_flags(&keyAttr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_SIGN_MESSAGE |
+			                                      PSA_KEY_USAGE_VERIFY_HASH | PSA_KEY_USAGE_EXPORT);
+			psa_set_key_algorithm(&keyAttr, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+			RTC_UNWRAP_CATCH(mbedtls::check(psa_generate_key(&keyAttr, &keyId),
 			               "Unable to generate ECDSA P-256 key pair"));
+			RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_pk_wrap_psa(pk.get(), keyId),
+			               "Unable to wrap ECDSA P-256 key pair"));
 			break;
 		}
 		case CertificateType::Rsa: {
 			const unsigned int nbits = 2048;
 			const int exponent = 65537;
 
-			RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_pk_setup(pk.get(), mbedtls_pk_info_from_type(MBEDTLS_PK_RSA))));
-			RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_rsa_gen_key(mbedtls_pk_rsa(*pk.get()), mbedtls_ctr_drbg_random,
-			                                   &drbg, nbits, exponent),
+			(void)exponent; // PSA generates RSA keys with F4, which is what 65537 asked for.
+			psa_set_key_type(&keyAttr, PSA_KEY_TYPE_RSA_KEY_PAIR);
+			psa_set_key_bits(&keyAttr, nbits);
+			psa_set_key_usage_flags(&keyAttr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_SIGN_MESSAGE |
+			                                      PSA_KEY_USAGE_VERIFY_HASH | PSA_KEY_USAGE_EXPORT);
+			psa_set_key_algorithm(&keyAttr, PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_SHA_256));
+			RTC_UNWRAP_CATCH(mbedtls::check(psa_generate_key(&keyAttr, &keyId),
 			               "Unable to generate RSA key pair"));
+			RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_pk_wrap_psa(pk.get(), keyId),
+			               "Unable to wrap RSA key pair"));
 			break;
 		}
 		default:
@@ -261,8 +275,6 @@ RTC_WRAPPED(Certificate) Certificate::Generate(CertificateType type, const strin
 		const size_t serialBufferSize = 16;
 		unsigned char serialBuffer[serialBufferSize];
 		RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_ctr_drbg_random(&drbg, serialBuffer, serialBufferSize),
-		               "Failed to generate certificate"));
-		RTC_UNWRAP_CATCH(mbedtls::check(mbedtls_mpi_read_binary(&serial, serialBuffer, serialBufferSize),
 		               "Failed to generate certificate"));
 
 		std::string name = std::string("O=" + commonName + ",CN=" + commonName);
@@ -285,8 +297,8 @@ RTC_WRAPPED(Certificate) Certificate::Generate(CertificateType type, const strin
 		unsigned char certificateBuffer[certificateBufferSize];
 		std::memset(certificateBuffer, 0, certificateBufferSize);
 
-		auto certificateLen = mbedtls_x509write_crt_der(
-		    &wcrt, certificateBuffer, certificateBufferSize, mbedtls_ctr_drbg_random, &drbg);
+		auto certificateLen =
+		    mbedtls_x509write_crt_der(&wcrt, certificateBuffer, certificateBufferSize);
 		if (certificateLen <= 0) {
 			RTC_THROW_WITHIN(RTC_RUNTIME_ERROR("Certificate generation failed"));
 		}
@@ -299,14 +311,12 @@ RTC_WRAPPED(Certificate) Certificate::Generate(CertificateType type, const strin
 		mbedtls_entropy_free(&entropy);
 		mbedtls_ctr_drbg_free(&drbg);
 		mbedtls_x509write_crt_free(&wcrt);
-		mbedtls_mpi_free(&serial);
 		RTC_RETHROW;
 	}
 
 	mbedtls_entropy_free(&entropy);
 	mbedtls_ctr_drbg_free(&drbg);
 	mbedtls_x509write_crt_free(&wcrt);
-	mbedtls_mpi_free(&serial);
 	return Certificate(std::move(crt), std::move(pk));
 }
 

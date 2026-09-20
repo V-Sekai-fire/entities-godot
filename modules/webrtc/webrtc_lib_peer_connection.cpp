@@ -150,7 +150,7 @@ WebRTCLibPeerConnection::SignalingState WebRTCLibPeerConnection::get_signaling_s
 	}
 }
 
-Error WebRTCLibPeerConnection::initialize(Dictionary p_config) {
+Error WebRTCLibPeerConnection::initialize(const Dictionary &p_config) {
 	rtc::Configuration config = {};
 	if (p_config.has("iceServers") && p_config["iceServers"].get_type() == Variant::ARRAY) {
 		Array servers = p_config["iceServers"];
@@ -164,7 +164,7 @@ Error WebRTCLibPeerConnection::initialize(Dictionary p_config) {
 	return _create_pc(config);
 }
 
-Ref<WebRTCDataChannel> WebRTCLibPeerConnection::create_data_channel(String p_channel, Dictionary p_channel_config) {
+Ref<WebRTCDataChannel> WebRTCLibPeerConnection::create_data_channel(const String &p_channel, const Dictionary &p_channel_config) {
 	ERR_FAIL_COND_V(!peer_connection, nullptr);
 
 	// Read config from dictionary
@@ -195,7 +195,7 @@ Error WebRTCLibPeerConnection::create_offer() {
 	return OK;
 }
 
-Error WebRTCLibPeerConnection::set_remote_description(String p_type, String p_sdp) {
+Error WebRTCLibPeerConnection::set_remote_description(const String &p_type, const String &p_sdp) {
 	ERR_FAIL_COND_V(!peer_connection, ERR_UNCONFIGURED);
 	std::string error;
 	if (!LibDataChannelExceptionWrapper::set_remote_description(peer_connection, p_type.utf8().get_data(), p_sdp.utf8().get_data(), error)) {
@@ -204,7 +204,7 @@ Error WebRTCLibPeerConnection::set_remote_description(String p_type, String p_sd
 	return OK;
 }
 
-Error WebRTCLibPeerConnection::set_local_description(String p_type, String p_sdp) {
+Error WebRTCLibPeerConnection::set_local_description(const String &p_type, const String &p_sdp) {
 	ERR_FAIL_COND_V(!peer_connection, ERR_UNCONFIGURED);
 	// XXX Library quirk. It doesn't seem possible to create offers/answers without setting the local description.
 	// Ignore this call for now to avoid crash (it's already set automatically!).
@@ -212,7 +212,7 @@ Error WebRTCLibPeerConnection::set_local_description(String p_type, String p_sdp
 	return OK;
 }
 
-Error WebRTCLibPeerConnection::add_ice_candidate(String sdpMidName, int sdpMlineIndexName, String sdpName) {
+Error WebRTCLibPeerConnection::add_ice_candidate(const String &sdpMidName, int sdpMlineIndexName, const String &sdpName) {
 	ERR_FAIL_COND_V(!peer_connection, ERR_UNCONFIGURED);
 	std::string error;
 	if (!LibDataChannelExceptionWrapper::add_ice_candidate(peer_connection, sdpMidName.utf8().get_data(), sdpName.utf8().get_data(), error)) {

@@ -57,12 +57,12 @@ public:
 	GatheringState get_gathering_state() const override;
 	SignalingState get_signaling_state() const override;
 
-	Error initialize(Dictionary p_config) override;
-	Ref<WebRTCDataChannel> create_data_channel(String p_channel, Dictionary p_channel_config) override;
+	Error initialize(const Dictionary &p_config) override;
+	Ref<WebRTCDataChannel> create_data_channel(const String &p_channel, const Dictionary &p_channel_config) override;
 	Error create_offer() override;
-	Error set_remote_description(String type, String sdp) override;
-	Error set_local_description(String type, String sdp) override;
-	Error add_ice_candidate(String sdpMidName, int sdpMlineIndexName, String sdpName) override;
+	Error set_remote_description(const String &type, const String &sdp) override;
+	Error set_local_description(const String &type, const String &sdp) override;
+	Error add_ice_candidate(const String &sdpMidName, int sdpMlineIndexName, const String &sdpName) override;
 	Error poll() override;
 	void close() override;
 
