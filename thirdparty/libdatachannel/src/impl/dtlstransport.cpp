@@ -409,7 +409,7 @@ RTC_WRAPPED(void) DtlsTransport::construct() {
 		mbedtls_ssl_conf_authmode(&mConf, MBEDTLS_SSL_VERIFY_OPTIONAL);
 		mbedtls_ssl_conf_verify(&mConf, DtlsTransport::CertificateCallback, this);
 
-		mbedtls_ssl_conf_rng(&mConf, mbedtls_ctr_drbg_random, &mDrbg);
+		// mbedtls 4 draws randomness from PSA, so there is no RNG to configure.
 
 		auto [crt, pk] = mCertificate->credentials();
 		auto crt_ = crt;

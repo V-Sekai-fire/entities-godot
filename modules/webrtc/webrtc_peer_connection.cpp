@@ -54,7 +54,7 @@ WebRTCPeerConnection *WebRTCPeerConnection::create(bool p_notify_postinitialize)
 #else
 	if (default_extension == StringName()) {
 #if defined(ENABLE_LIBDATACHANNEL)
-		return memnew(WebRTCLibPeerConnection);
+		return static_cast<WebRTCPeerConnection *>(ClassDB::creator<WebRTCLibPeerConnection>(p_notify_postinitialize));
 #else
 		WARN_PRINT_ONCE("No default WebRTC extension configured.");
 		return static_cast<WebRTCPeerConnection *>(ClassDB::creator<WebRTCPeerConnectionExtension>(p_notify_postinitialize));

@@ -40,13 +40,9 @@ gnutls_datum_t make_datum(char *data, size_t size);
 
 #elif USE_MBEDTLS
 
-#include "mbedtls/ctr_drbg.h"
-#include "mbedtls/ecdsa.h"
-#include "mbedtls/entropy.h"
+#include "mbedtls_psa_compat.hpp"
 #include "mbedtls/error.h"
 #include "mbedtls/pk.h"
-#include "mbedtls/rsa.h"
-#include "mbedtls/sha256.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
 
