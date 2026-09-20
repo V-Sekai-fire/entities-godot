@@ -98,6 +98,10 @@ protected:
 	virtual uint32_t get_audio_mix_rate() const;
 	virtual AuSE::SpeakerMode get_audio_speaker_mode() const;
 
+	// A writer that can encode more than eight bits says so, and the HDR
+	// readback is not quantised on its way in.
+	virtual bool wants_high_precision() const;
+
 	virtual Error write_begin(const Size2i &p_movie_size, uint32_t p_fps, const String &p_base_path);
 	virtual Error write_frame(const Ref<Image> &p_image, const int32_t *p_audio_data);
 	virtual void write_end();

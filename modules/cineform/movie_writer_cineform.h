@@ -50,6 +50,7 @@ class MovieWriterCineForm : public MovieWriter {
 	Size2i size;
 	int quality_index = 2;
 	bool keep_alpha = false;
+	int depth_index = 1;
 
 	uint32_t audio_block_size = 0;
 	uint32_t audio_frames = 0;
@@ -95,6 +96,7 @@ protected:
 	virtual void get_supported_extensions(List<String> *r_extensions) const override;
 
 	virtual Error write_begin(const Size2i &p_movie_size, uint32_t p_fps, const String &p_base_path) override;
+	virtual bool wants_high_precision() const override;
 	virtual Error write_frame(const Ref<Image> &p_image, const int32_t *p_audio_data) override;
 	virtual void write_end() override;
 
