@@ -160,8 +160,8 @@ struct [[nodiscard]] WrappedResult<void> {
 
 #define RTC_WRAPPED_DEFAULT_CONSTRUCTABLE(clsname) friend struct WrappedResult<clsname>
 #define RTC_THROW return (::rtc::ExceptionCast)
-#define RTC_TRY RTC_EXCEPTION e; bool rtcexc_was_thrown;
-#define RTC_BEGIN RTC_EXCEPTION e; bool rtcexc_was_thrown
+#define RTC_TRY RTC_EXCEPTION e; bool rtcexc_was_thrown = false;
+#define RTC_BEGIN RTC_EXCEPTION e; bool rtcexc_was_thrown = false
 #define RTC_CATCH(extype) while (false) rtcexc_catch_label: 
 #define RTC_WRAPPED(T) ::rtc::WrappedResult<T>
 #define RTC_THROW_WITHIN(exception) while ((e = (exception)), (rtcexc_was_thrown = true)) goto rtcexc_catch_label
