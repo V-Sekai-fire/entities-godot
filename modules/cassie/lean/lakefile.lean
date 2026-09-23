@@ -19,7 +19,7 @@ package «cassie-avbd» where
 
 -- LeanSlang — the AST + emitter for Slang shader source.
 require LeanSlang from git
-  "https://github.com/V-Sekai-fire/lean-slang.git" @ "v0.0.6"
+  "https://github.com/V-Sekai-fire/contract-lean-slang.git" @ "60532aef8ed70cc669ecab481182d0636c9e1ac3"
 
 -- DiffCloth's proved AVBD kernel library + host-side AVBD data
 -- (Cloth.Avbd.{AdjacencySpring, AdjacencyKwise, Coloring}) — vendored.
