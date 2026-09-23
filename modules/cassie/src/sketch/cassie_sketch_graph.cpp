@@ -403,7 +403,7 @@ static void _knot_zone(const PackedVector3Array &p_a, int p_a_end,
 	// Segment k of one polyline within p_proximity of any of the other's
 	// first `upto` segments.
 	auto within_other = [&](const PackedVector3Array &p, int s, int end, int k,
-						const PackedVector3Array &q, int t, int qend, int upto) {
+								const PackedVector3Array &q, int t, int qend, int upto) {
 		Vector3 a0, a1, b0, b1;
 		seg(p, s, end, k, a0, a1);
 		for (int j = 0; j < MIN(upto, t); ++j) {
