@@ -10,7 +10,7 @@ using namespace SLANG_PRELUDE_NAMESPACE;
 namespace cassie_slang_curve_newton {
 
 
-#line 1 "/tmp/claude-1000/-home-fire-contract-manifest/883e6fa7-aa74-4194-b962-0ffd9bcc2b37/scratchpad/avbd_scoped/curve_newton.cpu.slang"
+#line 1 "../thirdparty/avbd/curve_newton.cpu.slang"
 struct NewtonParams_0
 {
     Vector<float, 3>  a_0;
@@ -139,7 +139,7 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
 #line 42
         float u_new_0;
 
-        if((F32_abs((den_0))) < 0.0f)
+        if((F32_abs((den_0))) < 9.99999971718068537e-10f)
         {
 
 #line 44

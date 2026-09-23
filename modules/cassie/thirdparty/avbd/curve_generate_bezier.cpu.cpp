@@ -10,7 +10,7 @@ using namespace SLANG_PRELUDE_NAMESPACE;
 namespace cassie_slang_curve_generate_bezier {
 
 
-#line 1 "/tmp/claude-1000/-home-fire-contract-manifest/883e6fa7-aa74-4194-b962-0ffd9bcc2b37/scratchpad/avbd_scoped/curve_generate_bezier.cpu.slang"
+#line 1 "../thirdparty/avbd/curve_generate_bezier.cpu.slang"
 struct GbParams_0
 {
     Vector<float, 3>  tangent_a_0;
@@ -36,25 +36,57 @@ struct KernelContext_0
 };
 
 
-#line 10374 "hlsl.meta.slang"
+#line 10098 "hlsl.meta.slang"
 static float dot_0(Vector<float, 3>  x_0, Vector<float, 3>  y_0)
 {
 
-#line 10401
-    return x_0.x * y_0.x + x_0.y * y_0.y + x_0.z * y_0.z;
+#line 10098
+    int32_t i_0 = int(0);
+
+#line 10098
+    float result_0 = 0.0f;
+
+#line 10117
+    for(;;)
+    {
+
+#line 10117
+        if(i_0 < int(3))
+        {
+        }
+        else
+        {
+
+#line 10117
+            break;
+        }
+
+#line 10118
+        float result_1 = result_0 + _slang_vector_get_element(x_0, i_0) * _slang_vector_get_element(y_0, i_0);
+
+#line 10117
+        i_0 = i_0 + int(1);
+
+#line 10117
+        result_0 = result_1;
+
+#line 10117
+    }
+
+    return result_0;
 }
 
 
-#line 12651
+#line 12353
 static float length_0(Vector<float, 3>  x_1)
 {
 
-#line 12663
+#line 12365
     return (F32_sqrt((dot_0(x_1, x_1))));
 }
 
 
-#line 17 "/tmp/claude-1000/-home-fire-contract-manifest/883e6fa7-aa74-4194-b962-0ffd9bcc2b37/scratchpad/avbd_scoped/curve_generate_bezier.cpu.slang"
+#line 17 "../thirdparty/avbd/curve_generate_bezier.cpu.slang"
 void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
 {
 
@@ -82,14 +114,14 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
     float x1_0 = 0.0f;
 
 #line 19
-    uint32_t i_0 = 0U;
+    uint32_t i_1 = 0U;
 
 #line 25
     for(;;)
     {
 
 #line 25
-        if(i_0 < ((slang_bit_cast<GlobalParams_0*>(globalParams_1))->params_0->count_0))
+        if(i_1 < ((slang_bit_cast<GlobalParams_0*>(globalParams_1))->params_0->count_0))
         {
         }
         else
@@ -100,7 +132,7 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
         }
 
 #line 26
-        float ui_0 = (&kernelContext_0)->globalParams_0->in_u_0.Load(i_0);
+        float ui_0 = (&kernelContext_0)->globalParams_0->in_u_0.Load(i_1);
         float omu_0 = 1.0f - ui_0;
         float _S2 = omu_0 * omu_0;
 
@@ -121,13 +153,13 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
         float wA_0 = _S2 * (1.0f + _S7);
         float wB_0 = _S3 * (3.0f - _S7);
 
-        Vector<float, 3>  pi_0 = (slang_bit_cast<GlobalParams_0*>(globalParams_1))->in_points_0.Load(i_0);
+        Vector<float, 3>  pi_0 = (slang_bit_cast<GlobalParams_0*>(globalParams_1))->in_points_0.Load(i_1);
         Vector<float, 3>  tmp_0 = Vector<float, 3> (pi_0.x - (wA_0 * p0_0.x + wB_0 * p3_0.x), pi_0.y - (wA_0 * p0_0.y + wB_0 * p3_0.y), pi_0.z - (wA_0 * p0_0.z + wB_0 * p3_0.z));
         float _S8 = x0_0 + dot_0(a1_0, tmp_0);
         float _S9 = x1_0 + dot_0(a2_0, tmp_0);
 
 #line 25
-        uint32_t i_1 = i_0 + 1U;
+        uint32_t i_2 = i_1 + 1U;
 
 #line 25
         c00_0 = _S4;
@@ -145,7 +177,7 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
         x1_0 = _S9;
 
 #line 25
-        i_0 = i_1;
+        i_1 = i_2;
 
 #line 25
     }
@@ -177,7 +209,7 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
     uint32_t fallback_0;
 
 
-    if((F32_abs((det_0))) < 0.0f)
+    if((F32_abs((det_0))) < 9.999999960041972e-13f)
     {
 
 #line 51

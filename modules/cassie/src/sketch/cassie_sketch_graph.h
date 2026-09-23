@@ -97,6 +97,11 @@ class CassieSketchGraphEdge : public Resource {
 	// array. Lets callers map cycle → set-of-strokes for the border-set
 	// diff. -1 for edges added via the per-stroke add_stroke path.
 	int source_polyline_idx = -1;
+	// the edge lies on a boundary stroke, an edge of an
+	// opening in the surface being authored (a skirt's waist or hem). A
+	// cycle made only of boundary edges bounds an opening, not a patch
+	// (CassieSketchGraph::is_opening). Slices of a split edge keep it.
+	bool boundary = false;
 
 protected:
 	static void _bind_methods();
@@ -118,6 +123,8 @@ public:
 	int get_node_b_id() const { return node_b_id; }
 	void set_source_polyline_idx(int n) { source_polyline_idx = n; }
 	int get_source_polyline_idx() const { return source_polyline_idx; }
+	void set_boundary(bool p_boundary) { boundary = p_boundary; }
+	bool get_boundary() const { return boundary; }
 
 	int get_opposite(int node_id) const;
 	Vector3 get_tangent_away_from(int node_id) const;
@@ -157,10 +164,10 @@ class CassieSketchGraph : public Resource {
 	static void _cumulative_lengths(const PackedVector3Array &p_poly,
 			LocalVector<real_t> &r_cum);
 	static void _crossings(const PackedVector3Array &p_a,
-			const PackedVector3Array &p_b, real_t p_proximity,
+			const PackedVector3Array &p_b, real_t p_proximity, real_t p_merge_epsilon,
 			LocalVector<SplitPt> &r_a, LocalVector<SplitPt> &r_b);
 	int _add_polyline_sliced(const PackedVector3Array &p_poly,
-			LocalVector<SplitPt> &p_splits, int p_source_idx);
+			LocalVector<SplitPt> &p_splits, int p_source_idx, bool p_boundary = false);
 
 public:
 	struct WalkCycle {
@@ -257,8 +264,19 @@ public:
 	// existing edge it crosses within p_proximity, at the crossings.
 	// Untouched edges keep their ids, so patch signatures over them
 	// survive. Returns the number of edges added.
+	// p_boundary marks the stroke's edges as boundary edges (see
+	// is_opening); the slices of an existing edge it splits keep that
+	// edge's mark.
 	int add_stroke_intersecting(const PackedVector3Array &p_points,
-			const PackedVector3Array &p_normals, real_t p_proximity);
+			const PackedVector3Array &p_normals, real_t p_proximity,
+			bool p_boundary = false);
+
+	// true when every edge of the cycle is a boundary
+	// edge. Such a cycle bounds an opening of the surface (a skirt's waist
+	// ring drawn as two half rings is a two-edge cycle of boundary edges);
+	// CassieSurfaceManager gives it no patch. False for an empty cycle or
+	// one naming a missing edge.
+	bool is_opening(const PackedInt32Array &p_cycle_edge_ids) const;
 
 	// Commits one stroke the way the upstream draw controller does
 	// (FinalStroke.SetCurve + AddIntersectionOldStroke/NewStroke): fresh

@@ -210,6 +210,13 @@ Dictionary CassieSurfaceManager::update() {
 		if (sig.is_empty()) {
 			continue;
 		}
+		// a cycle of boundary edges only is an opening
+		// (a skirt's waist or hem), not a face to surface. find_cycles
+		// reports every face cycle of the network, the cap over an opening
+		// among them; the author's boundary strokes say which are openings.
+		if (graph->is_opening(cycle)) {
+			continue;
+		}
 		if (seen_sigs.has(sig)) {
 			continue;
 		}
