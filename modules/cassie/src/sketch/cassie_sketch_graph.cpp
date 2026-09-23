@@ -382,7 +382,32 @@ void CassieSketchGraph::_cumulative_lengths(const PackedVector3Array &p_poly,
 	}
 }
 
-// the stretch beside a knot two polylines share. p_a's
+// Segment p_k of a polyline with p_last segments, counted from its start
+// (p_end 0) or its end (p_end 1).
+static inline void _polyline_segment(const PackedVector3Array &p_poly, int p_last, int p_end, int p_k,
+		Vector3 &r_0, Vector3 &r_1) {
+	r_0 = p_end == 0 ? p_poly[p_k] : p_poly[p_last - p_k];
+	r_1 = p_end == 0 ? p_poly[p_k + 1] : p_poly[p_last - p_k - 1];
+}
+
+// Whether segment p_k of one polyline lies within sqrt(p_prox2) of any of the
+// other polyline's first p_upto segments, both counted from their knot end.
+static inline bool _segment_near_other(const PackedVector3Array &p_poly, int p_last, int p_end, int p_k,
+		const PackedVector3Array &p_other, int p_other_last, int p_other_end, int p_upto, real_t p_prox2) {
+	Vector3 a0, a1, b0, b1;
+	_polyline_segment(p_poly, p_last, p_end, p_k, a0, a1);
+	for (int j = 0; j < MIN(p_upto, p_other_last); ++j) {
+		_polyline_segment(p_other, p_other_last, p_other_end, j, b0, b1);
+		real_t u, v, d2;
+		_segment_segment_closest(a0, a1, b0, b1, u, v, d2);
+		if (d2 <= p_prox2) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// The stretch beside a knot that two polylines share. p_a's
 // end p_a_end (0 start, 1 end) and p_b's end p_b_end meet within
 // merge_epsilon, so add_stroke merges them into one node; leaving it, the
 // two stay within p_proximity of each other for a while (up to p_proximity
@@ -396,35 +421,15 @@ static void _knot_zone(const PackedVector3Array &p_a, int p_a_end,
 		int &r_la, int &r_lb) {
 	const int sa = p_a.size() - 1;
 	const int sb = p_b.size() - 1;
-	auto seg = [](const PackedVector3Array &p, int s, int end, int k, Vector3 &r0, Vector3 &r1) {
-		r0 = end == 0 ? p[k] : p[s - k];
-		r1 = end == 0 ? p[k + 1] : p[s - k - 1];
-	};
-	// Segment k of one polyline within p_proximity of any of the other's
-	// first `upto` segments.
-	auto within_other = [&](const PackedVector3Array &p, int s, int end, int k,
-								const PackedVector3Array &q, int t, int qend, int upto) {
-		Vector3 a0, a1, b0, b1;
-		seg(p, s, end, k, a0, a1);
-		for (int j = 0; j < MIN(upto, t); ++j) {
-			seg(q, t, qend, j, b0, b1);
-			real_t u, v, d2;
-			_segment_segment_closest(a0, a1, b0, b1, u, v, d2);
-			if (d2 <= p_prox2) {
-				return true;
-			}
-		}
-		return false;
-	};
 	r_la = 1;
 	r_lb = 1;
 	for (;;) {
 		bool grown = false;
-		if (r_la < sa && within_other(p_a, sa, p_a_end, r_la, p_b, sb, p_b_end, r_lb + 1)) {
+		if (r_la < sa && _segment_near_other(p_a, sa, p_a_end, r_la, p_b, sb, p_b_end, r_lb + 1, p_prox2)) {
 			++r_la;
 			grown = true;
 		}
-		if (r_lb < sb && within_other(p_b, sb, p_b_end, r_lb, p_a, sa, p_a_end, r_la + 1)) {
+		if (r_lb < sb && _segment_near_other(p_b, sb, p_b_end, r_lb, p_a, sa, p_a_end, r_la + 1, p_prox2)) {
 			++r_lb;
 			grown = true;
 		}
@@ -432,6 +437,26 @@ static void _knot_zone(const PackedVector3Array &p_a, int p_a_end,
 			break;
 		}
 	}
+}
+
+// A knot zone of _crossings: ends a_end / b_end of the two polylines meet, and
+// their first la / lb segments from those ends stay within proximity.
+struct CassieKnotZone {
+	int a_end, b_end, la, lb;
+};
+
+// Whether segments a (of na points) and b (of nb points) both lie in one knot
+// zone, where a hit is part of the endpoint merge, not a crossing.
+static inline bool _in_knot_zone(const LocalVector<CassieKnotZone> &p_zones, int p_a, int p_na, int p_b, int p_nb) {
+	for (uint32_t k = 0; k < p_zones.size(); ++k) {
+		const CassieKnotZone &z = p_zones[k];
+		const bool in_a = z.a_end == 0 ? p_a < z.la : p_a >= p_na - 1 - z.la;
+		const bool in_b = z.b_end == 0 ? p_b < z.lb : p_b >= p_nb - 1 - z.lb;
+		if (in_a && in_b) {
+			return true;
+		}
+	}
+	return false;
 }
 
 // Pairwise segment-segment closest-pair tests between two polylines with a
@@ -447,16 +472,13 @@ void CassieSketchGraph::_crossings(const PackedVector3Array &p_a,
 	if (na < 2 || nb < 2) {
 		return;
 	}
-	// a shared endpoint is an endpoint merge wherever
+	// A shared endpoint is an endpoint merge wherever
 	// the two polylines have not yet parted beside it, not only on their
 	// first or last segments (below): with p_proximity at or above the
 	// sample spacing, hits on the second and third segments beside a knot
 	// were split as crossings, trimming the edges short of the knot or
 	// leaving a dangling node a few cm from it.
-	struct Zone {
-		int a_end, b_end, la, lb;
-	};
-	LocalVector<Zone> zones;
+	LocalVector<CassieKnotZone> zones;
 	for (int ae = 0; ae < 2; ++ae) {
 		for (int be = 0; be < 2; ++be) {
 			const Vector3 pa = ae == 0 ? p_a[0] : p_a[na - 1];
@@ -464,22 +486,11 @@ void CassieSketchGraph::_crossings(const PackedVector3Array &p_a,
 			if (pa.distance_to(pb) > p_merge_epsilon) {
 				continue;
 			}
-			Zone z = { ae, be, 1, 1 };
+			CassieKnotZone z = { ae, be, 1, 1 };
 			_knot_zone(p_a, ae, p_b, be, p_proximity * p_proximity, z.la, z.lb);
 			zones.push_back(z);
 		}
 	}
-	auto in_zone = [&](int a, int b) {
-		for (uint32_t k = 0; k < zones.size(); ++k) {
-			const Zone &z = zones[k];
-			const bool ina = z.a_end == 0 ? a < z.la : a >= na - 1 - z.la;
-			const bool inb = z.b_end == 0 ? b < z.lb : b >= nb - 1 - z.lb;
-			if (ina && inb) {
-				return true;
-			}
-		}
-		return false;
-	};
 	AABB box_a(p_a[0], Vector3());
 	for (int k = 1; k < na; ++k) {
 		box_a.expand_to(p_a[k]);
@@ -522,7 +533,7 @@ void CassieSketchGraph::_crossings(const PackedVector3Array &p_a,
 			}
 			const bool at_end_a = (a == 0 && s < real_t(0.05)) || (a == na - 2 && s > real_t(0.95));
 			const bool at_end_b = (b == 0 && t < real_t(0.05)) || (b == nb - 2 && t > real_t(0.95));
-			if ((at_end_a && at_end_b) || in_zone(a, b)) {
+			if ((at_end_a && at_end_b) || _in_knot_zone(zones, a, na, b, nb)) {
 				continue;
 			}
 			const Vector3 mid = (a0 + (a1 - a0) * s + b0 + (b1 - b0) * t) * real_t(0.5);
