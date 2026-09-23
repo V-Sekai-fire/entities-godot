@@ -911,10 +911,10 @@ int CassieSketchGraph::add_stroke_constrained(const PackedVector3Array &p_points
 		}
 		SplitPt new_hit;
 		const int new_eid = _nearest_edge(p, p_source_idx, true, -1, Vector3(), new_hit);
-		const int near = _closer_end(new_eid, p);
-		if (nodes[near]->get_position().distance_to(p) < p_merge) {
-			if (near != node) {
-				_replace_node(near, node);
+		const int closer = _closer_end(new_eid, p);
+		if (nodes[closer]->get_position().distance_to(p) < p_merge) {
+			if (closer != node) {
+				_replace_node(closer, node);
 			}
 		} else {
 			_split_edge(new_eid, new_hit, node, true);
