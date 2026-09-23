@@ -158,7 +158,7 @@ private def mainEntry : SlangFunctionDecl :=
           -- u' = (|den| < ε) ? u : u − num / den
           , .declInit f "abs_den" (.call "abs" [.var "den"])
           , .declInit f "u_new"
-              (.ternary (.bin "<" (.var "abs_den") (.litFloat 1.0e-9))
+              (.ternary (.bin "<" (.var "abs_den") (.litFloatExact 1.0e-9))
                 (.var "u")
                 (.bin "-" (.var "u") (.bin "/" (.var "num") (.var "den"))))
           , .assign (.index (.var "out_u") (.var "i")) (.var "u_new") ]

@@ -7,6 +7,12 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="get_boundary" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] when the edge lies on a boundary stroke (see [member CassieSketcher.boundary_strokes]). The slices of a split edge keep the mark.
+			</description>
+		</method>
 		<method name="get_id" qualifiers="const">
 			<return type="int" />
 			<description>

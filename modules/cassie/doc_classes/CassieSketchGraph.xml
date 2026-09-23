@@ -19,8 +19,9 @@
 			<param index="0" name="points" type="PackedVector3Array" />
 			<param index="1" name="normals" type="PackedVector3Array" />
 			<param index="2" name="proximity" type="float" />
+			<param index="3" name="boundary" type="bool" default="false" />
 			<description>
-				Adds one stroke and splits it, and every existing edge it crosses within [param proximity], at the crossings. Untouched edges keep their ids. Returns the number of edges added.
+				Adds one stroke and splits it, and every existing edge it crosses within [param proximity], at the crossings. Untouched edges keep their ids. Returns the number of edges added. Stretches beside a knot where two strokes' ends meet merge at the knot instead of splitting as T-junctions. If [param boundary] is [code]true[/code], the stroke's edges are marked boundary edges (see [method is_opening]).
 			</description>
 		</method>
 		<method name="build_from_polylines">
@@ -75,6 +76,13 @@
 		<method name="get_node_count" qualifiers="const">
 			<return type="int" />
 			<description>
+			</description>
+		</method>
+		<method name="is_opening" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="cycle_edge_ids" type="PackedInt32Array" />
+			<description>
+				Returns [code]true[/code] when every edge of the cycle is a boundary edge. Such a cycle bounds an opening of the surface (a skirt's waist or hem), and [CassieSurfaceManager] gives it no patch. Returns [code]false[/code] for an empty cycle or one naming a missing edge.
 			</description>
 		</method>
 		<method name="sample_cycle_boundary" qualifiers="const">

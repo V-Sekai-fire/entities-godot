@@ -80,7 +80,13 @@
 	<members>
 		<member name="async_triangulation" type="bool" setter="set_async_triangulation" getter="get_async_triangulation" default="false">
 		</member>
+		<member name="boundary_strokes" type="bool" setter="set_boundary_strokes" getter="get_boundary_strokes" default="false">
+			Pen mode, captured when a stroke begins. A boundary stroke's graph edges are marked boundary, and a cycle made only of boundary edges is an opening that gets no patch (a skirt is an open tube: its waist and hem rings bound openings, not caps). [method apply_remote_samples] uses the mode current when it runs; the stroke packet does not carry it.
+		</member>
 		<member name="peer_id" type="int" setter="set_peer_id" getter="get_peer_id" default="0">
+		</member>
+		<member name="split_closed_strokes" type="bool" setter="set_split_closed_strokes" getter="get_split_closed_strokes" default="true">
+			If [code]true[/code], a closed stroke enters the sketch graph as two half polylines sharing both end nodes, so it bounds a two-edge cycle that gets a patch, instead of a self-loop edge that yields none.
 		</member>
 		<member name="sample_dt" type="float" setter="set_sample_dt" getter="get_sample_dt" default="0.016666668">
 		</member>

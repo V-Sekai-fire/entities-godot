@@ -38,52 +38,52 @@ struct KernelContext_0
 };
 
 
-#line 9865 "hlsl.meta.slang"
+#line 10098 "hlsl.meta.slang"
 static float dot_0(Vector<float, 3>  x_0, Vector<float, 3>  y_0)
 {
 
-#line 9865
+#line 10098
     int32_t i_0 = int(0);
 
-#line 9865
+#line 10098
     float result_0 = 0.0f;
 
-#line 9884
+#line 10117
     for(;;)
     {
 
-#line 9884
+#line 10117
         if(i_0 < int(3))
         {
         }
         else
         {
 
-#line 9884
+#line 10117
             break;
         }
 
-#line 9885
+#line 10118
         float result_1 = result_0 + _slang_vector_get_element(x_0, i_0) * _slang_vector_get_element(y_0, i_0);
 
-#line 9884
+#line 10117
         i_0 = i_0 + int(1);
 
-#line 9884
+#line 10117
         result_0 = result_1;
 
-#line 9884
+#line 10117
     }
 
     return result_0;
 }
 
 
-#line 12178
+#line 12411
 static Vector<float, 3>  lerp_0(Vector<float, 3>  x_1, Vector<float, 3>  y_1, Vector<float, 3>  s_0)
 {
 
-#line 12190
+#line 12423
     return x_1 + (y_1 - x_1) * s_0;
 }
 
@@ -159,7 +159,7 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
 #line 42
         float u_new_0;
 
-        if((F32_abs((den_0))) < 0.0f)
+        if((F32_abs((den_0))) < 9.99999971718068537e-10f)
         {
 
 #line 44
