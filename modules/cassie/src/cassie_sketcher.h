@@ -75,6 +75,8 @@ class CassieSketcher : public Node3D {
 	struct InFlightStroke {
 		Ref<CassieInputStroke> input;
 		int sample_index = 0;
+		// boundary_strokes when the stroke began.
+		bool boundary = false;
 	};
 
 	HashMap<int, InFlightStroke> in_flight;
@@ -90,6 +92,17 @@ class CassieSketcher : public Node3D {
 
 	float sample_dt = 1.0f / 60.0f;
 	int64_t peer_id = 0;
+	// A closed stroke goes into the sketch graph as two half polylines,
+	// not one edge whose two ends merge into a single node (a self-loop
+	// the minimal-cycle search never reports as a face).
+	bool split_closed_strokes = true;
+	// a pen mode. A stroke begun while it is true is a
+	// boundary stroke: its graph edges are marked boundary, and a cycle made
+	// only of boundary edges is an opening that gets no patch (a skirt is an
+	// open tube: its waist and hem rings bound openings, not caps).
+	// apply_remote_samples takes the mode current when it runs; the stroke
+	// packet does not carry it.
+	bool boundary_strokes = false;
 	uint16_t broadcast_seq = 0;
 
 	// Last encoded packet, keyed by stroke_id. Kept so the
@@ -100,7 +113,7 @@ class CassieSketcher : public Node3D {
 	void _ensure_owned_state();
 
 	Dictionary _run_chain_locally(const Ref<CassieInputStroke> &p_input,
-			bool p_emit_signals);
+			bool p_emit_signals, bool p_boundary = false);
 
 	Dictionary _drain_patches();
 
@@ -122,6 +135,12 @@ public:
 
 	void set_async_triangulation(bool p_enable);
 	bool get_async_triangulation() const;
+
+	void set_split_closed_strokes(bool p_enable) { split_closed_strokes = p_enable; }
+	bool get_split_closed_strokes() const { return split_closed_strokes; }
+
+	void set_boundary_strokes(bool p_enable) { boundary_strokes = p_enable; }
+	bool get_boundary_strokes() const { return boundary_strokes; }
 
 	Ref<CassieSketchGraph> get_sketch_graph() const { return sketch_graph; }
 	Ref<CassieSurfaceManager> get_surface_manager() const { return surface_manager; }
