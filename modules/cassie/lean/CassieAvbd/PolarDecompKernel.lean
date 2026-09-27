@@ -6,9 +6,9 @@ import LeanSlang
 The reference in `src/sketch/cassie_polar.cpp` runs in double and calls
 `std::acos`/`std::cos`; a float32 SPIR-V kernel matches neither. This kernel
 computes in **df32** (a hi+lo float32 pair, Dekker/Knuth error-free transforms),
-so every operation reduces to correctly-rounded float32 `+ - * / fma sqrt` and
-the two targets agree on a conformant driver (the interval gate of RFD 2269
-covers the rest). It is transcendental-free: the eigenvalue cosines are the roots
+so every operation reduces to correctly-rounded float32 `+ - * / sqrt`, with no
+fused multiply-add, and the two targets agree on any conformant driver (the
+interval gate of RFD 2269 covers the rest). It is transcendental-free: the eigenvalue cosines are the roots
 of `4c^3-3c=r` (triple-angle identity, `df_cubic_c1`) rather than acos/cos, and
 `M^{-1/2}` is a Newton-Schulz iteration of matrix products rather than an
 eigenvector decomposition.
@@ -68,13 +68,26 @@ private def quick_two_sum : SlangFunctionDecl :=
       , .assign (.var "lo") (.bin "-" (.var "b") (.var "t"))
       , .ret none ] }
 
+-- FMA-free product error (Dekker via Veltkamp split, factor 2^12+1). A fused
+-- `fma(a,b,-h)` gives the error in one op, but the D3D12 translation emulates
+-- fma as a rounded multiply-add and returns ~0 for it, collapsing df32 to
+-- float32; the split needs only correctly-rounded + - *, which it has.
 private def two_prod : SlangFunctionDecl :=
   { attrs := [], retType := .named "void", name := "two_prod"
   , params := [fIn "a", fIn "b", fOut "hi", fOut "lo"]
   , body :=
       [ .declInit floatTy "h" (.bin "*" (.var "a") (.var "b"))
+      , .declInit floatTy "ca" (.bin "*" (.litFloat 4097.0) (.var "a"))
+      , .declInit floatTy "ah" (.bin "-" (.var "ca") (.bin "-" (.var "ca") (.var "a")))
+      , .declInit floatTy "al" (.bin "-" (.var "a") (.var "ah"))
+      , .declInit floatTy "cb" (.bin "*" (.litFloat 4097.0) (.var "b"))
+      , .declInit floatTy "bh" (.bin "-" (.var "cb") (.bin "-" (.var "cb") (.var "b")))
+      , .declInit floatTy "bl" (.bin "-" (.var "b") (.var "bh"))
+      , .declInit floatTy "e1" (.bin "-" (.bin "*" (.var "ah") (.var "bh")) (.var "h"))
+      , .declInit floatTy "e2" (.bin "+" (.var "e1") (.bin "*" (.var "ah") (.var "bl")))
+      , .declInit floatTy "e3" (.bin "+" (.var "e2") (.bin "*" (.var "al") (.var "bh")))
       , .assign (.var "hi") (.var "h")
-      , .assign (.var "lo") (.call "fma" [.var "a", .var "b", .un "-" (.var "h")])
+      , .assign (.var "lo") (.bin "+" (.var "e3") (.bin "*" (.var "al") (.var "bl")))
       , .ret none ] }
 
 private def df_add : SlangFunctionDecl :=
