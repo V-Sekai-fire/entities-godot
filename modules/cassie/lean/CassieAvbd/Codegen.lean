@@ -35,6 +35,7 @@ import CassieAvbd.CurveNewton
 import CassieAvbd.CurveRdp
 import CassieAvbd.MasPreconditioner
 import CassieAvbd.MasPreconditionerSerial
+import CassieAvbd.PolarDecompKernel
 import Cloth.SlangCodegen.AttachmentDualUpdate
 import Cloth.SlangCodegen.AttachmentProject
 import Cloth.SlangCodegen.CGAlpha
@@ -140,6 +141,8 @@ def kernels : List KernelPair :=
     -- Slang-side recursion would be all stack-management machinery
     -- for no perf or correctness gain on a CPU-only target.
   , ⟨"curve_generate_bezier",  CurveGenerateBezier.shader,  CurveGenerateBezier.shader,  true⟩
+    -- df32 polar decomposition (Wahba). Byte-exact via df32 arithmetic; precise.
+  , ⟨"polar_decomp",           PolarDecompKernel.shader,    PolarDecompKernel.shader,    true⟩
   ]
 
 end CassieAvbd.Codegen
