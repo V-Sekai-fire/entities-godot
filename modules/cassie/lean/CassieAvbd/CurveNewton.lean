@@ -68,7 +68,25 @@ private def mainEntry : SlangFunctionDecl :=
       let pB    := SlangExpr.member (.var "params") "b"
       let pC    := SlangExpr.member (.var "params") "c"
       let pD    := SlangExpr.member (.var "params") "d"
-      let dot3 (x y : SlangExpr) : SlangExpr := .call "dot" [x, y]
+      -- Expanded to explicit left-to-right scalar mul-adds rather than the
+      -- `dot` intrinsic: slangc lowers `dot` to SPIR-V OpDot (fused accumulation
+      -- on the GPU) but to scalar mul-adds on the CPU target, which diverges by
+      -- 1 ULP. Emitting the same scalar sequence for both, with -fp-mode precise,
+      -- makes the CPU/GPU parity byte-exact.
+      let dot3 (x y : SlangExpr) : SlangExpr :=
+        .bin "+"
+          (.bin "+" (.bin "*" (.member x "x") (.member y "x"))
+                    (.bin "*" (.member x "y") (.member y "y")))
+          (.bin "*" (.member x "z") (.member y "z"))
+      -- Expanded lerp for the same reason as dot3: slangc lowers `lerp` to
+      -- SPIR-V OpExtInst FMix but to a scalar formula on the CPU target, a
+      -- 1-ULP mismatch. `a + (b - a)·t`, componentwise, emits identically on
+      -- both targets and is byte-exact under -fp-mode precise.
+      let lerp3 (a b t : SlangExpr) : SlangExpr :=
+        mkF3
+          (.bin "+" (.member a "x") (.bin "*" (.bin "-" (.member b "x") (.member a "x")) t))
+          (.bin "+" (.member a "y") (.bin "*" (.bin "-" (.member b "y") (.member a "y")) t))
+          (.bin "+" (.member a "z") (.bin "*" (.bin "-" (.member b "z") (.member a "z")) t))
       [ .forCount "i" (.litUint 0) count
           [ .declInit f  "u"   (.index (.var "in_u") (.var "i"))
           , .declInit f3 "pt"  (.index (.var "in_points") (.var "i"))
@@ -140,12 +158,12 @@ private def mainEntry : SlangFunctionDecl :=
                   (.bin "*" (.var "omu") (.member (.var "dd1") "z"))
                   (.bin "*" (.var "u")   (.member (.var "dd2") "z")))))
           -- Q(u) via lerp chain — three lerps + one lerp.
-          , .declInit f3 "qab" (.call "lerp" [pA, pB, .var "u"])
-          , .declInit f3 "qbc" (.call "lerp" [pB, pC, .var "u"])
-          , .declInit f3 "qcd" (.call "lerp" [pC, pD, .var "u"])
-          , .declInit f3 "qabc" (.call "lerp" [.var "qab", .var "qbc", .var "u"])
-          , .declInit f3 "qbcd" (.call "lerp" [.var "qbc", .var "qcd", .var "u"])
-          , .declInit f3 "qval" (.call "lerp" [.var "qabc", .var "qbcd", .var "u"])
+          , .declInit f3 "qab" (lerp3 pA pB (.var "u"))
+          , .declInit f3 "qbc" (lerp3 pB pC (.var "u"))
+          , .declInit f3 "qcd" (lerp3 pC pD (.var "u"))
+          , .declInit f3 "qabc" (lerp3 (.var "qab") (.var "qbc") (.var "u"))
+          , .declInit f3 "qbcd" (lerp3 (.var "qbc") (.var "qcd") (.var "u"))
+          , .declInit f3 "qval" (lerp3 (.var "qabc") (.var "qbcd") (.var "u"))
           -- e = Q(u) - point
           , .declInit f3 "e" (mkF3
               (.bin "-" (.member (.var "qval") "x") (.member (.var "pt") "x"))

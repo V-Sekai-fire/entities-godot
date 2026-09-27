@@ -10,7 +10,7 @@ using namespace SLANG_PRELUDE_NAMESPACE;
 namespace cassie_slang_curve_rdp {
 
 
-#line 1 "../thirdparty/avbd/curve_rdp.cpu.slang"
+#line 1 "/tmp/claude-1000/-home-fire-contract-manifest/883e6fa7-aa74-4194-b962-0ffd9bcc2b37/scratchpad/avbd_scoped/curve_rdp.cpu.slang"
 struct RdpParams_0
 {
     uint32_t in_count_0;
@@ -35,82 +35,50 @@ struct KernelContext_0
 };
 
 
-#line 9310 "hlsl.meta.slang"
+#line 9732 "hlsl.meta.slang"
 static Vector<float, 3>  cross_0(Vector<float, 3>  left_0, Vector<float, 3>  right_0)
 {
 
-#line 9324
+#line 9746
     float _S1 = left_0.y;
 
-#line 9324
+#line 9746
     float _S2 = right_0.z;
 
-#line 9324
+#line 9746
     float _S3 = left_0.z;
 
-#line 9324
+#line 9746
     float _S4 = right_0.y;
     float _S5 = right_0.x;
 
-#line 9325
+#line 9747
     float _S6 = left_0.x;
 
-#line 9323
+#line 9745
     return Vector<float, 3> (_S1 * _S2 - _S3 * _S4, _S3 * _S5 - _S6 * _S2, _S6 * _S4 - _S1 * _S5);
 }
 
 
-#line 9865
+#line 10374
 static float dot_0(Vector<float, 3>  x_0, Vector<float, 3>  y_0)
 {
 
-#line 9865
-    int32_t i_0 = int(0);
-
-#line 9865
-    float result_0 = 0.0f;
-
-#line 9884
-    for(;;)
-    {
-
-#line 9884
-        if(i_0 < int(3))
-        {
-        }
-        else
-        {
-
-#line 9884
-            break;
-        }
-
-#line 9885
-        float result_1 = result_0 + _slang_vector_get_element(x_0, i_0) * _slang_vector_get_element(y_0, i_0);
-
-#line 9884
-        i_0 = i_0 + int(1);
-
-#line 9884
-        result_0 = result_1;
-
-#line 9884
-    }
-
-    return result_0;
+#line 10401
+    return x_0.x * y_0.x + x_0.y * y_0.y + x_0.z * y_0.z;
 }
 
 
-#line 12120
+#line 12651
 static float length_0(Vector<float, 3>  x_1)
 {
 
-#line 12132
+#line 12663
     return (F32_sqrt((dot_0(x_1, x_1))));
 }
 
 
-#line 16 "../thirdparty/avbd/curve_rdp.cpu.slang"
+#line 16 "/tmp/claude-1000/-home-fire-contract-manifest/883e6fa7-aa74-4194-b962-0ffd9bcc2b37/scratchpad/avbd_scoped/curve_rdp.cpu.slang"
 void _main_0(void* _S7, void* entryPointParams_0, void* globalParams_1)
 {
 
@@ -128,7 +96,7 @@ void _main_0(void* _S7, void* entryPointParams_0, void* globalParams_1)
     FixedArray<uint32_t, 512>  stack_0;
 
 #line 17
-    uint32_t i_1 = 0U;
+    uint32_t i_0 = 0U;
 
 
     for(;;)
@@ -138,7 +106,7 @@ void _main_0(void* _S7, void* entryPointParams_0, void* globalParams_1)
         _S8 = (&kernelContext_0)->globalParams_0;
 
 #line 20
-        if(i_1 < ((&kernelContext_0)->globalParams_0->params_0->in_count_0))
+        if(i_0 < ((&kernelContext_0)->globalParams_0->params_0->in_count_0))
         {
         }
         else
@@ -149,10 +117,10 @@ void _main_0(void* _S7, void* entryPointParams_0, void* globalParams_1)
         }
 
 #line 21
-        *(&((&kernelContext_0)->globalParams_0->out_keep_0)[i_1]) = 0U;
+        *(&((&kernelContext_0)->globalParams_0->out_keep_0)[i_0]) = 0U;
 
 #line 20
-        i_1 = i_1 + 1U;
+        i_0 = i_0 + 1U;
 
 #line 20
     }
@@ -424,14 +392,14 @@ void _main_0(void* _S7, void* entryPointParams_0, void* globalParams_1)
     split_0 = 0U;
 
 #line 34
-    i_1 = 0U;
+    i_0 = 0U;
 
 #line 70
     for(;;)
     {
 
 #line 70
-        if(i_1 < (_S8->params_0->in_count_0))
+        if(i_0 < (_S8->params_0->in_count_0))
         {
         }
         else
@@ -442,7 +410,7 @@ void _main_0(void* _S7, void* entryPointParams_0, void* globalParams_1)
         }
 
 #line 71
-        if((*(&((&kernelContext_0)->globalParams_0->out_keep_0)[i_1])) == 1U)
+        if((*(&((&kernelContext_0)->globalParams_0->out_keep_0)[i_0])) == 1U)
         {
 
 #line 71
@@ -452,7 +420,7 @@ void _main_0(void* _S7, void* entryPointParams_0, void* globalParams_1)
         }
 
 #line 70
-        i_1 = i_1 + 1U;
+        i_0 = i_0 + 1U;
 
 #line 70
     }
