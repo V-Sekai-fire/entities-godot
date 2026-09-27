@@ -10,7 +10,7 @@ using namespace SLANG_PRELUDE_NAMESPACE;
 namespace cassie_slang_curve_casteljau {
 
 
-#line 1 "../thirdparty/avbd/curve_casteljau.cpu.slang"
+#line 1 "/tmp/claude-1000/-home-fire-contract-manifest/883e6fa7-aa74-4194-b962-0ffd9bcc2b37/scratchpad/avbd_scoped/curve_casteljau.cpu.slang"
 struct CasteljauParams_0
 {
     Vector<float, 3>  a_0;
@@ -29,16 +29,16 @@ struct GlobalParams_0
 };
 
 
-#line 12178 "hlsl.meta.slang"
+#line 12709 "hlsl.meta.slang"
 static Vector<float, 3>  lerp_0(Vector<float, 3>  x_0, Vector<float, 3>  y_0, Vector<float, 3>  s_0)
 {
 
-#line 12190
+#line 12721
     return x_0 + (y_0 - x_0) * s_0;
 }
 
 
-#line 15 "../thirdparty/avbd/curve_casteljau.cpu.slang"
+#line 15 "/tmp/claude-1000/-home-fire-contract-manifest/883e6fa7-aa74-4194-b962-0ffd9bcc2b37/scratchpad/avbd_scoped/curve_casteljau.cpu.slang"
 void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_0)
 {
 

@@ -62,6 +62,8 @@ structure KernelPair where
   name : String
   gpu  : SlangShaderModule
   cpu  : SlangShaderModule
+  -- Compile both targets with -fp-mode precise for byte-exact CPU/GPU parity.
+  precise : Bool := false
 
 /-- Multi-entry-point shader module. The codegen emits a single
     `<name>.slang` source, then runs `slangc -entry <e> -target spirv`
@@ -108,36 +110,36 @@ def kernels : List KernelPair :=
   -- so wrappers swap with one identifier rename. Per-row error drops
   -- from ~7·ε to ~7·ε² — without this, the harmonic-deform PCG's
   -- residual plateaus around 1e-4 (PR #38).
-  [ ⟨"spmv",                   SpmvDf32.shader,             SpmvDf32.shader⟩
-  , ⟨"saxpby",                 Saxpby.shader,               Saxpby.shader⟩
+  [ ⟨"spmv",                   SpmvDf32.shader,             SpmvDf32.shader, false⟩
+  , ⟨"saxpby",                 Saxpby.shader,               Saxpby.shader, false⟩
     -- ENG-49 / ENG-50 — AVBD inner-step blocks.
-  , ⟨"dot_reduce",             DotReduce.shader,            DotReduceSerial.shader⟩
-  , ⟨"cg_alpha",               CGAlpha.shader,              CGAlpha.shader⟩
-  , ⟨"cg_beta",                CGBeta.shader,               CGBeta.shader⟩
-  , ⟨"attachment_dual_update", AttachmentDualUpdate.shader, AttachmentDualUpdate.shader⟩
-  , ⟨"spring_force",           SpringForce.shader,          SpringForce.shader⟩
-  , ⟨"attachment_project",     AttachmentProject.shader,    AttachmentProject.shader⟩
+  , ⟨"dot_reduce",             DotReduce.shader,            DotReduceSerial.shader, false⟩
+  , ⟨"cg_alpha",               CGAlpha.shader,              CGAlpha.shader, false⟩
+  , ⟨"cg_beta",                CGBeta.shader,               CGBeta.shader, false⟩
+  , ⟨"attachment_dual_update", AttachmentDualUpdate.shader, AttachmentDualUpdate.shader, false⟩
+  , ⟨"spring_force",           SpringForce.shader,          SpringForce.shader, false⟩
+  , ⟨"attachment_project",     AttachmentProject.shader,    AttachmentProject.shader, false⟩
     -- First editing-pipeline kernel: De Casteljau cubic split. One thread
     -- per dispatch, pure function; CPU emission only — replaces the
     -- anonymous cubic_split helper in cassie_curve_fit.cpp.
-  , ⟨"curve_casteljau",        CurveCasteljau.shader,       CurveCasteljau.shader⟩
+  , ⟨"curve_casteljau",        CurveCasteljau.shader,       CurveCasteljau.shader,       true⟩
     -- Second editing-pipeline kernel: iterative RDP polyline simplifier.
     -- Single-thread, fixed-capacity local stack; CPU emission only.
     -- Replaces the rdp_recursive body in modules/cassie/src/curves/
     -- rdp_simplify.cpp.
-  , ⟨"curve_rdp",              CurveRdp.shader,             CurveRdp.shader⟩
+  , ⟨"curve_rdp",              CurveRdp.shader,             CurveRdp.shader,             true⟩
     -- Third editing-pipeline kernel: Newton-Raphson reparameterize for
     -- Schneider cubic Bezier fits. Single-thread, loops over count
     -- points. Replaces the reparameterize body in
     -- modules/cassie/src/curves/cassie_curve_fit.cpp.
-  , ⟨"curve_newton",           CurveNewton.shader,          CurveNewton.shader⟩
+  , ⟨"curve_newton",           CurveNewton.shader,          CurveNewton.shader,          true⟩
     -- Fourth editing-pipeline kernel: 2×2 LSQ Bezier generator (the
     -- math primitive inside Schneider 1990 §III). The recursive
     -- fit_curve_recursive driver in cassie_curve_fit.cpp stays in C++
     -- as a thin orchestrator over this + curve_newton + curve_rdp;
     -- Slang-side recursion would be all stack-management machinery
     -- for no perf or correctness gain on a CPU-only target.
-  , ⟨"curve_generate_bezier",  CurveGenerateBezier.shader,  CurveGenerateBezier.shader⟩
+  , ⟨"curve_generate_bezier",  CurveGenerateBezier.shader,  CurveGenerateBezier.shader,  true⟩
   ]
 
 end CassieAvbd.Codegen
@@ -146,10 +148,15 @@ end CassieAvbd.Codegen
     + stderr and prints them so failures are diagnosable from the lake
     output. Returns the process exit code. -/
 private def runSlangc (input : System.FilePath) (output : System.FilePath)
-    (target : String) : IO UInt32 := do
+    (target : String) (precise : Bool := false) : IO UInt32 := do
+  -- -fp-mode precise: forbid fma-contraction and reassociation so the spirv
+  -- and cpp targets lower identically (byte-exact CPU/GPU parity). Opt-in per
+  -- kernel — the curve kernels gate on byte-exactness; the cloth solver uses
+  -- tolerance parity and stays on the default fp mode.
+  let fpArgs := if precise then #["-fp-mode", "precise"] else #[]
   let result ← IO.Process.output {
     cmd := "slangc"
-    args := #[input.toString, "-target", target, "-o", output.toString]
+    args := #[input.toString, "-target", target] ++ fpArgs ++ #["-o", output.toString]
   }
   if result.stdout.length > 0 then
     IO.println s!"  [slangc stdout] {result.stdout.trim}"
@@ -270,7 +277,7 @@ def main (args : List String) : IO UInt32 := do
   let mut spv_failed := 0
   let mut cpp_failed := 0
 
-  for ⟨name, gpu, cpu⟩ in CassieAvbd.Codegen.kernels do
+  for ⟨name, gpu, cpu, precise⟩ in CassieAvbd.Codegen.kernels do
     -- GPU pass: <name>.slang → <name>.spv
     let gpuSlangPath := outDir / (name ++ ".slang")
     let spvPath      := outDir / (name ++ ".spv")
@@ -278,7 +285,7 @@ def main (args : List String) : IO UInt32 := do
     IO.println s!"emit  {gpuSlangPath}"
     emitted := emitted + 1
 
-    let rc ← runSlangc gpuSlangPath spvPath "spirv"
+    let rc ← runSlangc gpuSlangPath spvPath "spirv" precise
     if rc == 0 then
       IO.println s!"spirv {spvPath}"
       spv_compiled := spv_compiled + 1
@@ -293,7 +300,7 @@ def main (args : List String) : IO UInt32 := do
     IO.println s!"emit  {cpuSlangPath}"
     emitted := emitted + 1
 
-    let rc ← runSlangc cpuSlangPath cppPath "cpp"
+    let rc ← runSlangc cpuSlangPath cppPath "cpp" precise
     if rc == 0 then
       postProcessCpu cppPath name
       IO.println s!"cpp   {cppPath}"
