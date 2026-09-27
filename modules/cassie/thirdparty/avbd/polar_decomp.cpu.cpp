@@ -17,7 +17,7 @@ struct PdParams_0
 };
 
 
-#line 300
+#line 309
 struct GlobalParams_0
 {
     PdParams_0* params_0;
@@ -27,7 +27,7 @@ struct GlobalParams_0
 };
 
 
-#line 300
+#line 309
 struct KernelContext_0
 {
     GlobalParams_0* globalParams_0;
@@ -40,8 +40,17 @@ static void two_prod_0(float a_0, float b_0, float * hi_0, float * lo_0)
 
 #line 34
     float h_0 = a_0 * b_0;
+    float ca_0 = 4097.0f * a_0;
+    float ah_0 = ca_0 - (ca_0 - a_0);
+    float al_0 = a_0 - ah_0;
+    float cb_0 = 4097.0f * b_0;
+    float bh_0 = cb_0 - (cb_0 - b_0);
+    float bl_0 = b_0 - bh_0;
+
+
+    float e3_0 = ah_0 * bh_0 - h_0 + ah_0 * bl_0 + al_0 * bh_0;
     *hi_0 = h_0;
-    *lo_0 = (F32_fma((a_0), (b_0), (- h_0)));
+    *lo_0 = e3_0 + al_0 * bl_0;
     return;
 }
 
@@ -73,11 +82,11 @@ static void quick_two_sum_0(float a_2, float b_2, float * hi_2, float * lo_2)
 }
 
 
-#line 40
+#line 49
 static void df_add_0(float x_hi_0, float x_lo_0, float y_hi_0, float y_lo_0, float * z_hi_0, float * z_lo_0)
 {
 
-#line 41
+#line 50
     float sh_0;
     float sl_0;
     two_sum_0(x_hi_0, y_hi_0, &sh_0, &sl_0);
@@ -90,7 +99,7 @@ static void df_add_0(float x_hi_0, float x_lo_0, float y_hi_0, float y_lo_0, flo
 static void df_mul_0(float a_hi_0, float a_lo_0, float b_hi_0, float b_lo_0, float * z_hi_1, float * z_lo_1)
 {
 
-#line 51
+#line 60
     float p_hi_0;
     float p_lo_0;
     two_prod_0(a_hi_0, b_hi_0, &p_hi_0, &p_lo_0);
@@ -103,7 +112,7 @@ static void df_mul_0(float a_hi_0, float a_lo_0, float b_hi_0, float b_lo_0, flo
 static void df_div_0(float a_hi_1, float a_lo_1, float b_hi_1, float b_lo_1, float * z_hi_2, float * z_lo_2)
 {
 
-#line 61
+#line 70
     float q1_0 = a_hi_1 / b_hi_1;
     float qb_hi_0;
     float qb_lo_0;
@@ -119,11 +128,11 @@ static void df_div_0(float a_hi_1, float a_lo_1, float b_hi_1, float b_lo_1, flo
 static void df_sqrt_0(float a_hi_2, float a_lo_2, float * z_hi_3, float * z_lo_3)
 {
 
-#line 74
+#line 83
     if(a_hi_2 <= 0.0f)
     {
 
-#line 75
+#line 84
         *z_hi_3 = 0.0f;
         *z_lo_3 = 0.0f;
         return;
@@ -144,74 +153,74 @@ static void df_sqrt_0(float a_hi_2, float a_lo_2, float * z_hi_3, float * z_lo_3
 void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
 {
 
-#line 92
+#line 101
     uint32_t a_3;
 
-#line 92
+#line 101
     uint32_t b_3;
 
-#line 92
+#line 101
     uint32_t k_0;
 
-#line 92
+#line 101
     float acch_0;
 
-#line 92
+#line 101
     float accl_0;
 
-#line 92
+#line 101
     uint32_t zyi_0;
 
-#line 92
+#line 101
     uint32_t zyj_0;
 
-#line 92
+#line 101
     uint32_t zyk_0;
 
-#line 92
+#line 101
     uint32_t tm_0;
 
-#line 92
+#line 101
     uint32_t ytj_0;
 
-#line 92
+#line 101
     uint32_t ytk_0;
 
-#line 92
+#line 101
     KernelContext_0 kernelContext_0;
 
-#line 92
+#line 101
     (&kernelContext_0)->globalParams_0 = (slang_bit_cast<GlobalParams_0*>(globalParams_1));
     FixedArray<float, 9>  hh_0;
     FixedArray<float, 9>  hl_0;
 
-#line 94
+#line 103
     uint32_t z_0 = 0U;
     for(;;)
     {
 
-#line 95
+#line 104
         if(z_0 < 9U)
         {
         }
         else
         {
 
-#line 95
+#line 104
             break;
         }
 
-#line 96
+#line 105
         hh_0[z_0] = 0.0f;
         hl_0[z_0] = 0.0f;
 
-#line 95
+#line 104
         z_0 = z_0 + 1U;
 
-#line 95
+#line 104
     }
 
-#line 95
+#line 104
     uint32_t i_0 = 0U;
 
 
@@ -219,54 +228,54 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
     for(;;)
     {
 
-#line 99
+#line 108
         if(i_0 < ((&kernelContext_0)->globalParams_0->params_0->n_0))
         {
         }
         else
         {
 
-#line 99
+#line 108
             break;
         }
 
-#line 100
+#line 109
         Vector<float, 3>  _S2 = (&kernelContext_0)->globalParams_0->in_p_0.Load(i_0);
         Vector<float, 3>  _S3 = (&kernelContext_0)->globalParams_0->in_q_0.Load(i_0);
 
-#line 101
+#line 110
         a_3 = 0U;
         for(;;)
         {
 
-#line 102
+#line 111
             if(a_3 < 3U)
             {
             }
             else
             {
 
-#line 102
+#line 111
                 break;
             }
 
-#line 102
+#line 111
             b_3 = 0U;
             for(;;)
             {
 
-#line 103
+#line 112
                 if(b_3 < 3U)
                 {
                 }
                 else
                 {
 
-#line 103
+#line 112
                     break;
                 }
 
-#line 104
+#line 113
                 uint32_t idx_0 = a_3 * 3U + b_3;
 
 
@@ -279,88 +288,88 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
                 hh_0[idx_0] = nh_0;
                 hl_0[idx_0] = nl_0;
 
-#line 103
+#line 112
                 b_3 = b_3 + 1U;
 
-#line 103
+#line 112
             }
 
-#line 102
+#line 111
             a_3 = a_3 + 1U;
 
-#line 102
+#line 111
         }
 
-#line 99
+#line 108
         i_0 = i_0 + 1U;
 
-#line 99
+#line 108
     }
 
-#line 118
+#line 127
     FixedArray<float, 9>  mh_0;
     FixedArray<float, 9>  ml_0;
 
-#line 119
+#line 128
     a_3 = 0U;
     for(;;)
     {
 
-#line 120
+#line 129
         if(a_3 < 3U)
         {
         }
         else
         {
 
-#line 120
+#line 129
             break;
         }
 
-#line 120
+#line 129
         b_3 = 0U;
         for(;;)
         {
 
-#line 121
+#line 130
             if(b_3 < 3U)
             {
             }
             else
             {
 
-#line 121
+#line 130
                 break;
             }
 
-#line 121
+#line 130
             acch_0 = 0.0f;
 
-#line 121
+#line 130
             accl_0 = 0.0f;
 
-#line 121
+#line 130
             k_0 = 0U;
 
 
             for(;;)
             {
 
-#line 124
+#line 133
                 if(k_0 < 3U)
                 {
                 }
                 else
                 {
 
-#line 124
+#line 133
                     break;
                 }
 
-#line 125
+#line 134
                 uint32_t _S4 = k_0 * 3U;
 
-#line 125
+#line 134
                 uint32_t ki_0 = _S4 + a_3;
                 uint32_t kj_0 = _S4 + b_3;
                 float ph_1;
@@ -372,39 +381,39 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
                 float _S5 = nh_1;
                 float _S6 = nl_1;
 
-#line 124
+#line 133
                 uint32_t k_1 = k_0 + 1U;
 
-#line 124
+#line 133
                 acch_0 = _S5;
 
-#line 124
+#line 133
                 accl_0 = _S6;
 
-#line 124
+#line 133
                 k_0 = k_1;
 
-#line 124
+#line 133
             }
 
-#line 136
+#line 145
             uint32_t mij_0 = a_3 * 3U + b_3;
             mh_0[mij_0] = acch_0;
             ml_0[mij_0] = accl_0;
 
-#line 121
+#line 130
             b_3 = b_3 + 1U;
 
-#line 121
+#line 130
         }
 
-#line 120
+#line 129
         a_3 = a_3 + 1U;
 
-#line 120
+#line 129
     }
 
-#line 141
+#line 150
     float trh_0;
     float trl_0;
     df_add_0(mh_0[0U], ml_0[0U], mh_0[4U], ml_0[4U], &trh_0, &trl_0);
@@ -419,23 +428,23 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
     FixedArray<float, 9>  yh_0;
     FixedArray<float, 9>  yl_0;
 
-#line 153
+#line 162
     b_3 = 0U;
     for(;;)
     {
 
-#line 154
+#line 163
         if(b_3 < 9U)
         {
         }
         else
         {
 
-#line 154
+#line 163
             break;
         }
 
-#line 155
+#line 164
         float zph_0;
         float zpl_0;
         df_mul_0(sh_1, sl_1, mh_0[b_3], ml_0[b_3], &zph_0, &zpl_0);
@@ -444,13 +453,13 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
         yh_0[b_3] = 0.0f;
         yl_0[b_3] = 0.0f;
 
-#line 154
+#line 163
         b_3 = b_3 + 1U;
 
-#line 154
+#line 163
     }
 
-#line 163
+#line 172
     yh_0[0U] = 1.0f;
     yh_0[4U] = 1.0f;
     yh_0[8U] = 1.0f;
@@ -463,79 +472,79 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
     FixedArray<float, 9>  znh_0;
     FixedArray<float, 9>  znl_0;
 
-#line 173
+#line 182
     k_0 = 0U;
     for(;;)
     {
 
-#line 174
+#line 183
         if(k_0 < 24U)
         {
         }
         else
         {
 
-#line 174
+#line 183
             break;
         }
 
-#line 174
+#line 183
         zyi_0 = 0U;
         for(;;)
         {
 
-#line 175
+#line 184
             if(zyi_0 < 3U)
             {
             }
             else
             {
 
-#line 175
+#line 184
                 break;
             }
 
-#line 175
+#line 184
             zyj_0 = 0U;
             for(;;)
             {
 
-#line 176
+#line 185
                 if(zyj_0 < 3U)
                 {
                 }
                 else
                 {
 
-#line 176
+#line 185
                     break;
                 }
 
-#line 176
+#line 185
                 acch_0 = 0.0f;
 
-#line 176
+#line 185
                 accl_0 = 0.0f;
 
-#line 176
+#line 185
                 zyk_0 = 0U;
 
 
                 for(;;)
                 {
 
-#line 179
+#line 188
                     if(zyk_0 < 3U)
                     {
                     }
                     else
                     {
 
-#line 179
+#line 188
                         break;
                     }
 
-#line 180
+#line 189
                     uint32_t zyia_0 = zyi_0 * 3U + zyk_0;
                     uint32_t zyib_0 = zyk_0 * 3U + zyj_0;
                     float zyph_0;
@@ -547,67 +556,67 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
                     float _S7 = zynh_0;
                     float _S8 = zynl_0;
 
-#line 179
+#line 188
                     uint32_t zyk_1 = zyk_0 + 1U;
 
-#line 179
+#line 188
                     acch_0 = _S7;
 
-#line 179
+#line 188
                     accl_0 = _S8;
 
-#line 179
+#line 188
                     zyk_0 = zyk_1;
 
-#line 179
+#line 188
                 }
 
-#line 191
+#line 200
                 uint32_t zyij_0 = zyi_0 * 3U + zyj_0;
                 zyh_0[zyij_0] = acch_0;
                 zyl_0[zyij_0] = accl_0;
 
-#line 176
+#line 185
                 zyj_0 = zyj_0 + 1U;
 
-#line 176
+#line 185
             }
 
-#line 175
+#line 184
             zyi_0 = zyi_0 + 1U;
 
-#line 175
+#line 184
         }
 
-#line 175
+#line 184
         zyj_0 = 0U;
 
-#line 196
+#line 205
         for(;;)
         {
 
-#line 196
+#line 205
             if(zyj_0 < 9U)
             {
             }
             else
             {
 
-#line 196
+#line 205
                 break;
             }
 
-#line 197
+#line 206
             th_0[zyj_0] = - zyh_0[zyj_0];
             tl_0[zyj_0] = - zyl_0[zyj_0];
 
-#line 196
+#line 205
             zyj_0 = zyj_0 + 1U;
 
-#line 196
+#line 205
         }
 
-#line 196
+#line 205
         zyk_0 = 0U;
 
 
@@ -615,18 +624,18 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
         for(;;)
         {
 
-#line 200
+#line 209
             if(zyk_0 < 3U)
             {
             }
             else
             {
 
-#line 200
+#line 209
                 break;
             }
 
-#line 201
+#line 210
             uint32_t tdi_0 = zyk_0 * 4U;
             float t3h_0;
             float t3l_0;
@@ -634,102 +643,102 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
             th_0[tdi_0] = t3h_0;
             tl_0[tdi_0] = t3l_0;
 
-#line 200
+#line 209
             zyk_0 = zyk_0 + 1U;
 
-#line 200
+#line 209
         }
 
-#line 200
+#line 209
         tm_0 = 0U;
 
-#line 208
+#line 217
         for(;;)
         {
 
-#line 208
+#line 217
             if(tm_0 < 9U)
             {
             }
             else
             {
 
-#line 208
+#line 217
                 break;
             }
 
-#line 209
+#line 218
             float tmh_0;
             float tml_0;
             df_mul_0(0.5f, 0.0f, th_0[tm_0], tl_0[tm_0], &tmh_0, &tml_0);
             th_0[tm_0] = tmh_0;
             tl_0[tm_0] = tml_0;
 
-#line 208
+#line 217
             tm_0 = tm_0 + 1U;
 
-#line 208
+#line 217
         }
 
-#line 208
+#line 217
         uint32_t yti_0 = 0U;
 
-#line 215
+#line 224
         for(;;)
         {
 
-#line 215
+#line 224
             if(yti_0 < 3U)
             {
             }
             else
             {
 
-#line 215
+#line 224
                 break;
             }
 
-#line 215
+#line 224
             ytj_0 = 0U;
             for(;;)
             {
 
-#line 216
+#line 225
                 if(ytj_0 < 3U)
                 {
                 }
                 else
                 {
 
-#line 216
+#line 225
                     break;
                 }
 
-#line 216
+#line 225
                 acch_0 = 0.0f;
 
-#line 216
+#line 225
                 accl_0 = 0.0f;
 
-#line 216
+#line 225
                 ytk_0 = 0U;
 
 
                 for(;;)
                 {
 
-#line 219
+#line 228
                     if(ytk_0 < 3U)
                     {
                     }
                     else
                     {
 
-#line 219
+#line 228
                         break;
                     }
 
-#line 220
+#line 229
                     uint32_t ytia_0 = yti_0 * 3U + ytk_0;
                     uint32_t ytib_0 = ytk_0 * 3U + ytj_0;
                     float ytph_0;
@@ -741,97 +750,97 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
                     float _S9 = ytnh_0;
                     float _S10 = ytnl_0;
 
-#line 219
+#line 228
                     uint32_t ytk_1 = ytk_0 + 1U;
 
-#line 219
+#line 228
                     acch_0 = _S9;
 
-#line 219
+#line 228
                     accl_0 = _S10;
 
-#line 219
+#line 228
                     ytk_0 = ytk_1;
 
-#line 219
+#line 228
                 }
 
-#line 231
+#line 240
                 uint32_t ytij_0 = yti_0 * 3U + ytj_0;
                 ynh_0[ytij_0] = acch_0;
                 ynl_0[ytij_0] = accl_0;
 
-#line 216
+#line 225
                 ytj_0 = ytj_0 + 1U;
 
-#line 216
+#line 225
             }
 
-#line 215
+#line 224
             yti_0 = yti_0 + 1U;
 
-#line 215
+#line 224
         }
 
-#line 215
+#line 224
         ytj_0 = 0U;
 
-#line 236
+#line 245
         for(;;)
         {
 
-#line 236
+#line 245
             if(ytj_0 < 3U)
             {
             }
             else
             {
 
-#line 236
+#line 245
                 break;
             }
 
-#line 236
+#line 245
             ytk_0 = 0U;
             for(;;)
             {
 
-#line 237
+#line 246
                 if(ytk_0 < 3U)
                 {
                 }
                 else
                 {
 
-#line 237
+#line 246
                     break;
                 }
 
-#line 237
+#line 246
                 acch_0 = 0.0f;
 
-#line 237
+#line 246
                 accl_0 = 0.0f;
 
-#line 237
+#line 246
                 uint32_t tzk_0 = 0U;
 
 
                 for(;;)
                 {
 
-#line 240
+#line 249
                     if(tzk_0 < 3U)
                     {
                     }
                     else
                     {
 
-#line 240
+#line 249
                         break;
                     }
 
-#line 241
+#line 250
                     uint32_t tzia_0 = ytj_0 * 3U + tzk_0;
                     uint32_t tzib_0 = tzk_0 * 3U + ytk_0;
                     float tzph_0;
@@ -843,171 +852,171 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
                     float _S11 = tznh_0;
                     float _S12 = tznl_0;
 
-#line 240
+#line 249
                     uint32_t tzk_1 = tzk_0 + 1U;
 
-#line 240
+#line 249
                     acch_0 = _S11;
 
-#line 240
+#line 249
                     accl_0 = _S12;
 
-#line 240
+#line 249
                     tzk_0 = tzk_1;
 
-#line 240
+#line 249
                 }
 
-#line 252
+#line 261
                 uint32_t tzij_0 = ytj_0 * 3U + ytk_0;
                 znh_0[tzij_0] = acch_0;
                 znl_0[tzij_0] = accl_0;
 
-#line 237
+#line 246
                 ytk_0 = ytk_0 + 1U;
 
-#line 237
+#line 246
             }
 
-#line 236
+#line 245
             ytj_0 = ytj_0 + 1U;
 
-#line 236
+#line 245
         }
 
-#line 236
+#line 245
         ytk_0 = 0U;
 
-#line 257
+#line 266
         for(;;)
         {
 
-#line 257
+#line 266
             if(ytk_0 < 9U)
             {
             }
             else
             {
 
-#line 257
+#line 266
                 break;
             }
 
-#line 258
+#line 267
             yh_0[ytk_0] = ynh_0[ytk_0];
             yl_0[ytk_0] = ynl_0[ytk_0];
             zh_0[ytk_0] = znh_0[ytk_0];
             zl_0[ytk_0] = znl_0[ytk_0];
 
-#line 257
+#line 266
             ytk_0 = ytk_0 + 1U;
 
-#line 257
+#line 266
         }
 
-#line 174
+#line 183
         k_0 = k_0 + 1U;
 
-#line 174
+#line 183
     }
 
-#line 264
+#line 273
     float ssh_0;
     float ssl_0;
     df_sqrt_0(sh_1, sl_1, &ssh_0, &ssl_0);
     FixedArray<float, 9>  mvh_0;
     FixedArray<float, 9>  mvl_0;
 
-#line 268
+#line 277
     zyi_0 = 0U;
     for(;;)
     {
 
-#line 269
+#line 278
         if(zyi_0 < 9U)
         {
         }
         else
         {
 
-#line 269
+#line 278
             break;
         }
 
-#line 270
+#line 279
         float mvph_0;
         float mvpl_0;
         df_mul_0(ssh_0, ssl_0, yh_0[zyi_0], yl_0[zyi_0], &mvph_0, &mvpl_0);
         mvh_0[zyi_0] = mvph_0;
         mvl_0[zyi_0] = mvpl_0;
 
-#line 269
+#line 278
         zyi_0 = zyi_0 + 1U;
 
-#line 269
+#line 278
     }
 
-#line 276
+#line 285
     FixedArray<float, 9>  rrh_0;
     FixedArray<float, 9>  rrl_0;
 
-#line 277
+#line 286
     zyj_0 = 0U;
     for(;;)
     {
 
-#line 278
+#line 287
         if(zyj_0 < 3U)
         {
         }
         else
         {
 
-#line 278
+#line 287
             break;
         }
 
-#line 278
+#line 287
         zyk_0 = 0U;
         for(;;)
         {
 
-#line 279
+#line 288
             if(zyk_0 < 3U)
             {
             }
             else
             {
 
-#line 279
+#line 288
                 break;
             }
 
-#line 279
+#line 288
             acch_0 = 0.0f;
 
-#line 279
+#line 288
             accl_0 = 0.0f;
 
-#line 279
+#line 288
             tm_0 = 0U;
 
 
             for(;;)
             {
 
-#line 282
+#line 291
                 if(tm_0 < 3U)
                 {
                 }
                 else
                 {
 
-#line 282
+#line 291
                     break;
                 }
 
-#line 283
+#line 292
                 uint32_t rmia_0 = zyj_0 * 3U + tm_0;
                 uint32_t rmib_0 = tm_0 * 3U + zyk_0;
                 float rmph_0;
@@ -1019,67 +1028,67 @@ void _main_0(void* _S1, void* entryPointParams_0, void* globalParams_1)
                 float _S13 = rmnh_0;
                 float _S14 = rmnl_0;
 
-#line 282
+#line 291
                 uint32_t rmk_0 = tm_0 + 1U;
 
-#line 282
+#line 291
                 acch_0 = _S13;
 
-#line 282
+#line 291
                 accl_0 = _S14;
 
-#line 282
+#line 291
                 tm_0 = rmk_0;
 
-#line 282
+#line 291
             }
 
-#line 294
+#line 303
             uint32_t rmij_0 = zyj_0 * 3U + zyk_0;
             rrh_0[rmij_0] = acch_0;
             rrl_0[rmij_0] = accl_0;
 
-#line 279
+#line 288
             zyk_0 = zyk_0 + 1U;
 
-#line 279
+#line 288
         }
 
-#line 278
+#line 287
         zyj_0 = zyj_0 + 1U;
 
-#line 278
+#line 287
     }
 
-#line 278
+#line 287
     zyk_0 = 0U;
 
-#line 299
+#line 308
     for(;;)
     {
 
-#line 299
+#line 308
         if(zyk_0 < 9U)
         {
         }
         else
         {
 
-#line 299
+#line 308
             break;
         }
 
-#line 300
+#line 309
         uint32_t _S15 = 2U * zyk_0;
 
-#line 300
+#line 309
         *(&((&kernelContext_0)->globalParams_0->out_hilo_0)[_S15]) = rrh_0[zyk_0];
         *(&((&kernelContext_0)->globalParams_0->out_hilo_0)[_S15 + 1U]) = rrl_0[zyk_0];
 
-#line 299
+#line 308
         zyk_0 = zyk_0 + 1U;
 
-#line 299
+#line 308
     }
 
 
