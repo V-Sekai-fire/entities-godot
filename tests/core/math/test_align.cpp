@@ -33,6 +33,7 @@
 TEST_FORCE_LINK(test_align)
 
 #include "core/math/basis.h"
+#include "core/math/transform_3d.h"
 
 namespace TestAlign {
 
@@ -96,6 +97,92 @@ TEST_CASE("[Align] Rank-deficient covariance still yields a rotation") {
 	}
 	Basis rotation = Basis::align(targets, sources);
 	CHECK(rotation.is_rotation());
+}
+
+TEST_CASE("[Align] Transform recovers a pure translation") {
+	Vector<Vector3> sources;
+	sources.push_back(Vector3(1, 0, 0));
+	sources.push_back(Vector3(0, 1, 0));
+	sources.push_back(Vector3(0, 0, 1));
+	Vector3 offset(2.5, -1.0, 4.0);
+	Vector<Vector3> targets;
+	for (int i = 0; i < sources.size(); i++) {
+		targets.push_back(sources[i] + offset);
+	}
+	Transform3D fit = Transform3D::align(targets, sources);
+	CHECK(fit.basis.is_rotation());
+	CHECK(fit.origin.distance_to(offset) < (real_t)1e-4);
+	for (int i = 0; i < sources.size(); i++) {
+		CHECK(fit.xform(sources[i]).distance_to(targets[i]) < (real_t)1e-3);
+	}
+}
+
+TEST_CASE("[Align] Transform recovers a pure rotation") {
+	Vector<Vector3> sources;
+	sources.push_back(Vector3(1, 0, 0));
+	sources.push_back(Vector3(0, 1, 0));
+	sources.push_back(Vector3(0, 0, 1));
+	Basis rotation = rot(Vector3(-2, 1, 4), Math::deg_to_rad((real_t)73.0));
+	Vector<Vector3> targets;
+	for (int i = 0; i < sources.size(); i++) {
+		targets.push_back(rotation.xform(sources[i]));
+	}
+	Transform3D fit = Transform3D::align(targets, sources);
+	CHECK(fit.basis.is_rotation());
+	CHECK(fit.origin.length() < (real_t)1e-3);
+	for (int i = 0; i < sources.size(); i++) {
+		CHECK(fit.xform(sources[i]).distance_to(targets[i]) < (real_t)1e-3);
+	}
+}
+
+TEST_CASE("[Align] Transform recovers a rotation and a translation") {
+	Vector<Vector3> sources;
+	sources.push_back(Vector3(1, 0, 0));
+	sources.push_back(Vector3(0, 1, 0));
+	sources.push_back(Vector3(0, 0, 1));
+	sources.push_back(Vector3(1, 2, 3));
+	Basis rotation = rot(Vector3(1, 2, 3), Math::deg_to_rad((real_t)115.0));
+	Vector3 offset(-3.0, 0.5, 2.0);
+	Vector<Vector3> targets;
+	for (int i = 0; i < sources.size(); i++) {
+		targets.push_back(rotation.xform(sources[i]) + offset);
+	}
+	Transform3D fit = Transform3D::align(targets, sources);
+	CHECK(fit.basis.is_rotation());
+	for (int i = 0; i < sources.size(); i++) {
+		CHECK(fit.xform(sources[i]).distance_to(targets[i]) < (real_t)1e-3);
+	}
+}
+
+TEST_CASE("[Align] Transform of a single pair is that translation") {
+	Vector<Vector3> sources;
+	sources.push_back(Vector3(0.4, -0.2, 0.7));
+	Vector<Vector3> targets;
+	targets.push_back(Vector3(1.0, 1.0, 1.0));
+	Transform3D fit = Transform3D::align(targets, sources);
+	CHECK(fit.basis.is_rotation());
+	CHECK(fit.xform(sources[0]).distance_to(targets[0]) < (real_t)1e-4);
+}
+
+TEST_CASE("[Align] Align is deterministic across repeated calls") {
+	Vector<Vector3> sources;
+	sources.push_back(Vector3(1, 0, 0));
+	sources.push_back(Vector3(0, 1, 0));
+	sources.push_back(Vector3(0, 0, 1));
+	sources.push_back(Vector3(1, 2, 3));
+	Basis rotation = rot(Vector3(1, 2, 3), Math::deg_to_rad((real_t)200.0));
+	Vector3 offset(-3.0, 0.5, 2.0);
+	Vector<Vector3> targets;
+	for (int i = 0; i < sources.size(); i++) {
+		targets.push_back(rotation.xform(sources[i]) + offset);
+	}
+	// Same input must give a bit-identical result, not merely an approximate one.
+	Basis basis_first = Basis::align(targets, sources);
+	Basis basis_second = Basis::align(targets, sources);
+	CHECK(basis_first == basis_second);
+	Transform3D xform_first = Transform3D::align(targets, sources);
+	Transform3D xform_second = Transform3D::align(targets, sources);
+	CHECK(xform_first == xform_second);
 }
 
 } // namespace TestAlign

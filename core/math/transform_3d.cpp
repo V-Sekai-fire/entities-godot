@@ -85,6 +85,33 @@ Transform3D Transform3D::looking_at(const Vector3 &p_target, const Vector3 &p_up
 	return t;
 }
 
+Transform3D Transform3D::align(const Vector<Vector3> &p_targets, const Vector<Vector3> &p_sources) {
+	int count = MIN(p_targets.size(), p_sources.size());
+	if (count == 0) {
+		return Transform3D();
+	}
+	Vector3 target_centroid;
+	Vector3 source_centroid;
+	for (int pair = 0; pair < count; pair++) {
+		target_centroid += p_targets[pair];
+		source_centroid += p_sources[pair];
+	}
+	target_centroid /= real_t(count);
+	source_centroid /= real_t(count);
+
+	Vector<Vector3> centered_targets;
+	Vector<Vector3> centered_sources;
+	centered_targets.resize(count);
+	centered_sources.resize(count);
+	for (int pair = 0; pair < count; pair++) {
+		centered_targets.write[pair] = p_targets[pair] - target_centroid;
+		centered_sources.write[pair] = p_sources[pair] - source_centroid;
+	}
+
+	Basis rotation = Basis::align(centered_targets, centered_sources);
+	return Transform3D(rotation, target_centroid - rotation.xform(source_centroid));
+}
+
 void Transform3D::set_look_at(const Vector3 &p_eye, const Vector3 &p_target, const Vector3 &p_up, bool p_use_model_front) {
 #ifdef MATH_CHECKS
 	ERR_FAIL_COND_MSG(p_eye.is_equal_approx(p_target), "The eye and target vectors can't be equal.");

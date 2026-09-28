@@ -67,6 +67,14 @@
 				[b]Note:[/b] For this method to return correctly, the transform's [member basis] needs to have a determinant that is not exactly [code]0.0[/code] (see [method Basis.determinant]).
 			</description>
 		</method>
+		<method name="align" qualifiers="static">
+			<return type="Transform3D" />
+			<param index="0" name="targets" type="PackedVector3Array" />
+			<param index="1" name="sources" type="PackedVector3Array" />
+			<description>
+				Returns the rigid transform that best maps [param sources] onto [param targets] in the least-squares sense, so that [code]targets[i] ≈ transform * sources[i][/code]. The rotation is recovered by [method Basis.align] on the centroid-centered pairs and the translation is the leftover centroid offset. Pass all sources at one point (or one pair) to recover a pure translation; pass centered directions to recover a pure rotation with [method Basis.align].
+			</description>
+		</method>
 		<method name="interpolate_with" qualifiers="const">
 			<return type="Transform3D" />
 			<param index="0" name="xform" type="Transform3D" />

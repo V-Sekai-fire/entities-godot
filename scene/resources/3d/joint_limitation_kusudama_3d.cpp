@@ -56,9 +56,27 @@ void JointLimitationKusudama3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("twist_angle_continuous", "rotation", "twist_axis", "previous_angle"), &JointLimitationKusudama3D::twist_angle_continuous);
 	ClassDB::bind_method(D_METHOD("clamp_twist", "angle"), &JointLimitationKusudama3D::clamp_twist);
 
+	ClassDB::bind_method(D_METHOD("set_soft_band", "radians"), &JointLimitationKusudama3D::set_soft_band);
+	ClassDB::bind_method(D_METHOD("get_soft_band"), &JointLimitationKusudama3D::get_soft_band);
+	ClassDB::bind_method(D_METHOD("set_soft_temperature", "temperature"), &JointLimitationKusudama3D::set_soft_temperature);
+	ClassDB::bind_method(D_METHOD("get_soft_temperature"), &JointLimitationKusudama3D::get_soft_temperature);
+
+	ClassDB::bind_method(D_METHOD("set_prismatic_enabled", "enabled"), &JointLimitationKusudama3D::set_prismatic_enabled);
+	ClassDB::bind_method(D_METHOD("is_prismatic_enabled"), &JointLimitationKusudama3D::is_prismatic_enabled);
+	ClassDB::bind_method(D_METHOD("set_prismatic_min", "min"), &JointLimitationKusudama3D::set_prismatic_min);
+	ClassDB::bind_method(D_METHOD("get_prismatic_min"), &JointLimitationKusudama3D::get_prismatic_min);
+	ClassDB::bind_method(D_METHOD("set_prismatic_max", "max"), &JointLimitationKusudama3D::set_prismatic_max);
+	ClassDB::bind_method(D_METHOD("get_prismatic_max"), &JointLimitationKusudama3D::get_prismatic_max);
+	ClassDB::bind_method(D_METHOD("optimal_length", "head", "target", "bone_dir", "fixed_length"), &JointLimitationKusudama3D::optimal_length);
+
 	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "cones", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_cones", "get_cones");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "twist_from", PROPERTY_HINT_RANGE, "-360,360,0.1,radians_as_degrees"), "set_twist_from", "get_twist_from");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "twist_to", PROPERTY_HINT_RANGE, "-360,360,0.1,radians_as_degrees"), "set_twist_to", "get_twist_to");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "soft_band", PROPERTY_HINT_RANGE, "0,90,0.1,radians_as_degrees"), "set_soft_band", "get_soft_band");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "soft_temperature", PROPERTY_HINT_RANGE, "0.001,1,0.001"), "set_soft_temperature", "get_soft_temperature");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "prismatic_enabled"), "set_prismatic_enabled", "is_prismatic_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "prismatic_min", PROPERTY_HINT_RANGE, "0,10,0.001,or_greater,suffix:m"), "set_prismatic_min", "get_prismatic_min");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "prismatic_max", PROPERTY_HINT_RANGE, "0,10,0.001,or_greater,suffix:m"), "set_prismatic_max", "get_prismatic_max");
 }
 
 void JointLimitationKusudama3D::set_cones(const Vector<Vector4> &p_cones) {
@@ -205,70 +223,89 @@ void JointLimitationKusudama3D::_get_property_list(List<PropertyInfo> *p_list) c
 	}
 }
 
-static const int SWEEP_STEPS = 64;
+static Vector3 any_perp(const Vector3 &p_axis) {
+	Vector3 perp = (Math::abs(p_axis.z) < 0.9f) ? p_axis.cross(Vector3(0, 0, 1)) : p_axis.cross(Vector3(1, 0, 0));
+	return perp.normalized();
+}
 
-static Vector3 project_on_cone_boundary(const Vector3 &p_point, const Vector3 &p_center, real_t p_radius) {
-	Vector3 ortho = (p_point - p_point.project(p_center)).normalized();
-	if (!ortho.is_finite()) {
-		ortho = (Math::abs(p_center.z) < 0.9f) ? p_center.cross(Vector3(0, 0, 1)).normalized() : p_center.cross(Vector3(1, 0, 0)).normalized();
+// Ease the swing angle toward the cone radius from below; never exceeds it.
+static Vector3 soft_cone(const Vector3 &p_point, const Vector3 &p_center, real_t p_radius, real_t p_band) {
+	real_t th = p_point.angle_to(p_center);
+	real_t band = MIN(p_band, p_radius);
+	real_t th_sat;
+	if (band <= 0.0) {
+		th_sat = MIN(th, p_radius);
+	} else {
+		real_t inner = p_radius - band;
+		th_sat = (th > inner) ? p_radius - band * Math::exp(-(th - inner) / band) : th;
 	}
-	return (p_center * Math::cos(p_radius) + ortho * Math::sin(p_radius)).normalized();
+	Vector3 perp0 = p_point - p_center * p_point.dot(p_center);
+	Vector3 perp = perp0.is_zero_approx() ? any_perp(p_center) : perp0.normalized();
+	return (p_center * Math::cos(th_sat) + perp * Math::sin(th_sat)).normalized();
+}
+
+static Vector3 log_map(const Vector3 &p_a, const Vector3 &p_b) {
+	real_t d = p_a.angle_to(p_b);
+	if (d < 1e-9f) {
+		return Vector3();
+	}
+	Vector3 tangent = p_b - p_a * p_a.dot(p_b);
+	return tangent.normalized() * d;
+}
+
+static Vector3 exp_map(const Vector3 &p_a, const Vector3 &p_v) {
+	real_t n = p_v.length();
+	if (n < 1e-9f) {
+		return p_a;
+	}
+	return (p_a * Math::cos(n) + p_v * (Math::sin(n) / n)).normalized();
+}
+
+Vector3 JointLimitationKusudama3D::_soft_project(const Vector3 &p_point) const {
+	uint32_t n = cones.size();
+	LocalVector<Vector3> candidates;
+	LocalVector<real_t> distances;
+	candidates.resize(n);
+	distances.resize(n);
+	real_t d_min = 1e30f;
+	Vector3 anchor;
+	for (uint32_t i = 0; i < n; i++) {
+		Vector3 center = _get_cone_center_normalized(i);
+		anchor += center;
+		Vector3 q = soft_cone(p_point, center, cones[i].w, soft_band);
+		real_t d = p_point.angle_to(q);
+		candidates[i] = q;
+		distances[i] = d;
+		d_min = MIN(d_min, d);
+	}
+	if (d_min < 1e-5f) {
+		return p_point;
+	}
+	// Blend in the tangent space of a fixed reference (the cone centroid), not the nearest
+	// candidate, so the base point never switches and the result stays continuous.
+	anchor = anchor.is_zero_approx() ? _get_cone_center_normalized(0) : anchor.normalized();
+	real_t temperature = MAX(soft_temperature, (real_t)1e-4);
+	Vector3 numerator;
+	real_t denominator = 0.0;
+	for (uint32_t i = 0; i < n; i++) {
+		real_t w = Math::exp(-(distances[i] - d_min) / temperature);
+		numerator += log_map(anchor, candidates[i]) * w;
+		denominator += w;
+	}
+	if (denominator <= 1e-30f) {
+		return p_point;
+	}
+	return exp_map(anchor, numerator / denominator);
 }
 
 Vector3 JointLimitationKusudama3D::_solve(const Vector3 &p_direction) const {
 	Vector3 p = p_direction.normalized();
-	uint32_t n = cones.size();
-	if (n == 0) {
+	if (cones.is_empty()) {
 		return p;
 	}
-
-	// Swept-cone region: one sweep gives containment and the nearest boundary.
-	real_t closest = 1e18f;
-	Vector3 best = p;
-
-	for (uint32_t i = 0; i < n; i++) {
-		Vector3 c = _get_cone_center_normalized(i);
-		real_t r = cones[i].w;
-		if (p.dot(c) >= Math::cos(r)) {
-			return p;
-		}
-		Vector3 b = project_on_cone_boundary(p, c, r);
-		real_t d = p.distance_squared_to(b);
-		if (d < closest) {
-			closest = d;
-			best = b;
-		}
-	}
-
-	for (uint32_t i = 0; i + 1 < n; i++) {
-		Vector3 c1 = _get_cone_center_normalized(i);
-		Vector3 c2 = _get_cone_center_normalized(i + 1);
-		real_t r1 = cones[i].w;
-		real_t r2 = cones[i + 1].w;
-		Vector3 axis = c1.cross(c2);
-		if (axis.is_zero_approx()) {
-			continue;
-		}
-		axis.normalize();
-		real_t omega = c1.angle_to(c2);
-		real_t seg_gap = omega / real_t(SWEEP_STEPS);
-		for (int s = 1; s < SWEEP_STEPS; s++) {
-			real_t theta = omega * real_t(s) / real_t(SWEEP_STEPS);
-			Vector3 center = c1 * Math::cos(theta) + axis.cross(c1) * Math::sin(theta);
-			real_t radius = r1 + (r2 - r1) * real_t(s) / real_t(SWEEP_STEPS);
-			// Widen by the sampling gap: a legal direction between samples stays open.
-			if (p.dot(center) >= Math::cos(radius + seg_gap)) {
-				return p;
-			}
-			Vector3 b = project_on_cone_boundary(p, center, radius);
-			real_t d = p.distance_squared_to(b);
-			if (d < closest) {
-				closest = d;
-				best = b;
-			}
-		}
-	}
-	return best;
+	// Always continuous: the softmin blend never jumps at the medial axis, so no
+	// parameter reaches a jerk. soft_band adds C1 easing at the cone boundary.
+	return _soft_project(p);
 }
 
 // Helper functions for kusudama solving
@@ -479,6 +516,118 @@ void JointLimitationKusudama3D::get_twist_gizmo_mesh(const Transform3D &p_transf
 	}
 }
 
+static void gizmo_push_line(PackedVector3Array &r_verts, PackedVector3Array &r_normals, PackedInt32Array &r_bones, PackedFloat32Array &r_weights, bool p_use_skin, int p_bone_index, const Transform3D &p_transform, const Vector3 &p_a, const Vector3 &p_b) {
+	const Vector3 endpoints[2] = { p_a, p_b };
+	for (int e = 0; e < 2; e++) {
+		r_verts.push_back(p_use_skin ? p_transform.xform(endpoints[e]) : endpoints[e]);
+		r_normals.push_back(Vector3(0, 1, 0));
+		if (p_use_skin) {
+			for (int k = 0; k < Mesh::ARRAY_WEIGHTS_SIZE; k++) {
+				r_bones.push_back((k == 0) ? p_bone_index : 0);
+				r_weights.push_back((k == 0) ? 1.0f : 0.0f);
+			}
+		}
+	}
+}
+
+static Ref<Material> gizmo_line_material(const Color &p_color) {
+	Ref<StandardMaterial3D> mat;
+	mat.instantiate();
+	mat->set_albedo(p_color);
+	mat->set_shading_mode(BaseMaterial3D::SHADING_MODE_UNSHADED);
+	mat->set_transparency(BaseMaterial3D::TRANSPARENCY_ALPHA);
+	mat->set_cull_mode(BaseMaterial3D::CULL_DISABLED);
+	return mat;
+}
+
+static Ref<ArrayMesh> gizmo_lines_to_mesh(const PackedVector3Array &p_verts, const PackedVector3Array &p_normals, const PackedInt32Array &p_bones, const PackedFloat32Array &p_weights, bool p_use_skin) {
+	Ref<ArrayMesh> mesh;
+	if (p_verts.is_empty()) {
+		return mesh;
+	}
+	Array arrays;
+	arrays.resize(Mesh::ARRAY_MAX);
+	arrays[Mesh::ARRAY_VERTEX] = p_verts;
+	arrays[Mesh::ARRAY_NORMAL] = p_normals;
+	if (p_use_skin) {
+		arrays[Mesh::ARRAY_BONES] = p_bones;
+		arrays[Mesh::ARRAY_WEIGHTS] = p_weights;
+	}
+	mesh.instantiate();
+	mesh->add_surface_from_arrays(Mesh::PRIMITIVE_LINES, arrays);
+	return mesh;
+}
+
+void JointLimitationKusudama3D::get_soft_band_gizmo_mesh(const Transform3D &p_transform, float p_bone_length, const Color &p_color, int p_bone_index, Transform3D &r_mesh_to_skeleton_rest, Ref<ArrayMesh> &r_mesh, Ref<Material> &r_material) const {
+	r_mesh.unref();
+	r_material.unref();
+	if (soft_band <= 0.0 || cones.is_empty()) {
+		return;
+	}
+	real_t sphere_r = p_bone_length * (real_t)0.25;
+	const int segments = 48;
+	const bool use_skin = (p_bone_index >= 0);
+	PackedVector3Array verts;
+	PackedVector3Array normals;
+	PackedInt32Array bones;
+	PackedFloat32Array weights;
+	for (uint32_t i = 0; i < cones.size(); i++) {
+		real_t alpha = cones[i].w - soft_band;
+		if (alpha <= 0.0) {
+			continue;
+		}
+		Vector3 c = _get_cone_center_normalized(i);
+		Vector3 u = (Math::abs(c.z) < 0.9f) ? c.cross(Vector3(0, 0, 1)).normalized() : c.cross(Vector3(1, 0, 0)).normalized();
+		Vector3 v = c.cross(u).normalized();
+		for (int s = 0; s < segments; s++) {
+			real_t t0 = Math::TAU * real_t(s) / real_t(segments);
+			real_t t1 = Math::TAU * real_t(s + 1) / real_t(segments);
+			Vector3 d0 = (c * Math::cos(alpha) + (u * Math::cos(t0) + v * Math::sin(t0)) * Math::sin(alpha)) * sphere_r;
+			Vector3 d1 = (c * Math::cos(alpha) + (u * Math::cos(t1) + v * Math::sin(t1)) * Math::sin(alpha)) * sphere_r;
+			gizmo_push_line(verts, normals, bones, weights, use_skin, p_bone_index, p_transform, d0, d1);
+		}
+	}
+	r_mesh = gizmo_lines_to_mesh(verts, normals, bones, weights, use_skin);
+	if (r_mesh.is_null()) {
+		return;
+	}
+	Color band_color = p_color;
+	band_color.a = 0.9f;
+	r_material = gizmo_line_material(band_color);
+	r_mesh_to_skeleton_rest = use_skin ? Transform3D() : p_transform;
+}
+
+void JointLimitationKusudama3D::get_prismatic_gizmo_mesh(const Transform3D &p_transform, float p_bone_length, const Color &p_color, int p_bone_index, Transform3D &r_mesh_to_skeleton_rest, Ref<ArrayMesh> &r_mesh, Ref<Material> &r_material) const {
+	r_mesh.unref();
+	r_material.unref();
+	if (!prismatic_enabled || prismatic_max <= prismatic_min) {
+		return;
+	}
+	const bool use_skin = (p_bone_index >= 0);
+	PackedVector3Array verts;
+	PackedVector3Array normals;
+	PackedInt32Array bones;
+	PackedFloat32Array weights;
+	// Travel runs along the bone forward axis (+Y); ticks mark the min and max stops.
+	Vector3 low(0, prismatic_min, 0);
+	Vector3 high(0, prismatic_max, 0);
+	gizmo_push_line(verts, normals, bones, weights, use_skin, p_bone_index, p_transform, low, high);
+	real_t tick = p_bone_length * (real_t)0.05;
+	const Vector3 stops[2] = { low, high };
+	for (int e = 0; e < 2; e++) {
+		gizmo_push_line(verts, normals, bones, weights, use_skin, p_bone_index, p_transform, stops[e] - Vector3(tick, 0, 0), stops[e] + Vector3(tick, 0, 0));
+		gizmo_push_line(verts, normals, bones, weights, use_skin, p_bone_index, p_transform, stops[e] - Vector3(0, 0, tick), stops[e] + Vector3(0, 0, tick));
+	}
+	r_mesh = gizmo_lines_to_mesh(verts, normals, bones, weights, use_skin);
+	if (r_mesh.is_null()) {
+		return;
+	}
+	Color axis_color = p_color;
+	axis_color.a = 1.0f;
+	r_material = gizmo_line_material(axis_color);
+	r_mesh_to_skeleton_rest = use_skin ? Transform3D() : p_transform;
+}
+
 void JointLimitationKusudama3D::append_extra_gizmo_meshes(const Transform3D &p_transform, float p_bone_length, const Color &p_color, Vector<ExtraMeshEntry> &r_extra_meshes, int p_bone_index) const {
 	ExtraMeshEntry e;
 	get_kusudama_fill_mesh_and_material(p_transform, p_bone_length, p_color, p_bone_index, e.transform, e.mesh, e.material);
@@ -490,16 +639,18 @@ void JointLimitationKusudama3D::append_extra_gizmo_meshes(const Transform3D &p_t
 	if (twist.mesh.is_valid()) {
 		r_extra_meshes.push_back(twist);
 	}
+	ExtraMeshEntry soft;
+	get_soft_band_gizmo_mesh(p_transform, p_bone_length, p_color, p_bone_index, soft.transform, soft.mesh, soft.material);
+	if (soft.mesh.is_valid()) {
+		r_extra_meshes.push_back(soft);
+	}
+	ExtraMeshEntry prismatic;
+	get_prismatic_gizmo_mesh(p_transform, p_bone_length, p_color, p_bone_index, prismatic.transform, prismatic.mesh, prismatic.material);
+	if (prismatic.mesh.is_valid()) {
+		r_extra_meshes.push_back(prismatic);
+	}
 }
 #endif // TOOLS_ENABLED
-
-// Helper function implementations
-bool JointLimitationKusudama3D::is_point_in_cone(const Vector3 &p_point, const Vector3 &p_cone_center, real_t p_cone_radius) const {
-	if (p_point.is_zero_approx()) {
-		return false;
-	}
-	return p_point.normalized().angle_to(p_cone_center) <= p_cone_radius;
-}
 
 void JointLimitationKusudama3D::set_twist_from(real_t p_radians) {
 	twist_from = p_radians;
@@ -517,6 +668,63 @@ void JointLimitationKusudama3D::set_twist_to(real_t p_radians) {
 
 real_t JointLimitationKusudama3D::get_twist_to() const {
 	return twist_to;
+}
+
+void JointLimitationKusudama3D::set_soft_band(real_t p_radians) {
+	soft_band = MAX(p_radians, (real_t)0.0);
+	emit_changed();
+}
+
+real_t JointLimitationKusudama3D::get_soft_band() const {
+	return soft_band;
+}
+
+void JointLimitationKusudama3D::set_soft_temperature(real_t p_temperature) {
+	soft_temperature = p_temperature;
+	emit_changed();
+}
+
+real_t JointLimitationKusudama3D::get_soft_temperature() const {
+	return soft_temperature;
+}
+
+void JointLimitationKusudama3D::set_prismatic_enabled(bool p_enabled) {
+	prismatic_enabled = p_enabled;
+	emit_changed();
+}
+
+bool JointLimitationKusudama3D::is_prismatic_enabled() const {
+	return prismatic_enabled;
+}
+
+void JointLimitationKusudama3D::set_prismatic_min(real_t p_min) {
+	prismatic_min = p_min;
+	emit_changed();
+}
+
+real_t JointLimitationKusudama3D::get_prismatic_min() const {
+	return prismatic_min;
+}
+
+void JointLimitationKusudama3D::set_prismatic_max(real_t p_max) {
+	prismatic_max = p_max;
+	emit_changed();
+}
+
+real_t JointLimitationKusudama3D::get_prismatic_max() const {
+	return prismatic_max;
+}
+
+real_t JointLimitationKusudama3D::optimal_length(const Vector3 &p_head, const Vector3 &p_target, const Vector3 &p_bone_dir, real_t p_fixed_length) const {
+	if (!prismatic_enabled) {
+		return p_fixed_length;
+	}
+	real_t dir_len_sq = p_bone_dir.length_squared();
+	if (Math::is_zero_approx(dir_len_sq)) {
+		return prismatic_min;
+	}
+	real_t projection = (p_target - p_head).dot(p_bone_dir) / dir_len_sq;
+	return CLAMP(projection, prismatic_min, prismatic_max);
 }
 
 // log of p_q shifted by whole 720-degree phases nearest p_ln_neighbor (makima patch).
@@ -549,89 +757,6 @@ real_t JointLimitationKusudama3D::twist_angle_continuous(const Quaternion &p_rot
 
 real_t JointLimitationKusudama3D::clamp_twist(real_t p_angle) const {
 	return CLAMP(p_angle, twist_from, twist_to);
-}
-
-bool JointLimitationKusudama3D::is_point_in_tangent_path(const Vector3 &p_point, const Vector3 &p_center1, real_t p_radius1, const Vector3 &p_center2, real_t p_radius2) const {
-	Vector3 dir = p_point.normalized();
-
-	// Check if point is in the inter-cone path region using get_on_great_tangent_triangle
-	// This function handles all the geometric checks including whether the point is inside tangent circles
-	Vector3 path_point = get_on_great_tangent_triangle(dir, p_center1, p_radius1, p_center2, p_radius2);
-
-	// If NaN, point is not in path region
-	if (Math::is_nan(path_point.x)) {
-		return false;
-	}
-
-	// If the returned point is approximately equal to the input point, point is in the path region.
-	// Use a threshold with small margin to avoid flips when cosine is near the boundary (3+ cone stability).
-	// get_on_great_tangent_triangle returns the input if in path, or a boundary point if inside a tangent circle.
-	real_t cosine = path_point.dot(dir);
-	const real_t in_path_cosine_min = 1.0 - 1e-4;
-	return cosine >= in_path_cosine_min;
-}
-
-Vector3 JointLimitationKusudama3D::get_on_great_tangent_triangle(const Vector3 &p_point, const Vector3 &p_center1, real_t p_radius1, const Vector3 &p_center2, real_t p_radius2) const {
-	Vector3 center1 = p_center1.normalized();
-	Vector3 center2 = p_center2.normalized();
-	Vector3 input = p_point.normalized();
-
-	// Compute tangent circles
-	Vector3 tan1, tan2;
-	real_t tan_radius;
-	compute_tangent_circles(center1, p_radius1, center2, p_radius2, tan1, tan2, tan_radius);
-
-	real_t tan_radius_cos = Math::cos(tan_radius);
-
-	// Determine which side of the arc we're on (tie-break arc_side_dot == 0 with second branch for stability).
-	Vector3 arc_normal = center1.cross(center2);
-	real_t arc_side_dot = input.dot(arc_normal);
-
-	if (arc_side_dot <= 0.0) {
-		// Use first tangent circle
-		Vector3 cone1_cross_tangent1 = center1.cross(tan1);
-		Vector3 tangent1_cross_cone2 = tan1.cross(center2);
-		if (input.dot(cone1_cross_tangent1) > 0 && input.dot(tangent1_cross_cone2) > 0) {
-			real_t to_next_cos = input.dot(tan1);
-			if (to_next_cos > tan_radius_cos) {
-				// Project onto tangent circle, but move slightly outside to ensure it's in the allowed region
-				Vector3 plane_normal = tan1.cross(input);
-				if (!plane_normal.is_finite() || plane_normal.is_zero_approx()) {
-					plane_normal = Vector3::UP;
-				}
-				plane_normal.normalize();
-				// Use slightly larger angle to move point outside the tangent circle (into allowed region)
-				real_t adjusted_tan_radius = tan_radius + 5e-5;
-				Quaternion rotate_about_by = Quaternion(plane_normal, adjusted_tan_radius);
-				return rotate_about_by.xform(tan1).normalized();
-			} else {
-				return input;
-			}
-		}
-	} else {
-		// Use second tangent circle
-		Vector3 tangent2_cross_cone1 = tan2.cross(center1);
-		Vector3 cone2_cross_tangent2 = center2.cross(tan2);
-		if (input.dot(tangent2_cross_cone1) > 0 && input.dot(cone2_cross_tangent2) > 0) {
-			real_t to_next_cos = input.dot(tan2);
-			if (to_next_cos > tan_radius_cos) {
-				// Project onto tangent circle, but move slightly outside to ensure it's in the allowed region
-				Vector3 plane_normal = tan2.cross(input);
-				if (!plane_normal.is_finite() || plane_normal.is_zero_approx()) {
-					plane_normal = Vector3::UP;
-				}
-				plane_normal.normalize();
-				// Use slightly larger angle to move point outside the tangent circle (into allowed region)
-				real_t adjusted_tan_radius = tan_radius + 5e-5;
-				Quaternion rotate_about_by = Quaternion(plane_normal, adjusted_tan_radius);
-				return rotate_about_by.xform(tan2).normalized();
-			} else {
-				return input;
-			}
-		}
-	}
-
-	return Vector3(NAN, NAN, NAN);
 }
 
 void JointLimitationKusudama3D::extend_ray(Vector3 &r_start, Vector3 &r_end, real_t p_amount) const {
