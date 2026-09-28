@@ -34,6 +34,7 @@
 
 #ifdef TOOLS_ENABLED
 #include "scene/resources/3d/kusudama_gizmo_shader.h"
+#include "scene/resources/material.h"
 #include "scene/resources/surface_tool.h"
 #endif
 
@@ -48,7 +49,16 @@ void JointLimitationKusudama3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_cone_radius", "index", "radius"), &JointLimitationKusudama3D::set_cone_radius);
 	ClassDB::bind_method(D_METHOD("get_cone_radius", "index"), &JointLimitationKusudama3D::get_cone_radius);
 
+	ClassDB::bind_method(D_METHOD("set_twist_from", "radians"), &JointLimitationKusudama3D::set_twist_from);
+	ClassDB::bind_method(D_METHOD("get_twist_from"), &JointLimitationKusudama3D::get_twist_from);
+	ClassDB::bind_method(D_METHOD("set_twist_to", "radians"), &JointLimitationKusudama3D::set_twist_to);
+	ClassDB::bind_method(D_METHOD("get_twist_to"), &JointLimitationKusudama3D::get_twist_to);
+	ClassDB::bind_method(D_METHOD("twist_angle_continuous", "rotation", "twist_axis", "previous_angle"), &JointLimitationKusudama3D::twist_angle_continuous);
+	ClassDB::bind_method(D_METHOD("clamp_twist", "angle"), &JointLimitationKusudama3D::clamp_twist);
+
 	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "cones", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_cones", "get_cones");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "twist_from", PROPERTY_HINT_RANGE, "-6.283185,6.283185,0.001,radians_as_degrees"), "set_twist_from", "get_twist_from");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "twist_to", PROPERTY_HINT_RANGE, "-6.283185,6.283185,0.001,radians_as_degrees"), "set_twist_to", "get_twist_to");
 }
 
 void JointLimitationKusudama3D::set_cones(const Vector<Vector4> &p_cones) {
@@ -195,40 +205,66 @@ void JointLimitationKusudama3D::_get_property_list(List<PropertyInfo> *p_list) c
 	}
 }
 
+static const int SWEEP_STEPS = 64;
+
+static Vector3 project_on_cone_boundary(const Vector3 &p_point, const Vector3 &p_center, real_t p_radius) {
+	Vector3 ortho = (p_point - p_point.project(p_center)).normalized();
+	if (!ortho.is_finite()) {
+		ortho = (Math::abs(p_center.z) < 0.9f) ? p_center.cross(Vector3(0, 0, 1)).normalized() : p_center.cross(Vector3(1, 0, 0)).normalized();
+	}
+	return (p_center * Math::cos(p_radius) + ortho * Math::sin(p_radius)).normalized();
+}
 
 Vector3 JointLimitationKusudama3D::_solve(const Vector3 &p_direction) const {
 	Vector3 p = p_direction.normalized();
 	uint32_t n = cones.size();
-	if (n == 0) return p;
-	for (uint32_t i = 0; i < n; i++) {
-		if (is_point_in_cone(p, _get_cone_center_normalized(i), cones[i].w)) return p;
-		if (i + 1 < n && is_point_in_tangent_path(p, _get_cone_center_normalized(i), cones[i].w, _get_cone_center_normalized(i + 1), cones[i + 1].w)) return p;
+	if (n == 0) {
+		return p;
 	}
-	real_t min_d = 1e18f;
+
+	// Swept-cone region: one sweep gives containment and the nearest boundary.
+	real_t closest = 1e18f;
 	Vector3 best = p;
 
 	for (uint32_t i = 0; i < n; i++) {
 		Vector3 c = _get_cone_center_normalized(i);
 		real_t r = cones[i].w;
-		Vector3 ortho = (p - p.project(c)).normalized();
-		if (!ortho.is_finite()) {
-			ortho = (Math::abs(c.z) < 0.9f) ? c.cross(Vector3(0, 0, 1)).normalized() : c.cross(Vector3(1, 0, 0)).normalized();
+		if (p.dot(c) >= Math::cos(r)) {
+			return p;
 		}
-		Vector3 b = c * Math::cos(r) + ortho * Math::sin(r);
+		Vector3 b = project_on_cone_boundary(p, c, r);
 		real_t d = p.distance_squared_to(b);
-		if (d < min_d) {
-			min_d = d;
+		if (d < closest) {
+			closest = d;
 			best = b;
 		}
+	}
 
-		if (i + 1 < n) {
-			Vector3 b_path = get_on_great_tangent_triangle(p, c, r, _get_cone_center_normalized(i + 1), cones[i + 1].w);
-			if (!Math::is_nan(b_path.x)) {
-				real_t d_p = p.distance_squared_to(b_path);
-				if (d_p < min_d) {
-					min_d = d_p;
-					best = b_path;
-				}
+	for (uint32_t i = 0; i + 1 < n; i++) {
+		Vector3 c1 = _get_cone_center_normalized(i);
+		Vector3 c2 = _get_cone_center_normalized(i + 1);
+		real_t r1 = cones[i].w;
+		real_t r2 = cones[i + 1].w;
+		Vector3 axis = c1.cross(c2);
+		if (axis.is_zero_approx()) {
+			continue;
+		}
+		axis.normalize();
+		real_t omega = c1.angle_to(c2);
+		real_t seg_gap = omega / real_t(SWEEP_STEPS);
+		for (int s = 1; s < SWEEP_STEPS; s++) {
+			real_t theta = omega * real_t(s) / real_t(SWEEP_STEPS);
+			Vector3 center = c1 * Math::cos(theta) + axis.cross(c1) * Math::sin(theta);
+			real_t radius = r1 + (r2 - r1) * real_t(s) / real_t(SWEEP_STEPS);
+			// Widen by the sampling gap: a legal direction between samples stays open.
+			if (p.dot(center) >= Math::cos(radius + seg_gap)) {
+				return p;
+			}
+			Vector3 b = project_on_cone_boundary(p, center, radius);
+			real_t d = p.distance_squared_to(b);
+			if (d < closest) {
+				closest = d;
+				best = b;
 			}
 		}
 	}
@@ -376,11 +412,83 @@ void JointLimitationKusudama3D::get_kusudama_fill_mesh_and_material(const Transf
 	}
 }
 
+void JointLimitationKusudama3D::get_twist_gizmo_mesh(const Transform3D &p_transform, float p_bone_length, const Color &p_color, int p_bone_index, Transform3D &r_mesh_to_skeleton_rest, Ref<ArrayMesh> &r_mesh, Ref<Material> &r_material) const {
+	r_mesh.unref();
+	r_material.unref();
+	real_t span = twist_to - twist_from;
+	if (span <= 0.0) {
+		return;
+	}
+	real_t radius = p_bone_length * (real_t)0.2;
+	const int segments = 24;
+	const bool use_skin = (p_bone_index >= 0);
+	PackedVector3Array verts;
+	PackedVector3Array normals;
+	PackedInt32Array bones;
+	PackedFloat32Array weights;
+	// Pie wedge in the plane perpendicular to the forward (+Y) axis.
+	Vector3 center(0, 0, 0);
+	for (int i = 0; i < segments; i++) {
+		real_t a0 = twist_from + span * real_t(i) / real_t(segments);
+		real_t a1 = twist_from + span * real_t(i + 1) / real_t(segments);
+		Vector3 p0(Math::sin(a0) * radius, 0, Math::cos(a0) * radius);
+		Vector3 p1(Math::sin(a1) * radius, 0, Math::cos(a1) * radius);
+		Vector3 tri[3] = { center, p0, p1 };
+		for (int v = 0; v < 3; v++) {
+			Vector3 pos = use_skin ? p_transform.xform(tri[v]) : tri[v];
+			verts.push_back(pos);
+			normals.push_back(Vector3(0, 1, 0));
+			if (use_skin) {
+				for (int k = 0; k < Mesh::ARRAY_WEIGHTS_SIZE; k++) {
+					bones.push_back((k == 0) ? p_bone_index : 0);
+					weights.push_back((k == 0) ? 1.0f : 0.0f);
+				}
+			}
+		}
+	}
+	if (verts.is_empty()) {
+		return;
+	}
+	Array arrays;
+	arrays.resize(Mesh::ARRAY_MAX);
+	arrays[Mesh::ARRAY_VERTEX] = verts;
+	arrays[Mesh::ARRAY_NORMAL] = normals;
+	if (use_skin) {
+		arrays[Mesh::ARRAY_BONES] = bones;
+		arrays[Mesh::ARRAY_WEIGHTS] = weights;
+	}
+	Ref<ArrayMesh> mesh;
+	mesh.instantiate();
+	mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
+	r_mesh = mesh;
+
+	Ref<StandardMaterial3D> mat;
+	mat.instantiate();
+	Color twist_color = p_color;
+	twist_color.a = 0.5f;
+	mat->set_albedo(twist_color);
+	mat->set_shading_mode(BaseMaterial3D::SHADING_MODE_UNSHADED);
+	mat->set_transparency(BaseMaterial3D::TRANSPARENCY_ALPHA);
+	mat->set_cull_mode(BaseMaterial3D::CULL_DISABLED);
+	r_material = mat;
+
+	if (use_skin) {
+		r_mesh_to_skeleton_rest = Transform3D();
+	} else {
+		r_mesh_to_skeleton_rest = p_transform;
+	}
+}
+
 void JointLimitationKusudama3D::append_extra_gizmo_meshes(const Transform3D &p_transform, float p_bone_length, const Color &p_color, Vector<ExtraMeshEntry> &r_extra_meshes, int p_bone_index) const {
 	ExtraMeshEntry e;
 	get_kusudama_fill_mesh_and_material(p_transform, p_bone_length, p_color, p_bone_index, e.transform, e.mesh, e.material);
 	if (e.mesh.is_valid()) {
 		r_extra_meshes.push_back(e);
+	}
+	ExtraMeshEntry twist;
+	get_twist_gizmo_mesh(p_transform, p_bone_length, p_color, p_bone_index, twist.transform, twist.mesh, twist.material);
+	if (twist.mesh.is_valid()) {
+		r_extra_meshes.push_back(twist);
 	}
 }
 #endif // TOOLS_ENABLED
@@ -391,6 +499,56 @@ bool JointLimitationKusudama3D::is_point_in_cone(const Vector3 &p_point, const V
 		return false;
 	}
 	return p_point.normalized().angle_to(p_cone_center) <= p_cone_radius;
+}
+
+void JointLimitationKusudama3D::set_twist_from(real_t p_radians) {
+	twist_from = p_radians;
+	emit_changed();
+}
+
+real_t JointLimitationKusudama3D::get_twist_from() const {
+	return twist_from;
+}
+
+void JointLimitationKusudama3D::set_twist_to(real_t p_radians) {
+	twist_to = p_radians;
+	emit_changed();
+}
+
+real_t JointLimitationKusudama3D::get_twist_to() const {
+	return twist_to;
+}
+
+// log of p_q shifted by whole 720-degree phases nearest p_ln_neighbor (makima patch).
+static Quaternion get_nearest_log(const Quaternion &p_q, const Quaternion &p_ln_neighbor) {
+	const real_t PHASE = 2.0 * (real_t)Math::TAU;
+	const real_t INV_PHASE = 1.0 / PHASE;
+	Vector3 neighbor(p_ln_neighbor.x, p_ln_neighbor.y, p_ln_neighbor.z);
+	Vector3 axis(p_q.x, p_q.y, p_q.z);
+	real_t angle = 2.0 * Math::atan2(axis.length(), p_q.w);
+	axis = axis.is_zero_approx() ? neighbor.normalized() : axis.normalized();
+	real_t phases = Math::round((neighbor.dot(axis) - angle) * INV_PHASE);
+	Vector3 nearest = axis * (angle + phases * PHASE);
+	return Quaternion(nearest.x, nearest.y, nearest.z, 0);
+}
+
+real_t JointLimitationKusudama3D::twist_angle_continuous(const Quaternion &p_rotation, const Vector3 &p_twist_axis, real_t p_previous_angle) const {
+	Vector3 axis = p_twist_axis.normalized();
+	Vector3 rot_axis(p_rotation.x, p_rotation.y, p_rotation.z);
+	Vector3 proj = axis * rot_axis.dot(axis);
+	Quaternion twist(proj.x, proj.y, proj.z, p_rotation.w);
+	if (twist.length_squared() < CMP_EPSILON) {
+		twist = Quaternion();
+	} else {
+		twist = twist.normalized();
+	}
+	Quaternion ln_prev(axis.x * p_previous_angle, axis.y * p_previous_angle, axis.z * p_previous_angle, 0);
+	Quaternion ln = get_nearest_log(twist, ln_prev);
+	return Vector3(ln.x, ln.y, ln.z).dot(axis);
+}
+
+real_t JointLimitationKusudama3D::clamp_twist(real_t p_angle) const {
+	return CLAMP(p_angle, twist_from, twist_to);
 }
 
 bool JointLimitationKusudama3D::is_point_in_tangent_path(const Vector3 &p_point, const Vector3 &p_center1, real_t p_radius1, const Vector3 &p_center2, real_t p_radius2) const {
