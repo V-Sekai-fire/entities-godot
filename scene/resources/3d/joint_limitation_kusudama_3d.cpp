@@ -57,8 +57,8 @@ void JointLimitationKusudama3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("clamp_twist", "angle"), &JointLimitationKusudama3D::clamp_twist);
 
 	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "cones", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_cones", "get_cones");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "twist_from", PROPERTY_HINT_RANGE, "-6.283185,6.283185,0.001,radians_as_degrees"), "set_twist_from", "get_twist_from");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "twist_to", PROPERTY_HINT_RANGE, "-6.283185,6.283185,0.001,radians_as_degrees"), "set_twist_to", "get_twist_to");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "twist_from", PROPERTY_HINT_RANGE, "-360,360,0.1,radians_as_degrees"), "set_twist_from", "get_twist_from");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "twist_to", PROPERTY_HINT_RANGE, "-360,360,0.1,radians_as_degrees"), "set_twist_to", "get_twist_to");
 }
 
 void JointLimitationKusudama3D::set_cones(const Vector<Vector4> &p_cones) {
