@@ -69,6 +69,14 @@
 		</constructor>
 	</constructors>
 	<methods>
+		<method name="align" qualifiers="static">
+			<return type="Basis" />
+			<param index="0" name="targets" type="PackedVector3Array" />
+			<param index="1" name="sources" type="PackedVector3Array" />
+			<description>
+				Returns the rotation that best maps the [param sources] vectors onto the [param targets] vectors, so that [code]targets[i][/code] is approximately [code]align(targets, sources) * sources[i][/code]. A single pair gives the shortest-arc rotation; two or more pairs are solved as a least-squares fit.
+			</description>
+		</method>
 		<method name="determinant" qualifiers="const">
 			<return type="float" />
 			<description>
