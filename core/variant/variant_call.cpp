@@ -2512,6 +2512,7 @@ static void _register_variant_builtin_methods_misc() {
 	bind_method(Basis, is_orthonormal, sarray(), varray());
 	bind_method(Basis, get_rotation_quaternion, sarray(), varray());
 	bind_static_method(Basis, looking_at, sarray("target", "up", "use_model_front"), varray(Vector3::UP, false));
+	bind_static_method(Basis, align, sarray("targets", "sources"), varray());
 	bind_static_method(Basis, from_scale, sarray("scale"), varray());
 	bind_static_method(Basis, from_euler, sarray("euler", "order"), varray((int64_t)EulerOrder::YXZ));
 

@@ -32,6 +32,7 @@
 
 #include "core/math/quaternion.h"
 #include "core/math/vector3.h"
+#include "core/templates/vector.h"
 
 struct [[nodiscard]] Basis {
 	static const Basis FLIP_X;
@@ -221,6 +222,10 @@ struct [[nodiscard]] Basis {
 	void orthogonalize();
 	Basis orthogonalized() const;
 
+	// Vector-set alignment (mirrors sinew-solve's Sinew/Align.lean): from pairs
+	// (target a, source b), recover the rotation R with a_i ~= R b_i.
+	static Basis align(const Vector<Vector3> &p_targets, const Vector<Vector3> &p_sources);
+
 #ifdef MATH_CHECKS
 	bool is_symmetric() const;
 #endif
@@ -249,6 +254,15 @@ struct [[nodiscard]] Basis {
 private:
 	// Helper method.
 	void _set_diagonal(const Vector3 &p_diag);
+
+	// align() recipe steps.
+	bool _is_valid_rotation() const;
+	Basis _nearest_rotation() const;
+	Basis _regularized() const;
+	void _principal_axes(Vector3 &r_scales, Basis &r_axes) const;
+	Basis _best_fit_rotation() const;
+	Basis _finish_align(int p_count, const Vector3 &p_a0, const Vector3 &p_a1, const Vector3 &p_b0, const Vector3 &p_b1) const;
+	static Basis _shortest_arc_rotation(const Vector3 &p_a, const Vector3 &p_b);
 };
 
 inline constexpr Basis Basis::FLIP_X = { { -1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
