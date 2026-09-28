@@ -43,26 +43,25 @@ uniform vec4 cone_sequence[30];
 varying vec3 normal_model_dir;
 varying vec4 vert_model_color;
 
+// Swept-cone corridor test matching _solve; tangent args unused.
 bool is_in_inter_cone_path(in vec3 normal_dir, in vec4 tangent_1, in vec4 cone_1, in vec4 tangent_2, in vec4 cone_2) {
-	vec3 c1xc2 = cross(cone_1.xyz, cone_2.xyz);
-	float c1c2dir = dot(normal_dir, c1xc2);
-
-	if (c1c2dir < 0.0) {
-		vec3 c1xt1 = cross(cone_1.xyz, tangent_1.xyz);
-		vec3 t1xc2 = cross(tangent_1.xyz, cone_2.xyz);
-		float c1t1dir = dot(normal_dir, c1xt1);
-		float t1c2dir = dot(normal_dir, t1xc2);
-
-		return (c1t1dir > 0.0 && t1c2dir > 0.0);
-
-	} else {
-		vec3 t2xc1 = cross(tangent_2.xyz, cone_1.xyz);
-		vec3 c2xt2 = cross(cone_2.xyz, tangent_2.xyz);
-		float t2c1dir = dot(normal_dir, t2xc1);
-		float c2t2dir = dot(normal_dir, c2xt2);
-
-		return (c2t2dir > 0.0 && t2c1dir > 0.0);
+	vec3 d = normalize(normal_dir);
+	vec3 axis = cross(cone_1.xyz, cone_2.xyz);
+	if (length(axis) < 1e-5) {
+		return false;
 	}
+	axis = normalize(axis);
+	float omega = acos(clamp(dot(cone_1.xyz, cone_2.xyz), -1.0, 1.0));
+	for (int s = 1; s < 32; s++) {
+		float t = float(s) / 32.0;
+		float th = omega * t;
+		vec3 center = cone_1.xyz * cos(th) + cross(axis, cone_1.xyz) * sin(th);
+		float r = cone_1.a + (cone_2.a - cone_1.a) * t;
+		if (acos(clamp(dot(d, center), -1.0, 1.0)) <= r) {
+			return true;
+		}
+	}
+	return false;
 }
 
 int get_allowability_condition(in int current_condition, in int set_to) {
