@@ -1052,3 +1052,246 @@ Basis Basis::looking_at(const Vector3 &p_target, const Vector3 &p_up, bool p_use
 	basis.set_columns(v_x, v_y, v_z);
 	return basis;
 }
+
+static const real_t ALIGN_EPS = 1e-8;
+
+Basis Basis::_shortest_arc_rotation(const Vector3 &p_a, const Vector3 &p_b) {
+	real_t a_length = p_a.length();
+	real_t b_length = p_b.length();
+	Vector3 a_unit = p_a / MAX(a_length, ALIGN_EPS);
+	Vector3 b_unit = p_b / MAX(b_length, ALIGN_EPS);
+	real_t cos_angle = CLAMP(a_unit.dot(b_unit), (real_t)-1.0, (real_t)1.0);
+	if (cos_angle < (real_t)-1.0 + (real_t)1e-6) {
+		// Antipodal: rotate 180 degrees about any axis perpendicular to b.
+		Vector3 helper_axis = (Math::abs(b_unit.x) > (real_t)0.6) ? Vector3(0, 1, 0) : Vector3(1, 0, 0);
+		Vector3 perpendicular = b_unit.cross(helper_axis).normalized();
+		Basis rotation;
+		for (int row = 0; row < 3; row++) {
+			for (int col = 0; col < 3; col++) {
+				rotation.rows[row][col] = (real_t)2.0 * perpendicular[row] * perpendicular[col] - (row == col ? (real_t)1.0 : (real_t)0.0);
+			}
+		}
+		return rotation;
+	}
+	Vector3 axis = b_unit.cross(a_unit);
+	Basis skew(0, -axis.z, axis.y, axis.z, 0, -axis.x, -axis.y, axis.x, 0);
+	Basis skew_squared = skew * skew;
+	real_t factor = (real_t)1.0 / ((real_t)1.0 + cos_angle);
+	Basis rotation;
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			rotation.rows[i][j] = (i == j ? (real_t)1.0 : (real_t)0.0) + skew.rows[i][j] + factor * skew_squared.rows[i][j];
+		}
+	}
+	return rotation;
+}
+
+Basis Basis::_nearest_rotation() const {
+	real_t max_row_sum = 0.0;
+	for (int row = 0; row < 3; row++) {
+		max_row_sum = MAX(max_row_sum, Math::abs(rows[row][0]) + Math::abs(rows[row][1]) + Math::abs(rows[row][2]));
+	}
+	Basis rotation;
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			rotation.rows[i][j] = rows[i][j] / (max_row_sum + ALIGN_EPS);
+		}
+	}
+	for (int iteration = 0; iteration < 30; iteration++) {
+		Basis gram = rotation.transposed() * rotation;
+		Basis correction;
+		for (int i = 0; i < 3; i++) {
+			for (int j = 0; j < 3; j++) {
+				correction.rows[i][j] = (i == j ? (real_t)3.0 : (real_t)0.0) - gram.rows[i][j];
+			}
+		}
+		Basis updated = rotation * correction;
+		for (int i = 0; i < 3; i++) {
+			for (int j = 0; j < 3; j++) {
+				rotation.rows[i][j] = updated.rows[i][j] * (real_t)0.5;
+			}
+		}
+	}
+	if (rotation.determinant() < 0) {
+		rotation.rows[0][2] = -rotation.rows[0][2];
+		rotation.rows[1][2] = -rotation.rows[1][2];
+		rotation.rows[2][2] = -rotation.rows[2][2];
+	}
+	return rotation;
+}
+
+Basis Basis::_regularized() const {
+	real_t scale = 0.0;
+	for (int row = 0; row < 3; row++) {
+		scale = MAX(scale, Math::abs(rows[row][0]) + Math::abs(rows[row][1]) + Math::abs(rows[row][2]));
+	}
+	if (scale < ALIGN_EPS) {
+		scale = ALIGN_EPS;
+	}
+	real_t volume = Math::abs(determinant()) / (scale * scale * scale);
+	real_t weight = CLAMP((real_t)(((real_t)1e-6 - volume) / (real_t)1e-6), (real_t)0.0, (real_t)1.0);
+	real_t bump = (real_t)0.05 * weight * scale;
+	Basis result = *this;
+	result.rows[0][0] += bump;
+	result.rows[1][1] += bump;
+	result.rows[2][2] += bump;
+	return result;
+}
+
+bool Basis::_is_valid_rotation() const {
+	real_t det = determinant();
+	if (!(det > (real_t)0.0 && Math::abs(det - (real_t)1.0) <= (real_t)1e-2)) {
+		return false;
+	}
+	real_t max_error = 0.0;
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			real_t column_dot = rows[0][i] * rows[0][j] + rows[1][i] * rows[1][j] + rows[2][i] * rows[2][j] - (i == j ? (real_t)1.0 : (real_t)0.0);
+			max_error = MAX(max_error, Math::abs(column_dot));
+		}
+	}
+	return max_error <= (real_t)1e-2;
+}
+
+void Basis::_principal_axes(Vector3 &r_scales, Basis &r_axes) const {
+	Basis matrix = *this;
+	Basis axes;
+	const int p_indices[3] = { 0, 0, 1 };
+	const int q_indices[3] = { 1, 2, 2 };
+	for (int sweep = 0; sweep < 50; sweep++) {
+		if (Math::abs(matrix.rows[0][1]) + Math::abs(matrix.rows[0][2]) + Math::abs(matrix.rows[1][2]) < (real_t)1e-20) {
+			break;
+		}
+		for (int pair = 0; pair < 3; pair++) {
+			int p = p_indices[pair];
+			int q = q_indices[pair];
+			real_t off_diagonal = matrix.rows[p][q];
+			if (Math::abs(off_diagonal) < (real_t)1e-20) {
+				continue;
+			}
+			real_t angle = (real_t)0.5 * Math::atan2((real_t)((real_t)2.0 * off_diagonal), (real_t)(matrix.rows[q][q] - matrix.rows[p][p]));
+			real_t cos_a = Math::cos(angle);
+			real_t sin_a = Math::sin(angle);
+			for (int i = 0; i < 3; i++) {
+				real_t column_p = matrix.rows[i][p];
+				real_t column_q = matrix.rows[i][q];
+				matrix.rows[i][p] = cos_a * column_p - sin_a * column_q;
+				matrix.rows[i][q] = sin_a * column_p + cos_a * column_q;
+			}
+			for (int i = 0; i < 3; i++) {
+				real_t row_p = matrix.rows[p][i];
+				real_t row_q = matrix.rows[q][i];
+				matrix.rows[p][i] = cos_a * row_p - sin_a * row_q;
+				matrix.rows[q][i] = sin_a * row_p + cos_a * row_q;
+			}
+			for (int i = 0; i < 3; i++) {
+				real_t axis_p = axes.rows[i][p];
+				real_t axis_q = axes.rows[i][q];
+				axes.rows[i][p] = cos_a * axis_p - sin_a * axis_q;
+				axes.rows[i][q] = sin_a * axis_p + cos_a * axis_q;
+			}
+		}
+	}
+	r_scales = Vector3(matrix.rows[0][0], matrix.rows[1][1], matrix.rows[2][2]);
+	r_axes = axes;
+}
+
+Basis Basis::_best_fit_rotation() const {
+	Basis normal_matrix = transposed() * (*this);
+	Vector3 scales;
+	Basis axes;
+	normal_matrix._principal_axes(scales, axes);
+	int order[3] = { 0, 1, 2 };
+	for (int a = 0; a < 3; a++) {
+		for (int b = a + 1; b < 3; b++) {
+			if (scales[order[b]] > scales[order[a]]) {
+				int swap = order[a];
+				order[a] = order[b];
+				order[b] = swap;
+			}
+		}
+	}
+	Basis sorted_axes;
+	real_t singular_values[3];
+	for (int col = 0; col < 3; col++) {
+		singular_values[col] = Math::sqrt(MAX(scales[order[col]], (real_t)0.0));
+		for (int row = 0; row < 3; row++) {
+			sorted_axes.rows[row][col] = axes.rows[row][order[col]];
+		}
+	}
+	Basis left_vectors(0, 0, 0, 0, 0, 0, 0, 0, 0);
+	for (int col = 0; col < 3; col++) {
+		Vector3 axis_column(sorted_axes.rows[0][col], sorted_axes.rows[1][col], sorted_axes.rows[2][col]);
+		Vector3 mapped = xform(axis_column);
+		real_t inverse_singular = (singular_values[col] > (real_t)1e-12) ? ((real_t)1.0 / singular_values[col]) : (real_t)0.0;
+		left_vectors.rows[0][col] = mapped.x * inverse_singular;
+		left_vectors.rows[1][col] = mapped.y * inverse_singular;
+		left_vectors.rows[2][col] = mapped.z * inverse_singular;
+	}
+	for (int col = 0; col < 3; col++) {
+		if (singular_values[col] <= (real_t)1e-12) {
+			int next = (col + 1) % 3;
+			int after = (col + 2) % 3;
+			Vector3 column_next(left_vectors.rows[0][next], left_vectors.rows[1][next], left_vectors.rows[2][next]);
+			Vector3 column_after(left_vectors.rows[0][after], left_vectors.rows[1][after], left_vectors.rows[2][after]);
+			Vector3 filled = column_next.cross(column_after);
+			left_vectors.rows[0][col] = filled.x;
+			left_vectors.rows[1][col] = filled.y;
+			left_vectors.rows[2][col] = filled.z;
+		}
+	}
+	Basis axes_transposed = sorted_axes.transposed();
+	Basis product = left_vectors * axes_transposed;
+	real_t sign = (product.determinant() < 0) ? (real_t)-1.0 : (real_t)1.0;
+	Basis left_fixed = left_vectors;
+	left_fixed.rows[0][2] *= sign;
+	left_fixed.rows[1][2] *= sign;
+	left_fixed.rows[2][2] *= sign;
+	return left_fixed * axes_transposed;
+}
+
+Basis Basis::_finish_align(int p_count, const Vector3 &p_a0, const Vector3 &p_a1, const Vector3 &p_b0, const Vector3 &p_b1) const {
+	if (p_count == 1) {
+		return _shortest_arc_rotation(p_a0, p_b0);
+	}
+	Basis covariance = *this;
+	Vector3 target_normal = p_a0.cross(p_a1);
+	Vector3 source_normal = p_b0.cross(p_b1);
+	real_t target_normal_length = target_normal.length();
+	real_t source_normal_length = source_normal.length();
+	if (target_normal_length > (real_t)1e-9 && source_normal_length > (real_t)1e-9) {
+		Vector3 target_scaled = target_normal * (p_a0.length() / (target_normal_length + ALIGN_EPS));
+		Vector3 source_scaled = source_normal * (p_b0.length() / (source_normal_length + ALIGN_EPS));
+		for (int i = 0; i < 3; i++) {
+			for (int j = 0; j < 3; j++) {
+				covariance.rows[i][j] += target_scaled[i] * source_scaled[j];
+			}
+		}
+	}
+	covariance = covariance._regularized();
+	Basis rotation = covariance._nearest_rotation();
+	if (!rotation._is_valid_rotation()) {
+		return covariance._best_fit_rotation();
+	}
+	return rotation;
+}
+
+Basis Basis::align(const Vector<Vector3> &p_targets, const Vector<Vector3> &p_sources) {
+	int p_count = MIN(p_targets.size(), p_sources.size());
+	Basis covariance(0, 0, 0, 0, 0, 0, 0, 0, 0);
+	for (int pair = 0; pair < p_count; pair++) {
+		const Vector3 &target = p_targets[pair];
+		const Vector3 &source = p_sources[pair];
+		for (int i = 0; i < 3; i++) {
+			for (int j = 0; j < 3; j++) {
+				covariance.rows[i][j] += target[i] * source[j];
+			}
+		}
+	}
+	Vector3 zero;
+	Vector3 a0 = p_count > 0 ? p_targets[0] : zero;
+	Vector3 b0 = p_count > 0 ? p_sources[0] : zero;
+	Vector3 a1 = p_count > 1 ? p_targets[1] : zero;
+	Vector3 b1 = p_count > 1 ? p_sources[1] : zero;
+	return covariance._finish_align(p_count, a0, a1, b0, b1);
+}
