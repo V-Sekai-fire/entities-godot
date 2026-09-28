@@ -30,6 +30,8 @@
 
 #pragma once
 
+#include "core/math/math_funcs.h"
+#include "core/math/quaternion.h"
 #include "core/templates/local_vector.h"
 #include "scene/resources/3d/joint_limitation_3d.h"
 #include "scene/resources/mesh.h"
@@ -42,6 +44,9 @@ class JointLimitationKusudama3D : public JointLimitation3D {
 	LocalVector<Vector4> cones;
 	// Cached normalized centers for internal use; invalidated when cones change.
 	mutable LocalVector<Vector3> _normalized_cone_centers_cache;
+
+	real_t twist_from = -Math::PI;
+	real_t twist_to = Math::PI;
 
 	void _invalidate_normalized_cache() const;
 	Vector3 _get_cone_center_normalized(int p_index) const;
@@ -79,12 +84,21 @@ public:
 	void set_cone_radius(int p_index, real_t p_radius);
 	real_t get_cone_radius(int p_index) const;
 
+	void set_twist_from(real_t p_radians);
+	real_t get_twist_from() const;
+	void set_twist_to(real_t p_radians);
+	real_t get_twist_to() const;
+
+	real_t twist_angle_continuous(const Quaternion &p_rotation, const Vector3 &p_twist_axis, real_t p_previous_angle) const;
+	real_t clamp_twist(real_t p_angle) const;
+
 	static const int MAX_KUSUDAMA_CONES = 3;
 
 #ifdef TOOLS_ENABLED
 	int get_cone_sequence_for_shader(PackedVector4Array &r_cone_sequence) const;
 	// r_mesh_to_skeleton_rest: transform from mesh local to skeleton global rest space. Identity when skinned (p_bone_index >= 0); otherwise constraint pose with sphere scale.
 	void get_kusudama_fill_mesh_and_material(const Transform3D &p_transform, float p_bone_length, const Color &p_color, int p_bone_index, Transform3D &r_mesh_to_skeleton_rest, Ref<ArrayMesh> &r_mesh, Ref<Material> &r_material) const;
+	void get_twist_gizmo_mesh(const Transform3D &p_transform, float p_bone_length, const Color &p_color, int p_bone_index, Transform3D &r_mesh_to_skeleton_rest, Ref<ArrayMesh> &r_mesh, Ref<Material> &r_material) const;
 	virtual void append_extra_gizmo_meshes(const Transform3D &p_transform, float p_bone_length, const Color &p_color, Vector<ExtraMeshEntry> &r_extra_meshes, int p_bone_index = -1) const override;
 
 #endif // TOOLS_ENABLED
