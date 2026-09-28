@@ -58,6 +58,11 @@ struct [[nodiscard]] Transform3D {
 	void set_look_at(const Vector3 &p_eye, const Vector3 &p_target, const Vector3 &p_up = Vector3::UP, bool p_use_model_front = false);
 	Transform3D looking_at(const Vector3 &p_target, const Vector3 &p_up = Vector3::UP, bool p_use_model_front = false) const;
 
+	// Rigid alignment: from pairs (target a, source b), recover the transform T
+	// with a_i ~= T.xform(b_i). Rotation comes from Basis::align on the
+	// centroid-centered pairs; translation is the leftover centroid offset.
+	static Transform3D align(const Vector<Vector3> &p_targets, const Vector<Vector3> &p_sources);
+
 	void scale(const Vector3 &p_scale);
 	Transform3D scaled(const Vector3 &p_scale) const;
 	Transform3D scaled_local(const Vector3 &p_scale) const;

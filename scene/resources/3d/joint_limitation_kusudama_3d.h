@@ -48,6 +48,16 @@ class JointLimitationKusudama3D : public JointLimitation3D {
 	real_t twist_from = -Math::PI;
 	real_t twist_to = Math::PI;
 
+	// Soft-limit band (radians). The solve is continuous at any value; this eases the
+	// cone boundary (C1). Soft-on by default so no configuration can produce a jerk.
+	real_t soft_band = 0.06;
+	real_t soft_temperature = 0.14;
+
+	// Prismatic facet: a solved length DOF along the bone axis, off by default.
+	bool prismatic_enabled = false;
+	real_t prismatic_min = 0.0;
+	real_t prismatic_max = 0.0;
+
 	void _invalidate_normalized_cache() const;
 	Vector3 _get_cone_center_normalized(int p_index) const;
 
@@ -64,9 +74,9 @@ protected:
 	virtual Vector3 _solve(const Vector3 &p_direction) const override;
 
 private:
-	bool is_point_in_cone(const Vector3 &p_point, const Vector3 &p_cone_center, real_t p_cone_radius) const;
-	bool is_point_in_tangent_path(const Vector3 &p_point, const Vector3 &p_center1, real_t p_radius1, const Vector3 &p_center2, real_t p_radius2) const;
-	Vector3 get_on_great_tangent_triangle(const Vector3 &p_point, const Vector3 &p_center1, real_t p_radius1, const Vector3 &p_center2, real_t p_radius2) const;
+	// Softmin-blended soft cones; ports Kusudama.lean continuousProject.
+	Vector3 _soft_project(const Vector3 &p_point) const;
+
 	void extend_ray(Vector3 &r_start, Vector3 &r_end, real_t p_amount) const;
 	int ray_sphere_intersection_full(const Vector3 &p_ray_start, const Vector3 &p_ray_end, const Vector3 &p_sphere_center, real_t p_radius, Vector3 *r_intersection1, Vector3 *r_intersection2) const;
 	void compute_tangent_circles(const Vector3 &p_center1, real_t p_radius1, const Vector3 &p_center2, real_t p_radius2, Vector3 &r_tangent1, Vector3 &r_tangent2, real_t &r_tangent_radius) const;
@@ -89,6 +99,20 @@ public:
 	void set_twist_to(real_t p_radians);
 	real_t get_twist_to() const;
 
+	void set_soft_band(real_t p_radians);
+	real_t get_soft_band() const;
+	void set_soft_temperature(real_t p_temperature);
+	real_t get_soft_temperature() const;
+
+	void set_prismatic_enabled(bool p_enabled);
+	bool is_prismatic_enabled() const;
+	void set_prismatic_min(real_t p_min);
+	real_t get_prismatic_min() const;
+	void set_prismatic_max(real_t p_max);
+	real_t get_prismatic_max() const;
+	// Clamped projection of the target onto the bone axis; ports PrismaticJoint.lean.
+	real_t optimal_length(const Vector3 &p_head, const Vector3 &p_target, const Vector3 &p_bone_dir, real_t p_fixed_length) const;
+
 	real_t twist_angle_continuous(const Quaternion &p_rotation, const Vector3 &p_twist_axis, real_t p_previous_angle) const;
 	real_t clamp_twist(real_t p_angle) const;
 
@@ -99,6 +123,8 @@ public:
 	// r_mesh_to_skeleton_rest: transform from mesh local to skeleton global rest space. Identity when skinned (p_bone_index >= 0); otherwise constraint pose with sphere scale.
 	void get_kusudama_fill_mesh_and_material(const Transform3D &p_transform, float p_bone_length, const Color &p_color, int p_bone_index, Transform3D &r_mesh_to_skeleton_rest, Ref<ArrayMesh> &r_mesh, Ref<Material> &r_material) const;
 	void get_twist_gizmo_mesh(const Transform3D &p_transform, float p_bone_length, const Color &p_color, int p_bone_index, Transform3D &r_mesh_to_skeleton_rest, Ref<ArrayMesh> &r_mesh, Ref<Material> &r_material) const;
+	void get_soft_band_gizmo_mesh(const Transform3D &p_transform, float p_bone_length, const Color &p_color, int p_bone_index, Transform3D &r_mesh_to_skeleton_rest, Ref<ArrayMesh> &r_mesh, Ref<Material> &r_material) const;
+	void get_prismatic_gizmo_mesh(const Transform3D &p_transform, float p_bone_length, const Color &p_color, int p_bone_index, Transform3D &r_mesh_to_skeleton_rest, Ref<ArrayMesh> &r_mesh, Ref<Material> &r_material) const;
 	virtual void append_extra_gizmo_meshes(const Transform3D &p_transform, float p_bone_length, const Color &p_color, Vector<ExtraMeshEntry> &r_extra_meshes, int p_bone_index = -1) const override;
 
 #endif // TOOLS_ENABLED

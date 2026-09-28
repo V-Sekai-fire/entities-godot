@@ -372,7 +372,8 @@ TEST_CASE("[Scene][JointLimitationKusudama3D] Test three cones - exhaustive no o
 
 	const int n_theta = 40;
 	const int n_phi = 20;
-	const real_t min_dot = 0.0; // Same hemisphere: output.dot(input) >= 0
+	const real_t perturb = Math::deg_to_rad(1.0);
+	const real_t snap_threshold = Math::deg_to_rad(30.0);
 	int checked = 0;
 	for (int i = 0; i < n_theta; i++) {
 		real_t theta = (real_t)i / (real_t)n_theta * Math::TAU;
@@ -383,11 +384,17 @@ TEST_CASE("[Scene][JointLimitationKusudama3D] Test three cones - exhaustive no o
 					Math::sin(phi) * Math::sin(theta),
 					Math::cos(phi));
 			input_dir.normalize();
-			Vector3 result = limitation->solve(forward, right, rot, input_dir);
-			CHECK(result.is_finite());
-			CHECK(result.length() > 0.9f);
-			real_t dot_in_out = input_dir.dot(result);
-			CHECK(dot_in_out >= min_dot); // No opposite-side snap: output must be in same hemisphere as input
+			Vector3 base = limitation->solve(forward, right, rot, input_dir);
+			CHECK(base.is_finite());
+			CHECK(base.length() > 0.9f);
+			Vector3 axis = input_dir.cross(Vector3(0, 1, 0));
+			if (axis.is_zero_approx()) {
+				axis = input_dir.cross(Vector3(1, 0, 0));
+			}
+			Vector3 nudged = Quaternion(axis.normalized(), perturb).xform(input_dir);
+			Vector3 nearby = limitation->solve(forward, right, rot, nudged);
+			// No snap: a tiny input change never jumps the output across the sphere.
+			CHECK(base.angle_to(nearby) < snap_threshold);
 			checked++;
 		}
 	}
@@ -915,15 +922,13 @@ TEST_CASE("[Scene][JointLimitationKusudama3D] Test three cones - pose path no hi
 		run_path("exceed_along_forbidden_diagonal", path);
 	}
 
-	// Merge: take max jerk per path over symmetric and long-thin; exclude along_tangent_arc (known high-jerk bug)
+	// The continuous solve has no jerk on any path, so every path counts (no exclusion).
 	real_t global_max_jerk = 0.0f;
 	real_t worst_jerk_rad = 0.0f; // max over all paths for bone-safe check
 	for (int i = 0; i < per_path_sym.size() && i < per_path.size(); i++) {
 		real_t j = MAX(per_path_sym[i].max_jerk, per_path[i].max_jerk);
 		worst_jerk_rad = MAX(worst_jerk_rad, j);
-		if (String(per_path_sym[i].name) != "along_tangent_arc") {
-			global_max_jerk = MAX(global_max_jerk, j);
-		}
+		global_max_jerk = MAX(global_max_jerk, j);
 		if (j >= jerk_anomaly_rad) {
 			print_line(vformat("  boundary/exceed jerk anomaly: %s = %.2f deg", per_path_sym[i].name, Math::rad_to_deg(j)));
 		}
@@ -1150,8 +1155,9 @@ TEST_CASE("[Scene][JointLimitationKusudama3D] Test three cones in sequence") {
 	// Allow some tolerance for floating point precision
 	CHECK(result2.is_normalized());
 	real_t result_angle_to_cp2 = result2.angle_to(cp2);
-	// Result should be inside or on the cone boundary
-	CHECK(result_angle_to_cp2 <= radius + 0.01f);
+	// In the inter-cone region the continuous blend eases within the soft band, so the
+	// bound is the cone boundary plus that band.
+	CHECK(result_angle_to_cp2 <= radius + limitation->get_soft_band());
 
 	// Test point between cones (should use path logic)
 	Vector3 point_between = (cp1 + cp2).normalized();
@@ -1568,6 +1574,88 @@ TEST_CASE("[Scene][JointLimitationKusudama3D] Test tangent path - small cone rad
 	CHECK(result.is_finite());
 	CHECK(result.is_normalized());
 }
+
+TEST_CASE("[Scene][JointLimitationKusudama3D] Prismatic length clamps like the proof") {
+	Ref<JointLimitationKusudama3D> limitation;
+	limitation.instantiate();
+	Vector3 head(0, 0, 0);
+	Vector3 dir(1, 0, 0);
+
+	// Disabled: the fixed length passes through untouched.
+	CHECK(Math::is_equal_approx(limitation->optimal_length(head, Vector3(100, 0, 0), dir, 3.0), (real_t)3.0));
+
+	limitation->set_prismatic_enabled(true);
+	limitation->set_prismatic_min(0.5);
+	limitation->set_prismatic_max(1.5);
+	// In range: projection onto the axis.
+	CHECK(Math::is_equal_approx(limitation->optimal_length(head, Vector3(1.0, 0, 0), dir, 3.0), (real_t)1.0));
+	// Too far: clamp to max.
+	CHECK(Math::is_equal_approx(limitation->optimal_length(head, Vector3(5.0, 0, 0), dir, 3.0), (real_t)1.5));
+	// Too close: clamp to min.
+	CHECK(Math::is_equal_approx(limitation->optimal_length(head, Vector3(0.1, 0, 0), dir, 3.0), (real_t)0.5));
+	// Behind the bone: clamp to min, no negative extension.
+	CHECK(Math::is_equal_approx(limitation->optimal_length(head, Vector3(-2.0, 0, 0), dir, 3.0), (real_t)0.5));
+	// Rigid (min == max): always that length.
+	limitation->set_prismatic_min(1.0);
+	limitation->set_prismatic_max(1.0);
+	CHECK(Math::is_equal_approx(limitation->optimal_length(head, Vector3(5.0, 0, 0), dir, 3.0), (real_t)1.0));
+}
+
+TEST_CASE("[Scene][JointLimitationKusudama3D] Soft limit stays inside the hard cone") {
+	Ref<JointLimitationKusudama3D> limitation;
+	limitation.instantiate();
+	Vector3 center = Vector3(0, 0, 1).normalized();
+	real_t radius = Math::deg_to_rad(30.0);
+	Vector<Vector4> cones;
+	cones.push_back(Vector4(center.x, center.y, center.z, radius));
+	set_cones_from_vector4(limitation, cones);
+	limitation->set_soft_band(Math::deg_to_rad(6.0));
+
+	Vector3 forward(0, 1, 0);
+	Vector3 right(1, 0, 0);
+	// A point far outside is pulled to within the hard radius (never exceeds it).
+	Vector3 outside = Vector3(1, 0, 0).normalized();
+	Vector3 result = limitation->solve(forward, right, Quaternion(), outside);
+	CHECK(result.is_normalized());
+	CHECK(result.angle_to(center) <= radius + (real_t)1e-4);
+	// A point deep inside is essentially unchanged.
+	Vector3 inside = Quaternion(Vector3(1, 0, 0), Math::deg_to_rad(5.0)).xform(center);
+	result = limitation->solve(forward, right, Quaternion(), inside);
+	CHECK(result.angle_to(center) <= radius);
+}
+
+TEST_CASE("[Scene][JointLimitationKusudama3D] Soft limit removes the medial-axis jerk") {
+	Ref<JointLimitationKusudama3D> limitation;
+	limitation.instantiate();
+	Vector3 c1 = Vector3(1, 0, 0).normalized();
+	Vector3 c2 = Vector3(0, 0, 1).normalized();
+	real_t radius = Math::deg_to_rad(30.0);
+	Vector<Vector4> cones;
+	cones.push_back(Vector4(c1.x, c1.y, c1.z, radius));
+	cones.push_back(Vector4(c2.x, c2.y, c2.z, radius));
+	set_cones_from_vector4(limitation, cones);
+	limitation->set_soft_band(Math::deg_to_rad(8.0));
+
+	Vector3 forward(0, 1, 0);
+	Vector3 right(1, 0, 0);
+	// Sweep the input across the medial plane between the two cones, just outside them.
+	const int steps = 200;
+	Vector3 prev;
+	real_t max_step = 0.0;
+	for (int i = 0; i <= steps; i++) {
+		real_t t = (real_t)i / (real_t)steps;
+		real_t angle = Math::lerp(Math::deg_to_rad(-10.0), Math::deg_to_rad(100.0), t);
+		Vector3 input(Math::cos(angle), 0.35, Math::sin(angle));
+		Vector3 output = limitation->solve(forward, right, Quaternion(), input.normalized());
+		if (i > 0) {
+			max_step = MAX(max_step, output.angle_to(prev));
+		}
+		prev = output;
+	}
+	// Continuous: no violent jump as the nearest cone changes across the medial axis.
+	CHECK(max_step < Math::deg_to_rad(5.0));
+}
+
 } // namespace TestJointLimitationKusudama3D
 
 #endif // _3D_DISABLED

@@ -2599,6 +2599,7 @@ static void _register_variant_builtin_methods_misc() {
 	bind_method(Transform3D, interpolate_with, sarray("xform", "weight"), varray());
 	bind_method(Transform3D, is_equal_approx, sarray("xform"), varray());
 	bind_method(Transform3D, is_finite, sarray(), varray());
+	bind_static_method(Transform3D, align, sarray("targets", "sources"), varray());
 
 	/* Projection */
 
