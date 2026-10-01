@@ -21,3 +21,5 @@ misc/msvs/* eol=crlf
 *.png binary
 *.ttf binary
 *.tza binary
+.github/CODEOWNERS merge=union
+.gitignore merge=union
