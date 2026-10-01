@@ -646,6 +646,8 @@ real_t CapsuleMesh::get_bottom_radius() const {
 void CapsuleMesh::set_radius(const real_t p_radius) {
 	top_radius = (p_radius < 0 ? 0 : p_radius);
 	bottom_radius = top_radius;
+	_update_lightmap_size();
+	request_update();
 }
 
 real_t CapsuleMesh::get_radius() const {

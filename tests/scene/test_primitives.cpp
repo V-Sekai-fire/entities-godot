@@ -68,6 +68,15 @@ TEST_CASE("[SceneTree][Primitive][Capsule] Capsule Primitive") {
 				"Get/Set radius work with one set.");
 	}
 
+	SUBCASE("[SceneTree][Primitive][Capsule] Setting the radius from a script regenerates the mesh") {
+		CHECK(capsule->get_aabb().size.x == doctest::Approx(capsule->get_radius() * 2));
+
+		capsule->set("radius", 1.3);
+
+		CHECK_MESSAGE(capsule->get_aabb().size.x == doctest::Approx(2.6),
+				"The mesh should be rebuilt with the new radius.");
+	}
+
 	SUBCASE("[SceneTree][Primitive][Capsule] If set segments negative, default to at least 0") {
 		ERR_PRINT_OFF;
 		capsule->set_radial_segments(-5);
