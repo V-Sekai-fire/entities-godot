@@ -24,6 +24,7 @@
 		</member>
 		<member name="radius" type="float" setter="set_radius" getter="get_radius" default="0.5">
 			Radius of the hemispheres of the capsule shape.
+			[b]Note:[/b] The [member radius] of a capsule cannot be greater than half of its [member height]. Otherwise, the capsule becomes a sphere. If the [member radius] is greater than half of the [member height], the properties adjust to a valid value.
 		</member>
 		<member name="tapered" type="bool" setter="set_tapered" getter="is_tapered" default="false">
 			When [code]true[/code], enables tapering of the shape via [member top_radius] and [member bottom_radius].

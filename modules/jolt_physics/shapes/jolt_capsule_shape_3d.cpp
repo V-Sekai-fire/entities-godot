@@ -53,7 +53,7 @@ JPH::ShapeRefC JoltCapsuleShape3D::_build() const {
 	} else {
 		const float radius = (radius_top + radius_bottom) / 2.f;
 		ERR_FAIL_COND_V_MSG(radius <= 0.0f, nullptr, vformat("Failed to build Jolt Physics capsule shape with %s. Its radius must be greater than 0. This shape belongs to %s.", to_string(), _owners_to_string()));
-		ERR_FAIL_COND_V_MSG(mid_height <= 0.0f, nullptr, vformat("Failed to build Jolt Physics capsule shape with %s. Its height must be at least double that of its radius. This shape belongs to %s.", to_string(), _owners_to_string()));
+		ERR_FAIL_COND_V_MSG(mid_height < 0.0f, nullptr, vformat("Failed to build Jolt Physics capsule shape with %s. Its height must be at least double that of its radius. This shape belongs to %s.", to_string(), _owners_to_string()));
 
 		const float half_height = mid_height / 2.0f;
 

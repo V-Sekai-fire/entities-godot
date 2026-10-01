@@ -420,6 +420,10 @@ bool CapsuleMesh::is_sphere(real_t p_top_radius, real_t p_bottom_radius, real_t 
 }
 
 real_t CapsuleMesh::get_tangent_angle(real_t p_top_radius, real_t p_bottom_radius, real_t p_mid_height) {
+	if (p_mid_height <= 0) {
+		// Both hemispheres share a center; avoid dividing zero by zero for equal radii.
+		return SIGN(p_bottom_radius - p_top_radius) * (real_t)Math::PI / 2;
+	}
 	return Math::asin((p_bottom_radius - p_top_radius) / p_mid_height);
 }
 
@@ -602,6 +606,7 @@ void CapsuleMesh::_bind_methods() {
 
 	ADD_LINKED_PROPERTY("radius", "top_radius");
 	ADD_LINKED_PROPERTY("radius", "bottom_radius");
+	ADD_LINKED_PROPERTY("radius", "mid_height");
 
 	ADD_LINKED_PROPERTY("top_radius", "radius");
 	ADD_LINKED_PROPERTY("bottom_radius", "radius");
@@ -644,8 +649,12 @@ real_t CapsuleMesh::get_bottom_radius() const {
 }
 
 void CapsuleMesh::set_radius(const real_t p_radius) {
-	top_radius = (p_radius < 0 ? 0 : p_radius);
-	bottom_radius = top_radius;
+	const real_t new_radius = p_radius < 0 ? 0 : p_radius;
+	if (!is_tapered()) {
+		mid_height = MAX(get_height(), new_radius * 2) - new_radius * 2;
+	}
+	top_radius = new_radius;
+	bottom_radius = new_radius;
 	_update_lightmap_size();
 	request_update();
 }
@@ -669,6 +678,16 @@ real_t CapsuleMesh::get_mid_height() const {
 }
 
 void CapsuleMesh::set_height(const real_t p_height) {
+	if (!is_tapered()) {
+		const real_t new_height = p_height < 0 ? 0 : p_height;
+		top_radius = MIN(top_radius, new_height * 0.5f);
+		bottom_radius = top_radius;
+		mid_height = new_height - top_radius * 2;
+		_update_lightmap_size();
+		request_update();
+		return;
+	}
+
 	real_t new_mid_height = p_height - top_radius - bottom_radius;
 	if (new_mid_height <= 0) {
 		new_mid_height = 0.f; // Minimum to avoid invalid mesh

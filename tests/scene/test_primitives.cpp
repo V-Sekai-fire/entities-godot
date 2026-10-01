@@ -53,8 +53,8 @@ TEST_CASE("[SceneTree][Primitive][Capsule] Capsule Primitive") {
 	}
 
 	SUBCASE("[SceneTree][Primitive][Capsule] Set properties of the capsule and get them with accessor methods") {
-		capsule->set_radius(1.3f);
 		capsule->set_height(7.1f);
+		capsule->set_radius(1.3f);
 		capsule->set_radial_segments(16);
 		capsule->set_rings(32);
 
@@ -95,6 +95,44 @@ TEST_CASE("[SceneTree][Primitive][Capsule] Capsule Primitive") {
 
 		CHECK_MESSAGE(capsule->get_radius() >= capsule->get_height() * 0.5,
 				"Ensure radius >= height * 0.5 (needed for capsule to exist).");
+	}
+
+	SUBCASE("[SceneTree][Primitive][Capsule] Setting the radius past half the height raises the height") {
+		capsule->set_height(7.1f);
+		capsule->set_radius(4.f);
+
+		CHECK(capsule->get_radius() == doctest::Approx(4.f));
+		CHECK(capsule->get_height() == doctest::Approx(8.f));
+	}
+
+	SUBCASE("[SceneTree][Primitive][Capsule] Setting the height below twice the radius shrinks the radius") {
+		capsule->set_radius(1.f);
+		capsule->set_height(0.5f);
+
+		CHECK(capsule->get_radius() == doctest::Approx(0.25f));
+		CHECK(capsule->get_height() == doctest::Approx(0.5f));
+		CHECK_MESSAGE(capsule->get_aabb().size.is_equal_approx(Vector3(0.5, 0.5, 0.5)),
+				"A capsule as tall as it is wide should be meshed as a sphere.");
+	}
+
+	SUBCASE("[SceneTree][Primitive][Capsule] Tapered capsules keep the mid height when a radius changes") {
+		capsule->set_bottom_radius(1.f);
+		capsule->set_mid_height(2.f);
+		REQUIRE(capsule->is_tapered());
+		CHECK(capsule->get_height() == doctest::Approx(3.5f));
+
+		capsule->set_top_radius(0.8f);
+		CHECK(capsule->get_mid_height() == doctest::Approx(2.f));
+		CHECK(capsule->get_height() == doctest::Approx(3.8f));
+
+		capsule->set_height(5.f);
+		CHECK(capsule->get_mid_height() == doctest::Approx(3.2f));
+		CHECK(capsule->get_top_radius() == doctest::Approx(0.8f));
+		CHECK(capsule->get_bottom_radius() == doctest::Approx(1.f));
+
+		capsule->set_radius(0.6f);
+		CHECK(capsule->get_mid_height() == doctest::Approx(3.2f));
+		CHECK(capsule->get_height() == doctest::Approx(4.4f));
 	}
 
 	SUBCASE("[Primitive][Capsule] Check mesh is correct") {

@@ -106,8 +106,12 @@ void MeshInstance3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int
 		real_t bottom_radius = capsule_mesh->get_bottom_radius();
 		real_t mid_height = capsule_mesh->get_mid_height();
 		helper->tapered_capsule_set_handle(segment, p_id, top_radius, bottom_radius, mid_height);
-		capsule_mesh->set_top_radius(top_radius);
-		capsule_mesh->set_bottom_radius(bottom_radius);
+		if (p_id == Gizmo3DHelper::tapered_revolution_handle::RADIUS) {
+			capsule_mesh->set_radius(top_radius);
+		} else {
+			capsule_mesh->set_top_radius(top_radius);
+			capsule_mesh->set_bottom_radius(bottom_radius);
+		}
 		//only set height if it was changed, to allow keeping height
 		if (p_id == Gizmo3DHelper::tapered_revolution_handle::HEIGHT) {
 			capsule_mesh->set_mid_height(mid_height);
