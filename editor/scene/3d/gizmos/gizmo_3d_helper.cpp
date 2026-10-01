@@ -371,6 +371,11 @@ void Gizmo3DHelper::tapered_capsule_commit_handle(int p_id, bool p_cancel, Objec
 			ur->add_undo_method(p_object, "set_mid_height", restore.z);
 			break;
 	}
+	if (p_id != tapered_revolution_handle::HEIGHT) {
+		// An untapered capsule keeps its height when its radius changes, which moves the mid height.
+		ur->add_do_method(p_object, "set_mid_height", p_object->get("mid_height"));
+		ur->add_undo_method(p_object, "set_mid_height", restore.z);
+	}
 	ur->commit_action();
 }
 
