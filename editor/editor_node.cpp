@@ -3501,7 +3501,13 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 		} break;
 		case SCENE_OPEN_PREV: {
 			if (!prev_closed_scenes.is_empty()) {
-				open_scene(prev_closed_scenes.back()->get());
+				String path = prev_closed_scenes[prev_closed_scenes.size() - 1];
+				path = ResourceUID::ensure_path_nocheck(path);
+				if (!path.is_empty() && ResourceLoader::exists(path)) {
+					open_scene(path);
+				} else {
+					prev_closed_scenes.resize(prev_closed_scenes.size() - 1);
+				}
 			}
 		} break;
 		case EditorSceneTabs::SCENE_CLOSE_OTHERS: {
@@ -4072,7 +4078,6 @@ void EditorNode::_save_screenshot_with_embedded_process(int64_t p_w, int64_t p_h
 	ERR_FAIL_COND_MSG(texture.is_null(), "Cannot get a viewport texture from the editor main screen.");
 	Ref<Image> img = texture->get_image();
 	ERR_FAIL_COND_MSG(img.is_null(), "Cannot get an image from a viewport texture of the editor main screen.");
-	img->convert(Image::FORMAT_RGBA8);
 #ifdef RD_ENABLED
 	RenderingDevice *rendering_device = RD::get_singleton();
 	if (rendering_device && RenderingServer::get_singleton()->viewport_is_using_hdr_2d(viewport->get_viewport_rid())) {
@@ -4083,7 +4088,7 @@ void EditorNode::_save_screenshot_with_embedded_process(int64_t p_w, int64_t p_h
 	Ref<Image> overlay = Image::load_from_file(p_emb_path);
 	DirAccess::remove_absolute(p_emb_path);
 	ERR_FAIL_COND_MSG(overlay.is_null(), "Cannot get an image from a embedded process.");
-	overlay->convert(Image::FORMAT_RGBA8);
+	overlay->convert(img->get_format());
 	overlay->resize(p_rect.size.x, p_rect.size.y);
 	img->blend_rect(overlay, Rect2i(0, 0, p_w, p_h), p_rect.position);
 	Error error = img->save_png(p_path);
@@ -4101,7 +4106,6 @@ void EditorNode::_save_screenshot(const String &p_path) {
 	ERR_FAIL_COND_MSG(texture.is_null(), "Cannot get a viewport texture from the editor main screen.");
 	Ref<Image> img = texture->get_image();
 	ERR_FAIL_COND_MSG(img.is_null(), "Cannot get an image from a viewport texture of the editor main screen.");
-	img->convert(Image::FORMAT_RGBA8);
 #ifdef RD_ENABLED
 	RenderingDevice *rendering_device = RD::get_singleton();
 	if (rendering_device && RenderingServer::get_singleton()->viewport_is_using_hdr_2d(viewport->get_viewport_rid())) {
@@ -5525,10 +5529,11 @@ void EditorNode::_show_messages() {
 
 void EditorNode::_update_prev_closed_scenes(const String &p_scene_path, bool p_add_scene) {
 	if (!p_scene_path.is_empty()) {
+		const String scene_uid = ResourceUID::path_to_uid(p_scene_path);
 		if (p_add_scene) {
-			prev_closed_scenes.push_back(p_scene_path);
+			prev_closed_scenes.push_back(scene_uid);
 		} else {
-			prev_closed_scenes.erase(p_scene_path);
+			prev_closed_scenes.erase(scene_uid);
 		}
 		file_menu->set_item_disabled(file_menu->get_item_index(SCENE_OPEN_PREV), prev_closed_scenes.is_empty());
 	}
@@ -5536,22 +5541,27 @@ void EditorNode::_update_prev_closed_scenes(const String &p_scene_path, bool p_a
 
 void EditorNode::_add_to_recent_scenes(const String &p_scene) {
 	Array rc = EditorSettings::get_singleton()->get_project_metadata("recent_files", "scenes", Array());
+	const String scene_uid = ResourceUID::path_to_uid(p_scene);
+
+#ifndef DISABLE_DEPRECATED
 	if (rc.has(p_scene)) {
 		rc.erase(p_scene);
 	}
-	rc.push_front(p_scene);
+#endif
+	if (rc.has(scene_uid)) {
+		rc.erase(scene_uid);
+	}
+	rc.push_front(scene_uid);
 	if (rc.size() > 10) {
 		rc.resize(10);
 	}
 
 	EditorSettings::get_singleton()->set_project_metadata("recent_files", "scenes", rc);
-	_update_recent_scenes();
 }
 
 void EditorNode::_open_recent_scene(int p_idx) {
 	if (p_idx == recent_scenes->get_item_count() - 1) {
 		EditorSettings::get_singleton()->set_project_metadata("recent_files", "scenes", Array());
-		callable_mp(this, &EditorNode::_update_recent_scenes).call_deferred();
 	} else {
 		Array rc = EditorSettings::get_singleton()->get_project_metadata("recent_files", "scenes", Array());
 		ERR_FAIL_INDEX(p_idx, rc.size());
@@ -5559,7 +5569,6 @@ void EditorNode::_open_recent_scene(int p_idx) {
 		if (open_scene(rc[p_idx]) != OK) {
 			rc.remove_at(p_idx);
 			EditorSettings::get_singleton()->set_project_metadata("recent_files", "scenes", rc);
-			_update_recent_scenes();
 		}
 	}
 }
@@ -5568,18 +5577,33 @@ void EditorNode::_update_recent_scenes() {
 	Array rc = EditorSettings::get_singleton()->get_project_metadata("recent_files", "scenes", Array());
 	recent_scenes->clear();
 
+	LocalVector<int> missing_scenes;
 	if (rc.size() == 0) {
 		recent_scenes->add_item(TTRC("No Recent Scenes"), -1);
 		recent_scenes->set_item_disabled(-1, true);
 	} else {
-		String path;
 		for (int i = 0; i < rc.size(); i++) {
-			path = rc[i];
-			recent_scenes->add_item(path.replace("res://", ""), i);
+			const String path = ResourceUID::ensure_path_nocheck(rc[i]);
+			if (!path.is_empty() && ResourceLoader::exists(path)) {
+				recent_scenes->add_item(path.trim_prefix("res://"), i);
+			} else {
+				missing_scenes.push_back(i);
+			}
 		}
 
 		recent_scenes->add_separator();
 		recent_scenes->add_shortcut(ED_SHORTCUT("editor/clear_recent", TTRC("Clear Recent Scenes")));
+
+		if (!missing_scenes.is_empty()) {
+			// Some scenes are missing, so update the stored list.
+			Array new_scenes;
+			for (int i = 0; i < rc.size(); i++) {
+				if (!missing_scenes.has(i)) {
+					new_scenes.push_back(rc[i]);
+				}
+			}
+			EditorSettings::get_singleton()->set_project_metadata("recent_files", "scenes", new_scenes);
+		}
 	}
 	recent_scenes->set_item_auto_translate_mode(-1, AUTO_TRANSLATE_MODE_ALWAYS);
 	recent_scenes->reset_size();
@@ -5868,8 +5892,10 @@ Ref<Texture2D> EditorNode::_get_class_or_script_icon(const String &p_class, cons
 				bool instantiable = false;
 
 				// If the class doesn't exist or isn't global, then it's not instantiable
-				if (ClassDB::class_exists(p_class) || ScriptServer::is_global_class(p_class)) {
+				if (ClassDB::class_exists(p_class)) {
 					instantiable = !ClassDB::is_virtual(p_class) && ClassDB::can_instantiate(p_class);
+				} else if (ScriptServer::is_global_class(p_class)) {
+					instantiable = !ScriptServer::is_global_class_abstract(p_class);
 				}
 
 				return _get_class_or_script_icon(base_type, "", "", false, p_skip_fallback_virtual || instantiable);
@@ -8096,6 +8122,7 @@ void EditorNode::_build_file_menu(bool p_dark_mode) {
 	if (!recent_scenes) {
 		recent_scenes = memnew(PopupMenu);
 		recent_scenes->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
+		recent_scenes->connect("about_to_popup", callable_mp(this, &EditorNode::_update_recent_scenes));
 		recent_scenes->connect(SceneStringName(id_pressed), callable_mp(this, &EditorNode::_open_recent_scene));
 	}
 	file_menu->add_submenu_node_item(TTRC("Open Recent"), recent_scenes, SCENE_OPEN_RECENT);

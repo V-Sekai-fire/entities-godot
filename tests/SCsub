@@ -7,7 +7,9 @@ import test_builders
 
 Import("env")
 
-# Sources with tests must be explicitly linked first.
+# Sources with tests must be explicitly linked first. witness-cpp lives
+# under thirdparty/ now (outside this tests/ tree), so no exclusion is
+# needed here.
 force_link_sources = glob.glob("*/**/*.cpp", recursive=True)
 force_link_header = env.CommandNoCache(
     "force_link.gen.h", env.Value(force_link_sources), env.Run(test_builders.force_link_builder)
