@@ -458,6 +458,19 @@ String OS_MacOS::get_bundle_resource_dir() const {
 		NSString *resource_path = [main resourcePath];
 		ret.append_utf8([resource_path UTF8String]);
 	}
+
+	// For libgodot embedded in a non-.app host binary, NSBundle.mainBundle
+	// returns the host's containing directory rather than a real .app
+	// Resources dir. That confuses ProjectSettings::_setup, which then
+	// picks up a project.godot living beside the host binary instead of
+	// the one --path / cwd points at. Detect the ".app/Contents/Resources"
+	// suffix and only return a bundle path when we are actually inside a
+	// Godot-shaped app bundle; otherwise return empty so the setup falls
+	// through to the caller-controlled search.
+	if (!ret.ends_with(".app/Contents/Resources") && !ret.ends_with(".app/Contents/Resources/")) {
+		return String();
+	}
+
 	return ret;
 }
 
@@ -1189,6 +1202,16 @@ OS_MacOS_NSApp::OS_MacOS_NSApp(const char *p_execpath, int p_argc, char **p_argv
 	memset(&action, 0, sizeof(action));
 	action.sa_handler = handle_interrupt;
 	sigaction(SIGINT, &action, nullptr);
+}
+
+// MARK: - OS_MacOS_NSApp overrides for libgodot embedded
+
+void OS_MacOS_NSApp::alert(const String &p_alert, const String &p_title) {
+	// libgodot embedded: the host owns the main thread and cannot
+	// service NSAlert's runModal loop. Print to stderr instead so
+	// error paths (Main::setup failures, project-load errors) surface
+	// without deadlocking the embedder.
+	WARN_PRINT(p_alert);
 }
 
 // MARK: - OS_MacOS_Headless

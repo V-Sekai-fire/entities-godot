@@ -42,7 +42,23 @@ GDExtensionObjectPtr libgodot_create_godot_instance(int p_argc, char *p_argv[], 
 	ERR_FAIL_COND_V_MSG(instance != nullptr, nullptr, "Only one Godot Instance may be created.");
 
 	uint32_t remaining_args = p_argc - 1;
-	os = new OS_MacOS_NSApp(p_argv[0], remaining_args, remaining_args > 0 ? &p_argv[1] : nullptr);
+
+	// --headless means "no display server, no audio, no interactive UI" —
+	// including no NSAlert modal on error. OS_MacOS_NSApp inherits the
+	// NSAlert-based alert() from OS_MacOS, which blocks the main thread
+	// on a headless CI runner. OS_MacOS_Headless prints to stderr instead.
+	bool headless = false;
+	for (uint32_t i = 1; i < (uint32_t)p_argc; ++i) {
+		if (p_argv[i] && strcmp(p_argv[i], "--headless") == 0) {
+			headless = true;
+			break;
+		}
+	}
+	if (headless) {
+		os = new OS_MacOS_Headless(p_argv[0], remaining_args, remaining_args > 0 ? &p_argv[1] : nullptr);
+	} else {
+		os = new OS_MacOS_NSApp(p_argv[0], remaining_args, remaining_args > 0 ? &p_argv[1] : nullptr);
+	}
 
 	@autoreleasepool {
 		Error err = Main::setup(p_argv[0], remaining_args, remaining_args > 0 ? &p_argv[1] : nullptr, false);

@@ -69,6 +69,7 @@
 #include <os/signpost.h>
 
 #include <algorithm>
+#include <optional>
 
 #ifndef MTLGPUAddress
 typedef uint64_t MTLGPUAddress;
