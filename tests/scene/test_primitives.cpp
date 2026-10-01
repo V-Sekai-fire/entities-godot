@@ -35,6 +35,7 @@ TEST_FORCE_LINK(test_primitives)
 #ifndef _3D_DISABLED
 
 #include "scene/resources/3d/primitive_meshes.h"
+#include "tests/test_tools.h"
 
 namespace TestPrimitives {
 
@@ -134,6 +135,21 @@ TEST_CASE("[SceneTree][Primitive][Capsule] Capsule Primitive") {
 		CHECK(capsule->get_mid_height() == doctest::Approx(3.2f));
 		CHECK(capsule->get_height() == doctest::Approx(4.4f));
 	}
+
+#ifdef TOOLS_ENABLED
+	SUBCASE("[SceneTree][Primitive][Capsule] Undoing an inspector edit of a radius keeps the taper") {
+		capsule->set_top_radius(0.3f);
+		capsule->set_bottom_radius(0.9f);
+		UndoRedo *undo_redo = memnew(UndoRedo);
+
+		set_property_like_inspector(undo_redo, capsule.ptr(), "top_radius", 0.5f);
+		undo_redo->undo();
+
+		CHECK(capsule->get_top_radius() == doctest::Approx(0.3f));
+		CHECK(capsule->get_bottom_radius() == doctest::Approx(0.9f));
+		memdelete(undo_redo);
+	}
+#endif // TOOLS_ENABLED
 
 	SUBCASE("[Primitive][Capsule] Check mesh is correct") {
 		Array data{};

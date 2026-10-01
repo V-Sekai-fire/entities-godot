@@ -608,9 +608,6 @@ void CapsuleMesh::_bind_methods() {
 	ADD_LINKED_PROPERTY("radius", "bottom_radius");
 	ADD_LINKED_PROPERTY("radius", "mid_height");
 
-	ADD_LINKED_PROPERTY("top_radius", "radius");
-	ADD_LINKED_PROPERTY("bottom_radius", "radius");
-
 	ADD_LINKED_PROPERTY("top_radius", "height");
 	ADD_LINKED_PROPERTY("mid_height", "height");
 	ADD_LINKED_PROPERTY("bottom_radius", "height");

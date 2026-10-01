@@ -301,9 +301,6 @@ void CapsuleShape3D::_bind_methods() {
 	ADD_LINKED_PROPERTY("radius", "bottom_radius");
 	ADD_LINKED_PROPERTY("radius", "mid_height");
 
-	ADD_LINKED_PROPERTY("top_radius", "radius");
-	ADD_LINKED_PROPERTY("bottom_radius", "radius");
-
 	ADD_LINKED_PROPERTY("height", "top_radius");
 	ADD_LINKED_PROPERTY("height", "bottom_radius");
 	ADD_LINKED_PROPERTY("height", "mid_height");

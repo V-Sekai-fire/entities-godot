@@ -31,7 +31,22 @@
 #pragma once
 
 #include "core/error/error_macros.h"
+#include "core/object/class_db.h"
+#include "core/object/undo_redo.h"
 #include "core/string/ustring.h"
+
+// Sets a property the way the editor's inspector does, so undoing restores the properties linked to it too.
+inline void set_property_like_inspector(UndoRedo *p_undo_redo, Object *p_object, const StringName &p_property, const Variant &p_value) {
+	p_undo_redo->create_action(vformat("Set %s", p_property));
+	p_undo_redo->add_do_property(p_object, p_property, p_value);
+	p_undo_redo->add_undo_property(p_object, p_property, p_object->get(p_property));
+	List<StringName> linked_properties;
+	ClassDB::get_linked_properties_info(p_object->get_class_name(), p_property, &linked_properties);
+	for (const StringName &linked_property : linked_properties) {
+		p_undo_redo->add_undo_property(p_object, linked_property, p_object->get(linked_property));
+	}
+	p_undo_redo->commit_action();
+}
 
 struct ErrorDetector {
 	ErrorDetector() {

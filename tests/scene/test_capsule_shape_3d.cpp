@@ -35,6 +35,7 @@ TEST_FORCE_LINK(test_capsule_shape_3d)
 #ifndef PHYSICS_3D_DISABLED
 
 #include "scene/resources/3d/capsule_shape_3d.h"
+#include "tests/test_tools.h"
 
 namespace TestCapsuleShape3D {
 
@@ -88,6 +89,45 @@ TEST_CASE("[SceneTree][CapsuleShape3D] Tapered capsules keep the mid height when
 	CHECK(capsule->get_top_radius() == doctest::Approx(0.8f));
 	CHECK(capsule->get_bottom_radius() == doctest::Approx(1.f));
 }
+
+#ifdef TOOLS_ENABLED
+TEST_CASE("[SceneTree][CapsuleShape3D] Undoing an inspector edit restores the capsule") {
+	Ref<CapsuleShape3D> capsule = memnew(CapsuleShape3D);
+	UndoRedo *undo_redo = memnew(UndoRedo);
+
+	SUBCASE("[SceneTree][CapsuleShape3D] A radius of a tapered capsule") {
+		capsule->set_tapered(true);
+		capsule->set_top_radius(0.3f);
+		capsule->set_bottom_radius(0.9f);
+
+		set_property_like_inspector(undo_redo, capsule.ptr(), "top_radius", 0.5f);
+		undo_redo->undo();
+
+		CHECK(capsule->get_top_radius() == doctest::Approx(0.3f));
+		CHECK(capsule->get_bottom_radius() == doctest::Approx(0.9f));
+	}
+
+	SUBCASE("[SceneTree][CapsuleShape3D] A radius that raised the height") {
+		set_property_like_inspector(undo_redo, capsule.ptr(), "radius", 1.5f);
+		REQUIRE(capsule->get_height() == doctest::Approx(3.f));
+		undo_redo->undo();
+
+		CHECK(capsule->get_radius() == doctest::Approx(0.5f));
+		CHECK(capsule->get_height() == doctest::Approx(2.f));
+	}
+
+	SUBCASE("[SceneTree][CapsuleShape3D] A height that shrank the radius") {
+		set_property_like_inspector(undo_redo, capsule.ptr(), "height", 0.5f);
+		REQUIRE(capsule->get_radius() == doctest::Approx(0.25f));
+		undo_redo->undo();
+
+		CHECK(capsule->get_radius() == doctest::Approx(0.5f));
+		CHECK(capsule->get_height() == doctest::Approx(2.f));
+	}
+
+	memdelete(undo_redo);
+}
+#endif // TOOLS_ENABLED
 
 } // namespace TestCapsuleShape3D
 

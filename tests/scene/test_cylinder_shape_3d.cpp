@@ -35,6 +35,7 @@ TEST_FORCE_LINK(test_cylinder_shape_3d)
 #ifndef PHYSICS_3D_DISABLED
 
 #include "scene/resources/3d/cylinder_shape_3d.h"
+#include "tests/test_tools.h"
 
 namespace TestCylinderShape3D {
 
@@ -57,6 +58,23 @@ TEST_CASE("[SceneTree][CylinderShape3D] Tapered cylinders keep the height when a
 	CHECK(cylinder->get_bottom_radius() == doctest::Approx(1.f));
 	CHECK(cylinder->get_height() == doctest::Approx(2.f));
 }
+
+#ifdef TOOLS_ENABLED
+TEST_CASE("[SceneTree][CylinderShape3D] Undoing an inspector edit of a radius keeps the taper") {
+	Ref<CylinderShape3D> cylinder = memnew(CylinderShape3D);
+	cylinder->set_tapered(true);
+	cylinder->set_top_radius(0.3f);
+	cylinder->set_bottom_radius(0.9f);
+	UndoRedo *undo_redo = memnew(UndoRedo);
+
+	set_property_like_inspector(undo_redo, cylinder.ptr(), "top_radius", 0.5f);
+	undo_redo->undo();
+
+	CHECK(cylinder->get_top_radius() == doctest::Approx(0.3f));
+	CHECK(cylinder->get_bottom_radius() == doctest::Approx(0.9f));
+	memdelete(undo_redo);
+}
+#endif // TOOLS_ENABLED
 
 } // namespace TestCylinderShape3D
 
