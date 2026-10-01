@@ -34,6 +34,7 @@
 #include "scene/3d/node_3d.h"
 #include "servers/audio/audio_server_constants.h"
 #include "servers/audio/audio_server_enums.h"
+#include "servers/audio/spatial_audio_server.h"
 
 #ifndef PHYSICS_3D_DISABLED
 class Area3D;
@@ -128,6 +129,8 @@ private:
 	/// Hash map storing the bus volumes during the panning update.
 	/// This hash map is stored as member for efficiency reasons.
 	HashMap<StringName, Vector<AudioFrame>> bus_volumes;
+
+	AudioSourceId audio_source_id;
 
 protected:
 	void _notification(int p_what);
