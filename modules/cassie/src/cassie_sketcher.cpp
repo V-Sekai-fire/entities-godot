@@ -88,6 +88,7 @@ int CassieSketcher::begin_stroke(const Vector3 &p_local_position, float p_pressu
 	InFlightStroke s;
 	s.input.instantiate();
 	s.sample_index = 0;
+	s.boundary = boundary_strokes;
 	const float t = float(s.sample_index) * sample_dt;
 	s.input->add_sample(p_local_position, t, p_pressure);
 	++s.sample_index;
@@ -109,7 +110,7 @@ void CassieSketcher::add_sample(int p_stroke_id, const Vector3 &p_local_position
 // update chain synchronously. Identical input bits produce identical
 // output bits.
 Dictionary CassieSketcher::_run_chain_locally(
-		const Ref<CassieInputStroke> &p_input, bool p_emit_signals) {
+		const Ref<CassieInputStroke> &p_input, bool p_emit_signals, bool p_boundary) {
 	Dictionary result;
 	result["ok"] = false;
 	result["is_valid"] = false;
@@ -210,9 +211,28 @@ Dictionary CassieSketcher::_run_chain_locally(
 		}
 	}
 	PackedVector3Array empty_normals;
-	if (points.size() >= 2) {
-		sketch_graph->add_stroke_intersecting(points, empty_normals,
-				MAX(snap_threshold, sketch_graph->get_merge_epsilon()));
+	const real_t graph_proximity = MAX(snap_threshold, sketch_graph->get_merge_epsilon());
+	if (is_closed && split_closed_strokes && points.size() >= 4) {
+		// A closed stroke added whole is one edge from a node back to
+		// itself: no cycle, no patch. Split it at the middle sample into
+		// two half polylines that share both end nodes, so the graph
+		// holds a two-edge cycle the patch lifecycle can triangulate.
+		// The second half ends exactly on the first sample so the two
+		// halves meet in one node whatever the baked end point is.
+		const int mid = points.size() / 2;
+		PackedVector3Array first_half;
+		PackedVector3Array second_half;
+		for (int s = 0; s <= mid; ++s) {
+			first_half.push_back(points[s]);
+		}
+		for (int s = mid; s < points.size() - 1; ++s) {
+			second_half.push_back(points[s]);
+		}
+		second_half.push_back(points[0]);
+		sketch_graph->add_stroke_intersecting(first_half, empty_normals, graph_proximity, p_boundary);
+		sketch_graph->add_stroke_intersecting(second_half, empty_normals, graph_proximity, p_boundary);
+	} else if (points.size() >= 2) {
+		sketch_graph->add_stroke_intersecting(points, empty_normals, graph_proximity, p_boundary);
 	}
 
 	const Dictionary patch_update = surface_manager->update();
@@ -247,9 +267,10 @@ Dictionary CassieSketcher::commit_stroke(int p_stroke_id) {
 		return result;
 	}
 	Ref<CassieInputStroke> input = it->value.input;
+	const bool boundary = it->value.boundary;
 	in_flight.remove(it);
 
-	result = _run_chain_locally(input, true);
+	result = _run_chain_locally(input, true, boundary);
 
 	// Stash the encoded packet for the caller's convenience.
 	PackedVector3Array positions = input->get_points();
@@ -285,7 +306,7 @@ Dictionary CassieSketcher::apply_remote_samples(const PackedByteArray &p_packet)
 		const float pr = i < pressures.size() ? pressures[i] : 0.0f;
 		input->add_sample(positions[i], t, pr);
 	}
-	return _run_chain_locally(input, true);
+	return _run_chain_locally(input, true, boundary_strokes);
 }
 
 PackedByteArray CassieSketcher::encode_stroke_packet(int p_stroke_id) {
@@ -338,6 +359,14 @@ void CassieSketcher::_bind_methods() {
 			&CassieSketcher::set_async_triangulation);
 	ClassDB::bind_method(D_METHOD("get_async_triangulation"),
 			&CassieSketcher::get_async_triangulation);
+	ClassDB::bind_method(D_METHOD("set_split_closed_strokes", "enable"),
+			&CassieSketcher::set_split_closed_strokes);
+	ClassDB::bind_method(D_METHOD("get_split_closed_strokes"),
+			&CassieSketcher::get_split_closed_strokes);
+	ClassDB::bind_method(D_METHOD("set_boundary_strokes", "enable"),
+			&CassieSketcher::set_boundary_strokes);
+	ClassDB::bind_method(D_METHOD("get_boundary_strokes"),
+			&CassieSketcher::get_boundary_strokes);
 	ClassDB::bind_method(D_METHOD("get_sketch_graph"),
 			&CassieSketcher::get_sketch_graph);
 	ClassDB::bind_method(D_METHOD("get_surface_manager"),
@@ -366,6 +395,10 @@ void CassieSketcher::_bind_methods() {
 			"set_peer_id", "get_peer_id");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "async_triangulation"),
 			"set_async_triangulation", "get_async_triangulation");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "split_closed_strokes"),
+			"set_split_closed_strokes", "get_split_closed_strokes");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "boundary_strokes"),
+			"set_boundary_strokes", "get_boundary_strokes");
 
 	ADD_SIGNAL(MethodInfo("stroke_committed",
 			PropertyInfo(Variant::OBJECT, "final_stroke",

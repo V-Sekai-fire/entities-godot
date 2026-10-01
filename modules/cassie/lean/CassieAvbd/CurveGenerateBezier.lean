@@ -129,7 +129,7 @@ private def mainEntry : SlangFunctionDecl :=
       , .declInit f "alpha_a" (.litFloat 0.0)
       , .declInit f "alpha_b" (.litFloat 0.0)
       , .declInit u "fallback"
-          (.ternary (.bin "<" (.call "abs" [.var "det"]) (.litFloat 1.0e-12))
+          (.ternary (.bin "<" (.call "abs" [.var "det"]) (.litFloatExact 1.0e-12))
             (.litUint 1) (.litUint 0))
       , .ifNoElse (.bin "==" (.var "fallback") (.litUint 0))
           [ .assign (.var "alpha_a") (.bin "/" (.var "det_y") (.var "det"))

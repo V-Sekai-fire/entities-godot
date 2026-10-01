@@ -179,9 +179,17 @@ namespace {
          *  false otherwise.
          */
         bool operator() (index_t i1, index_t i2) {
-            return
-                mesh_.vertices.point_ptr(i1)[COORD] <
-                mesh_.vertices.point_ptr(i2)[COORD];
+            // Ties on COORD are broken on the index, so
+            // this is a strict total order. reorder_split's std::nth_element
+            // leaves tied elements in an unspecified order, and libc++ and
+            // libstdc++ leave them differently: points sharing a coordinate
+            // (a boundary snapped to one height or one plane) got a different
+            // BRIO insertion order, hence a different Delaunay cell order, on
+            // a libstdc++ build than on a libc++ build. Untied inputs sort as
+            // before.
+            const double c1 = mesh_.vertices.point_ptr(i1)[COORD];
+            const double c2 = mesh_.vertices.point_ptr(i2)[COORD];
+            return c1 < c2 || (c1 == c2 && i1 < i2);
         }
 
         const MESH& mesh_;
@@ -214,9 +222,10 @@ namespace {
          *  false otherwise.
          */
         bool operator() (index_t i1, index_t i2) {
-            return
-                mesh_.vertices.point_ptr(i1)[COORD] >
-                mesh_.vertices.point_ptr(i2)[COORD];
+            // Ties broken on the index (see UP=true).
+            const double c1 = mesh_.vertices.point_ptr(i1)[COORD];
+            const double c2 = mesh_.vertices.point_ptr(i2)[COORD];
+            return c1 > c2 || (c1 == c2 && i1 < i2);
         }
 
         const MESH& mesh_;

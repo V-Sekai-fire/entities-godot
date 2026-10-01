@@ -91,6 +91,7 @@ void CassieSketchGraphEdge::_bind_methods() {
 			&CassieSketchGraphEdge::get_opposite);
 	ClassDB::bind_method(D_METHOD("get_source_polyline_idx"),
 			&CassieSketchGraphEdge::get_source_polyline_idx);
+	ClassDB::bind_method(D_METHOD("get_boundary"), &CassieSketchGraphEdge::get_boundary);
 }
 
 // ── Graph implementation ────────────────────────────────────────────────────
@@ -381,18 +382,114 @@ void CassieSketchGraph::_cumulative_lengths(const PackedVector3Array &p_poly,
 	}
 }
 
+// Segment p_k of a polyline with p_last segments, counted from its start
+// (p_end 0) or its end (p_end 1).
+static inline void _polyline_segment(const PackedVector3Array &p_poly, int p_last, int p_end, int p_k,
+		Vector3 &r_0, Vector3 &r_1) {
+	r_0 = p_end == 0 ? p_poly[p_k] : p_poly[p_last - p_k];
+	r_1 = p_end == 0 ? p_poly[p_k + 1] : p_poly[p_last - p_k - 1];
+}
+
+// Whether segment p_k of one polyline lies within sqrt(p_prox2) of any of the
+// other polyline's first p_upto segments, both counted from their knot end.
+static inline bool _segment_near_other(const PackedVector3Array &p_poly, int p_last, int p_end, int p_k,
+		const PackedVector3Array &p_other, int p_other_last, int p_other_end, int p_upto, real_t p_prox2) {
+	Vector3 a0, a1, b0, b1;
+	_polyline_segment(p_poly, p_last, p_end, p_k, a0, a1);
+	for (int j = 0; j < MIN(p_upto, p_other_last); ++j) {
+		_polyline_segment(p_other, p_other_last, p_other_end, j, b0, b1);
+		real_t u, v, d2;
+		_segment_segment_closest(a0, a1, b0, b1, u, v, d2);
+		if (d2 <= p_prox2) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// The stretch beside a knot that two polylines share. p_a's
+// end p_a_end (0 start, 1 end) and p_b's end p_b_end meet within
+// merge_epsilon, so add_stroke merges them into one node; leaving it, the
+// two stay within p_proximity of each other for a while (up to p_proximity
+// along each when they leave in opposite directions, farther as the angle
+// between them closes). The zone grows segment by segment from the knot on
+// both polylines together, as long as each next segment stays within
+// p_proximity of the other's zone (or its next segment). r_la / r_lb count
+// the zone's segments from that end.
+static void _knot_zone(const PackedVector3Array &p_a, int p_a_end,
+		const PackedVector3Array &p_b, int p_b_end, real_t p_prox2,
+		int &r_la, int &r_lb) {
+	const int sa = p_a.size() - 1;
+	const int sb = p_b.size() - 1;
+	r_la = 1;
+	r_lb = 1;
+	for (;;) {
+		bool grown = false;
+		if (r_la < sa && _segment_near_other(p_a, sa, p_a_end, r_la, p_b, sb, p_b_end, r_lb + 1, p_prox2)) {
+			++r_la;
+			grown = true;
+		}
+		if (r_lb < sb && _segment_near_other(p_b, sb, p_b_end, r_lb, p_a, sa, p_a_end, r_la + 1, p_prox2)) {
+			++r_lb;
+			grown = true;
+		}
+		if (!grown) {
+			break;
+		}
+	}
+}
+
+// A knot zone of _crossings: ends a_end / b_end of the two polylines meet, and
+// their first la / lb segments from those ends stay within proximity.
+struct CassieKnotZone {
+	int a_end, b_end, la, lb;
+};
+
+// Whether segments a (of na points) and b (of nb points) both lie in one knot
+// zone, where a hit is part of the endpoint merge, not a crossing.
+static inline bool _in_knot_zone(const LocalVector<CassieKnotZone> &p_zones, int p_a, int p_na, int p_b, int p_nb) {
+	for (uint32_t k = 0; k < p_zones.size(); ++k) {
+		const CassieKnotZone &z = p_zones[k];
+		const bool in_a = z.a_end == 0 ? p_a < z.la : p_a >= p_na - 1 - z.la;
+		const bool in_b = z.b_end == 0 ? p_b < z.lb : p_b >= p_nb - 1 - z.lb;
+		if (in_a && in_b) {
+			return true;
+		}
+	}
+	return false;
+}
+
 // Pairwise segment-segment closest-pair tests between two polylines with a
 // per-polyline and a per-segment AABB cull. Each hit within p_proximity is
 // recorded on both polylines as the midpoint of the closest pair, so the
 // crossing is one position from both points of view; merge_epsilon then
 // collapses it to one graph node.
 void CassieSketchGraph::_crossings(const PackedVector3Array &p_a,
-		const PackedVector3Array &p_b, real_t p_proximity,
+		const PackedVector3Array &p_b, real_t p_proximity, real_t p_merge_epsilon,
 		LocalVector<SplitPt> &r_a, LocalVector<SplitPt> &r_b) {
 	const int na = p_a.size();
 	const int nb = p_b.size();
 	if (na < 2 || nb < 2) {
 		return;
+	}
+	// A shared endpoint is an endpoint merge wherever
+	// the two polylines have not yet parted beside it, not only on their
+	// first or last segments (below): with p_proximity at or above the
+	// sample spacing, hits on the second and third segments beside a knot
+	// were split as crossings, trimming the edges short of the knot or
+	// leaving a dangling node a few cm from it.
+	LocalVector<CassieKnotZone> zones;
+	for (int ae = 0; ae < 2; ++ae) {
+		for (int be = 0; be < 2; ++be) {
+			const Vector3 pa = ae == 0 ? p_a[0] : p_a[na - 1];
+			const Vector3 pb = be == 0 ? p_b[0] : p_b[nb - 1];
+			if (pa.distance_to(pb) > p_merge_epsilon) {
+				continue;
+			}
+			CassieKnotZone z = { ae, be, 1, 1 };
+			_knot_zone(p_a, ae, p_b, be, p_proximity * p_proximity, z.la, z.lb);
+			zones.push_back(z);
+		}
 	}
 	AABB box_a(p_a[0], Vector3());
 	for (int k = 1; k < na; ++k) {
@@ -436,7 +533,7 @@ void CassieSketchGraph::_crossings(const PackedVector3Array &p_a,
 			}
 			const bool at_end_a = (a == 0 && s < real_t(0.05)) || (a == na - 2 && s > real_t(0.95));
 			const bool at_end_b = (b == 0 && t < real_t(0.05)) || (b == nb - 2 && t > real_t(0.95));
-			if (at_end_a && at_end_b) {
+			if ((at_end_a && at_end_b) || _in_knot_zone(zones, a, na, b, nb)) {
 				continue;
 			}
 			const Vector3 mid = (a0 + (a1 - a0) * s + b0 + (b1 - b0) * t) * real_t(0.5);
@@ -463,7 +560,7 @@ void CassieSketchGraph::_crossings(const PackedVector3Array &p_a,
 // edge per slice of p_poly between consecutive splits. The endpoint merge
 // inside add_stroke snaps each slice end to the shared crossing node.
 int CassieSketchGraph::_add_polyline_sliced(const PackedVector3Array &p_poly,
-		LocalVector<SplitPt> &p_splits, int p_source_idx) {
+		LocalVector<SplitPt> &p_splits, int p_source_idx, bool p_boundary) {
 	const int n = p_poly.size();
 	if (n < 2) {
 		return 0;
@@ -506,6 +603,7 @@ int CassieSketchGraph::_add_polyline_sliced(const PackedVector3Array &p_poly,
 				const int new_eid = add_stroke(current, empty_normals);
 				if (new_eid >= 0) {
 					edges[new_eid]->set_source_polyline_idx(p_source_idx);
+					edges[new_eid]->set_boundary(p_boundary);
 					added++;
 				}
 			}
@@ -523,6 +621,7 @@ int CassieSketchGraph::_add_polyline_sliced(const PackedVector3Array &p_poly,
 		const int new_eid = add_stroke(current, empty_normals);
 		if (new_eid >= 0) {
 			edges[new_eid]->set_source_polyline_idx(p_source_idx);
+			edges[new_eid]->set_boundary(p_boundary);
 			added++;
 		}
 	}
@@ -549,7 +648,7 @@ int CassieSketchGraph::build_from_polylines(
 	splits_per_poly.resize(P);
 	for (int i = 0; i < P; ++i) {
 		for (int j = i + 1; j < P; ++j) {
-			_crossings(polys[i], polys[j], p_proximity,
+			_crossings(polys[i], polys[j], p_proximity, merge_epsilon,
 					splits_per_poly[i], splits_per_poly[j]);
 		}
 	}
@@ -561,7 +660,7 @@ int CassieSketchGraph::build_from_polylines(
 }
 
 int CassieSketchGraph::add_stroke_intersecting(const PackedVector3Array &p_points,
-		const PackedVector3Array &p_normals, real_t p_proximity) {
+		const PackedVector3Array &p_normals, real_t p_proximity, bool p_boundary) {
 	if (p_points.size() < 2) {
 		return 0;
 	}
@@ -569,27 +668,47 @@ int CassieSketchGraph::add_stroke_intersecting(const PackedVector3Array &p_point
 	LocalVector<int> hit_ids;
 	LocalVector<PackedVector3Array> hit_points;
 	LocalVector<int> hit_source;
+	LocalVector<bool> hit_boundary;
 	LocalVector<LocalVector<SplitPt>> hit_splits;
 	for (const KeyValue<int, Ref<CassieSketchGraphEdge>> &kv : edges) {
 		LocalVector<SplitPt> on_edge;
-		_crossings(p_points, kv.value->get_points(), p_proximity, new_splits, on_edge);
+		_crossings(p_points, kv.value->get_points(), p_proximity, merge_epsilon, new_splits, on_edge);
 		if (on_edge.is_empty()) {
 			continue;
 		}
 		hit_ids.push_back(kv.key);
 		hit_points.push_back(kv.value->get_points());
 		hit_source.push_back(kv.value->get_source_polyline_idx());
+		hit_boundary.push_back(kv.value->get_boundary());
 		hit_splits.push_back(on_edge);
 	}
 	int added = 0;
 	for (uint32_t h = 0; h < hit_ids.size(); ++h) {
 		_remove_edge(hit_ids[h]);
-		added += _add_polyline_sliced(hit_points[h], hit_splits[h], hit_source[h]) - 1;
+		added += _add_polyline_sliced(hit_points[h], hit_splits[h], hit_source[h], hit_boundary[h]) - 1;
 	}
 	if (new_splits.is_empty()) {
-		return added + (add_stroke(p_points, p_normals) >= 0 ? 1 : 0);
+		const int eid = add_stroke(p_points, p_normals);
+		if (eid < 0) {
+			return added;
+		}
+		edges[eid]->set_boundary(p_boundary);
+		return added + 1;
 	}
-	return added + _add_polyline_sliced(p_points, new_splits, -1);
+	return added + _add_polyline_sliced(p_points, new_splits, -1, p_boundary);
+}
+
+bool CassieSketchGraph::is_opening(const PackedInt32Array &p_cycle_edge_ids) const {
+	if (p_cycle_edge_ids.is_empty()) {
+		return false;
+	}
+	for (int i = 0; i < p_cycle_edge_ids.size(); ++i) {
+		HashMap<int, Ref<CassieSketchGraphEdge>>::ConstIterator it = edges.find(p_cycle_edge_ids[i]);
+		if (!it || it->value.is_null() || !it->value->get_boundary()) {
+			return false;
+		}
+	}
+	return true;
 }
 
 int CassieSketchGraph::_new_node(const Vector3 &p_pos) {
@@ -803,10 +922,10 @@ int CassieSketchGraph::add_stroke_constrained(const PackedVector3Array &p_points
 		}
 		SplitPt new_hit;
 		const int new_eid = _nearest_edge(p, p_source_idx, true, -1, Vector3(), new_hit);
-		const int near = _closer_end(new_eid, p);
-		if (nodes[near]->get_position().distance_to(p) < p_merge) {
-			if (near != node) {
-				_replace_node(near, node);
+		const int closer = _closer_end(new_eid, p);
+		if (nodes[closer]->get_position().distance_to(p) < p_merge) {
+			if (closer != node) {
+				_replace_node(closer, node);
 			}
 		} else {
 			_split_edge(new_eid, new_hit, node, true);
@@ -1900,9 +2019,13 @@ PackedVector3Array CassieSketchGraph::sample_cycle_boundary(
 		real_t p_target_edge_length) const {
 	PackedVector3Array out;
 	const int N = p_cycle_edge_ids.size();
-	if (N < 3 || p_target_edge_length <= 0) {
+	// two-edge cycles too (a closed stroke split in
+	// two by CassieSketcher::split_closed_strokes), which find_cycles
+	// reports and this used to refuse (N < 3), so they never became patches.
+	if (N < 2 || p_target_edge_length <= 0) {
 		return out;
 	}
+	int prev_exit = -1;
 	for (int i = 0; i < N; ++i) {
 		const int eid = p_cycle_edge_ids[i];
 		Ref<CassieSketchGraphEdge> edge = get_edge(eid);
@@ -1921,13 +2044,18 @@ PackedVector3Array CassieSketchGraph::sample_cycle_boundary(
 		const int na = next_edge->get_node_a_id();
 		const int nb = next_edge->get_node_b_id();
 		int exit_nid = -1;
-		if (a == na || a == nb) {
+		if ((a == na || a == nb) && (b == na || b == nb) && a != b) {
+			// Both ends shared with the next edge (a two-edge cycle): enter
+			// where the previous edge left off, else at node a.
+			exit_nid = (prev_exit == a) ? b : (prev_exit == b ? a : b);
+		} else if (a == na || a == nb) {
 			exit_nid = a;
 		} else if (b == na || b == nb) {
 			exit_nid = b;
 		} else {
 			continue;
 		}
+		prev_exit = exit_nid;
 		const int entry_nid = edge->get_opposite(exit_nid);
 		const bool reversed = (entry_nid == b);
 
@@ -1972,8 +2100,10 @@ void CassieSketchGraph::_bind_methods() {
 			&CassieSketchGraph::add_stroke);
 	ClassDB::bind_method(D_METHOD("build_from_polylines", "polylines", "proximity"),
 			&CassieSketchGraph::build_from_polylines);
-	ClassDB::bind_method(D_METHOD("add_stroke_intersecting", "points", "normals", "proximity"),
-			&CassieSketchGraph::add_stroke_intersecting);
+	ClassDB::bind_method(D_METHOD("add_stroke_intersecting", "points", "normals", "proximity", "boundary"),
+			&CassieSketchGraph::add_stroke_intersecting, DEFVAL(false));
+	ClassDB::bind_method(D_METHOD("is_opening", "cycle_edge_ids"),
+			&CassieSketchGraph::is_opening);
 	ClassDB::bind_method(D_METHOD("add_stroke_constrained", "points", "closed", "intersections", "targets", "snap", "merge", "reach", "source_idx"),
 			&CassieSketchGraph::add_stroke_constrained);
 	ClassDB::bind_method(D_METHOD("get_last_constraint_sources"), &CassieSketchGraph::get_last_constraint_sources);
