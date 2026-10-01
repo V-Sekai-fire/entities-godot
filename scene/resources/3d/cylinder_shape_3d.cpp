@@ -208,9 +208,6 @@ void CylinderShape3D::_bind_methods() {
 
 	ADD_LINKED_PROPERTY("radius", "top_radius");
 	ADD_LINKED_PROPERTY("radius", "bottom_radius");
-
-	ADD_LINKED_PROPERTY("top_radius", "radius");
-	ADD_LINKED_PROPERTY("bottom_radius", "radius");
 }
 
 CylinderShape3D::CylinderShape3D() :
