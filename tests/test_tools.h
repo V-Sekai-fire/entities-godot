@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/error/error_macros.h"
+#include "core/string/ustring.h"
 
 struct ErrorDetector {
 	ErrorDetector() {
@@ -46,13 +47,17 @@ struct ErrorDetector {
 
 	void clear() {
 		has_error = false;
+		last_error_message = String();
 	}
 
 	static void _detect_error(void *p_self, const char *p_func, const char *p_file, int p_line, const char *p_error, const char *p_errorexp, bool p_editor_notify, ErrorHandlerType p_type) {
 		ErrorDetector *self = (ErrorDetector *)p_self;
 		self->has_error = true;
+		// Like the printed error: the custom message of `_MSG` macros if there is one, the error itself otherwise.
+		self->last_error_message = String::utf8((p_errorexp && *p_errorexp) ? p_errorexp : p_error);
 	}
 
 	ErrorHandlerList eh;
 	bool has_error = false;
+	String last_error_message;
 };
