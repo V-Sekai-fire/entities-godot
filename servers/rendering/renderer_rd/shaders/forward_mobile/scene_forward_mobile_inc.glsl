@@ -433,6 +433,66 @@ layout(set = 1, binding = 25, std430) buffer restrict MaterialFeedbackBuffer {
 material_feedback;
 #endif
 
+layout(set = 1, binding = 26) uniform sampler3D oit_transmittance;
+
+layout(set = 1, binding = 27, std140) uniform OITParams {
+	vec4 slice_curve;
+	uvec4 froxel_dims;
+}
+oit_params;
+
+layout(set = 1, binding = 28, std430) buffer restrict OITExtinction {
+	uint data[];
+}
+oit_extinction;
+
+float oit_slice_uv(float view_z) {
+	float near = oit_params.slice_curve.x;
+	float far = oit_params.slice_curve.y;
+	float k = max(oit_params.slice_curve.z, 0.001);
+	float linear_z = clamp((view_z - near) / max(far - near, 0.001), 0.0, 1.0);
+	return log(1.0 + k * linear_z) / log(1.0 + k);
+}
+
+uint oit_depth_to_slice(float view_z) {
+	float slices = oit_params.slice_curve.w;
+	return uint(clamp(oit_slice_uv(view_z) * slices, 0.0, slices - 1.0));
+}
+
+// Views pack side by side along X; froxel_dims.w is the view count and 0 means OIT is off.
+// Accumulates this fragment's extinction into the froxel that owns it; the framebuffer is at froxel resolution.
+void oit_splat(vec2 frag_coord, uint view, float view_z, float alpha) {
+	if (oit_params.froxel_dims.w == 0u || view_z <= 0.0 || alpha <= 0.0) {
+		return;
+	}
+	uvec3 froxel = uvec3(uvec2(frag_coord), oit_depth_to_slice(view_z));
+	froxel = min(froxel, oit_params.froxel_dims.xyz - uvec3(1u));
+	froxel.x += view * oit_params.froxel_dims.x;
+	uint index = (froxel.x * oit_params.froxel_dims.y + froxel.y) * oit_params.froxel_dims.z + froxel.z;
+	float ext = -log(1.0 - clamp(alpha, 0.0, 0.999));
+	atomicAdd(oit_extinction.data[index], uint(clamp(ext * 65536.0, 0.0, 4.29e9)));
+}
+
+// Transmittance through every slice in front of this fragment's own slice.
+float oit_transmittance_in_front(vec2 screen_uv, uint view, float view_z) {
+	if (oit_params.froxel_dims.w == 0u || view_z <= 0.0) {
+		return 1.0;
+	}
+	uint slice = oit_depth_to_slice(view_z);
+	if (slice == 0u) {
+		return 1.0;
+	}
+	float slice_uv = (float(slice) - 0.5) / oit_params.slice_curve.w;
+	// Clamped to the half-texel so bilinear filtering never reads the neighboring view's column.
+	float half_column = 0.5 / float(oit_params.froxel_dims.x);
+	float u = (clamp(screen_uv.x, half_column, 1.0 - half_column) + float(view)) / float(oit_params.froxel_dims.w);
+	return texture(oit_transmittance, vec3(u, screen_uv.y, slice_uv)).r;
+}
+
+float oit_apply(vec2 screen_uv, uint view, float view_z, float alpha) {
+	return alpha * oit_transmittance_in_front(screen_uv, view, view_z);
+}
+
 /* Set 2 Skeleton & Instancing (can change per item) */
 
 layout(set = 2, binding = 0, std430) restrict readonly buffer Transforms {
