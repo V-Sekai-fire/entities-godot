@@ -59,6 +59,35 @@ TEST_CASE("[SceneTree][CylinderShape3D] Tapered cylinders keep the height when a
 	CHECK(cylinder->get_height() == doctest::Approx(2.f));
 }
 
+TEST_CASE("[SceneTree][CylinderShape3D] Zero sizes are accepted, except the height of a tapered cylinder") {
+	Ref<CylinderShape3D> cylinder = memnew(CylinderShape3D);
+	ErrorDetector ed;
+
+	cylinder->set_radius(0.f);
+	cylinder->set_height(0.f);
+
+	CHECK_FALSE(ed.has_error);
+	CHECK(cylinder->get_radius() == doctest::Approx(0.f));
+	CHECK(cylinder->get_height() == doctest::Approx(0.f));
+
+	cylinder->set_height(2.f);
+	cylinder->set_tapered(true);
+	cylinder->set_bottom_radius(1.f);
+	cylinder->set_top_radius(0.f);
+
+	CHECK_FALSE(ed.has_error);
+	CHECK(cylinder->get_top_radius() == doctest::Approx(0.f));
+
+	ERR_PRINT_OFF;
+	cylinder->set_height(0.f);
+	cylinder->set_radius(-1.f);
+	ERR_PRINT_ON;
+
+	CHECK(ed.has_error);
+	CHECK(cylinder->get_height() == doctest::Approx(2.f));
+	CHECK(cylinder->get_bottom_radius() == doctest::Approx(1.f));
+}
+
 #ifdef TOOLS_ENABLED
 TEST_CASE("[SceneTree][CylinderShape3D] Undoing an inspector edit of a radius keeps the taper") {
 	Ref<CylinderShape3D> cylinder = memnew(CylinderShape3D);

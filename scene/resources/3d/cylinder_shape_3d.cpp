@@ -149,7 +149,7 @@ real_t CylinderShape3D::get_bottom_radius() const {
 }
 
 void CylinderShape3D::set_radius(const real_t p_radius) {
-	ERR_FAIL_COND_MSG(p_radius <= 0.0f, "CylinderShape3D radius cannot be negative.");
+	ERR_FAIL_COND_MSG(p_radius < 0.0f, "CylinderShape3D radius cannot be negative.");
 	top_radius = MAX(p_radius, 0);
 	bottom_radius = top_radius;
 	_update_shape();
@@ -161,8 +161,10 @@ real_t CylinderShape3D::get_radius() const {
 }
 
 void CylinderShape3D::set_height(real_t p_height) {
-	ERR_FAIL_COND_MSG(p_height <= 0.0f, "CylinderShape3D height must be positive.");
-	height = MAX(p_height, CMP_EPSILON);
+	ERR_FAIL_COND_MSG(p_height < 0.0f, "CylinderShape3D height cannot be negative.");
+	// Jolt cannot build a tapered cylinder without height.
+	ERR_FAIL_COND_MSG(tapered && p_height == 0.0f, "A tapered CylinderShape3D height must be positive.");
+	height = p_height;
 	_update_shape();
 	emit_changed();
 }

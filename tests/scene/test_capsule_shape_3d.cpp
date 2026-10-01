@@ -90,6 +90,53 @@ TEST_CASE("[SceneTree][CapsuleShape3D] Tapered capsules keep the mid height when
 	CHECK(capsule->get_bottom_radius() == doctest::Approx(1.f));
 }
 
+TEST_CASE("[SceneTree][CapsuleShape3D] An untapered capsule accepts zero sizes and rejects negative ones") {
+	Ref<CapsuleShape3D> capsule = memnew(CapsuleShape3D);
+	ErrorDetector ed;
+
+	capsule->set_height(0.f);
+
+	CHECK_FALSE(ed.has_error);
+	CHECK(capsule->get_height() == doctest::Approx(0.f));
+	CHECK(capsule->get_radius() == doctest::Approx(0.f));
+
+	capsule->set_height(2.f);
+	capsule->set_radius(0.f);
+
+	CHECK_FALSE(ed.has_error);
+	CHECK(capsule->get_height() == doctest::Approx(2.f));
+
+	ERR_PRINT_OFF;
+	capsule->set_radius(-1.f);
+	capsule->set_height(-1.f);
+	capsule->set_mid_height(-1.f);
+	ERR_PRINT_ON;
+
+	CHECK(ed.has_error);
+	CHECK(capsule->get_radius() == doctest::Approx(0.f));
+	CHECK(capsule->get_height() == doctest::Approx(2.f));
+}
+
+TEST_CASE("[SceneTree][CapsuleShape3D] A tapered capsule accepts a zero mid height but not a zero radius") {
+	Ref<CapsuleShape3D> capsule = memnew(CapsuleShape3D);
+	capsule->set_tapered(true);
+	capsule->set_bottom_radius(1.f);
+	ErrorDetector ed;
+
+	capsule->set_mid_height(0.f);
+	capsule->set_height(1.5f);
+
+	CHECK_FALSE(ed.has_error);
+	CHECK(capsule->get_mid_height() == doctest::Approx(0.f));
+
+	ERR_PRINT_OFF;
+	capsule->set_top_radius(0.f);
+	ERR_PRINT_ON;
+
+	CHECK(ed.has_error);
+	CHECK(capsule->get_top_radius() == doctest::Approx(0.5f));
+}
+
 #ifdef TOOLS_ENABLED
 TEST_CASE("[SceneTree][CapsuleShape3D] Undoing an inspector edit restores the capsule") {
 	Ref<CapsuleShape3D> capsule = memnew(CapsuleShape3D);

@@ -39,7 +39,7 @@ JPH::ShapeRefC JoltCapsuleShape3D::_build() const {
 	if (radius_top != radius_bottom) {
 		ERR_FAIL_COND_V_MSG(radius_top <= 0.0f, nullptr, vformat("Failed to build Jolt Physics tapered capsule shape with %s. Its radius_top must be greater than 0. This shape belongs to %s.", to_string(), _owners_to_string()));
 		ERR_FAIL_COND_V_MSG(radius_bottom <= 0.0f, nullptr, vformat("Failed to build Jolt Physics tapered capsule shape with %s. Its radius_bottom must be greater than 0. This shape belongs to %s.", to_string(), _owners_to_string()));
-		ERR_FAIL_COND_V_MSG(mid_height <= 0.0f, nullptr, vformat("Failed to build Jolt Physics tapered capsule shape with %s. Its mid_height must be greater than 0. This shape belongs to %s.", to_string(), _owners_to_string()));
+		ERR_FAIL_COND_V_MSG(mid_height < 0.0f, nullptr, vformat("Failed to build Jolt Physics tapered capsule shape with %s. Its mid_height cannot be negative. This shape belongs to %s.", to_string(), _owners_to_string()));
 		// This condition isn't necessary, as Jolt handles the case where the capsule becomes a sphere
 		//ERR_FAIL_COND_V_MSG(mid_height < Math::abs(radius_top - radius_bottom), nullptr, vformat("Failed to build Jolt Physics tapered capsule shape with %s. Its mid_height must be at least the absolute value of the difference of its radii. This shape belongs to %s.", to_string(), _owners_to_string()));
 
