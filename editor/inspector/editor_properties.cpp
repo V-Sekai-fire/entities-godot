@@ -1671,8 +1671,8 @@ void EditorPropertyObjectID::update_property() {
 
 	const ObjectID id = _get_object_id();
 	if (id.is_valid()) {
-		edit->set_text(type + ": " + uitos(id));
-		edit->set_tooltip_text(type + ": " + uitos(id));
+		edit->set_text(type + ": " + itos(id));
+		edit->set_tooltip_text(type + ": " + itos(id));
 		edit->set_disabled(false);
 		edit->set_button_icon(EditorNode::get_singleton()->get_class_icon(type));
 	} else {
@@ -3172,7 +3172,6 @@ void EditorPropertyNodePath::_text_submitted(const String &p_text) {
 	_node_selected(np, false);
 	edit->hide();
 	assign->show();
-	menu->show();
 }
 
 const NodePath EditorPropertyNodePath::_get_node_path() const {
