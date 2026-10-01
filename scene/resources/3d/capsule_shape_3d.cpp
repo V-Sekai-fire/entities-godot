@@ -206,8 +206,8 @@ real_t CapsuleShape3D::get_bottom_radius() const {
 }
 
 void CapsuleShape3D::set_radius(const real_t p_radius) {
-	ERR_FAIL_COND_MSG(p_radius <= 0.0f, "CapsuleShape3D radius must be positive.");
-	const real_t new_radius = MAX(p_radius, CMP_EPSILON);
+	ERR_FAIL_COND_MSG(p_radius < 0.0f, "CapsuleShape3D radius cannot be negative.");
+	const real_t new_radius = p_radius;
 	if (!tapered) {
 		mid_height = MAX(get_height(), new_radius * 2) - new_radius * 2;
 	}
@@ -222,13 +222,8 @@ real_t CapsuleShape3D::get_radius() const {
 }
 
 void CapsuleShape3D::set_mid_height(real_t p_mid_height) {
-	if (tapered) {
-		ERR_FAIL_COND_MSG(p_mid_height <= 0.0f, "CapsuleShape3D mid_height must be positive.");
-		mid_height = MAX(p_mid_height, CMP_EPSILON);
-	} else {
-		ERR_FAIL_COND_MSG(p_mid_height < 0.0f, "CapsuleShape3D mid_height cannot be negative.");
-		mid_height = p_mid_height;
-	}
+	ERR_FAIL_COND_MSG(p_mid_height < 0.0f, "CapsuleShape3D mid_height cannot be negative.");
+	mid_height = p_mid_height;
 	_update_shape();
 	emit_changed();
 }
@@ -239,10 +234,10 @@ real_t CapsuleShape3D::get_mid_height() const {
 
 void CapsuleShape3D::set_height(real_t p_height) {
 	if (tapered) {
-		ERR_FAIL_COND_MSG(p_height <= top_radius + bottom_radius, "CapsuleShape3D height cannot be smaller than both radii combined.");
-		mid_height = MAX(p_height - top_radius - bottom_radius, CMP_EPSILON);
+		ERR_FAIL_COND_MSG(p_height < top_radius + bottom_radius, "CapsuleShape3D height cannot be smaller than both radii combined.");
+		mid_height = p_height - top_radius - bottom_radius;
 	} else {
-		ERR_FAIL_COND_MSG(p_height <= 0.0f, "CapsuleShape3D height must be positive.");
+		ERR_FAIL_COND_MSG(p_height < 0.0f, "CapsuleShape3D height cannot be negative.");
 		top_radius = MIN(top_radius, p_height * 0.5f);
 		bottom_radius = top_radius;
 		mid_height = p_height - top_radius * 2;
