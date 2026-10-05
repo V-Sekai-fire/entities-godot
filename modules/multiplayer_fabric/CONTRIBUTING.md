@@ -76,7 +76,7 @@ lake build
 lake exe bvh-codegen
 ```
 
-Outputs `predictive_bvh.h` and `predictive_bvh.rs` in the same directory.
+Outputs `predictive_bvh.h` in the same directory.
 Never hand-edit — the generated code is the source of truth for all Lean-proved formulas.
 
 ## Companion projects
@@ -96,7 +96,6 @@ Generated (in `thirdparty/predictive_bvh/`):
 | File | Purpose |
 |------|---------|
 | `predictive_bvh.h` | GENERATED — R128 spatial oracle + cost model |
-| `predictive_bvh.rs` | GENERATED — Rust equivalent |
 
 External services:
 

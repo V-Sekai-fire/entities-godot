@@ -1,6 +1,6 @@
 # predictive_bvh
 
-Lean 4 formal verification and code generation for the spatial oracle used by `multiplayer_fabric`. The output is a single C header (`predictive_bvh.h`) and Rust file (`predictive_bvh.rs`) that the production module includes.
+Lean 4 formal verification and code generation for the spatial oracle used by `multiplayer_fabric`. The output is a single C header (`predictive_bvh.h`) that the production module includes.
 
 See [CONCEPT.md](CONCEPT.md) for the physics and demo story.
 
@@ -24,7 +24,7 @@ This project uses Lean 4 to prove properties like:
 - "The C7 adversarial velocity (60 m/s current_funnel spike) always exceeds the normal oracle cap" (`c7_current_funnel_exceeds_cap`)
 - "The SAH cost formula is always non-negative" (`surfaceArea_nonneg`)
 
-Then **AmoLean** (an E-graph optimizer built into this project) takes those proved formulas and compiles them to optimized C and Rust.
+Then **AmoLean** (an E-graph optimizer built into this project) takes those proved formulas and compiles them to optimized C.
 
 ## Workflow
 
@@ -33,7 +33,6 @@ Edit Lean source                  Run codegen
     │                                  │
     ▼                                  ▼
 PredictiveBVH/*.lean  ──lake build──▶  predictive_bvh.h
-                                       predictive_bvh.rs
                                             │
                                             ▼
                                     modules/multiplayer_fabric/
@@ -45,7 +44,7 @@ PredictiveBVH/*.lean  ──lake build──▶  predictive_bvh.h
 cd thirdparty/predictive_bvh
 lake build
 
-# 2. Regenerate the C/Rust output
+# 2. Regenerate the C output
 lake exe bvh-codegen
 
 # 3. Run the adversarial 1-hour simulation
@@ -78,7 +77,7 @@ PredictiveBVH/
 │   └── ScaleContradictionsGapClass.lean — concrete C7 witness
 │
 ├── Codegen/
-│   ├── CodeGen.lean        — generates predictive_bvh.h and predictive_bvh.rs
+│   ├── CodeGen.lean        — generates predictive_bvh.h
 │   └── QuinticHermite.lean — smooth interpolation kernel
 │
 ├── Resources.lean          — zone partition + Rust CRUD (GF(2)² STAGING proof)
@@ -94,7 +93,7 @@ The public physical units for this system are **Hz, seconds, and metres**. Inter
 
 ## Key constants (emitted by codegen)
 
-The Lean library is the source of truth; `Codegen/CodeGen.lean` emits inline `pbvh_*(hz)` helper functions and `PBVH_*_DEFAULT` convenience values into both `predictive_bvh.h` and `predictive_bvh.rs`. At runtime the C++ engine reads the live simulation rate from `Engine::get_physics_ticks_per_second()` and recomputes every derived quantity through the helpers. The `_DEFAULT` values are compile-time constants that wire-encoding scales use so every peer agrees on a single formula regardless of the live rate.
+The Lean library is the source of truth; `Codegen/CodeGen.lean` emits inline `pbvh_*(hz)` helper functions and `PBVH_*_DEFAULT` convenience values into `predictive_bvh.h`. At runtime the C++ engine reads the live simulation rate from `Engine::get_physics_ticks_per_second()` and recomputes every derived quantity through the helpers. The `_DEFAULT` values are compile-time constants that wire-encoding scales use so every peer agrees on a single formula regardless of the live rate.
 
 **Helpers** (shown in physical units):
 
@@ -116,7 +115,7 @@ The Lean library is the source of truth; `Codegen/CodeGen.lean` emits inline `pb
 
 **Default-rate convenience constants** (evaluated at `PBVH_SIM_TICK_HZ = 20 Hz`):
 
-| Physical meaning | C/Rust symbol |
+| Physical meaning | C symbol |
 |---|---|
 | 20 Hz startup simulation rate | `PBVH_SIM_TICK_HZ` |
 | 100 ms STAGING latency floor | `PBVH_LATENCY_TICKS_DEFAULT` |
