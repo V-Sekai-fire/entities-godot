@@ -75,6 +75,38 @@ TEST_CASE("[Skeleton3D] Test per-bone meta") {
 	memdelete(skeleton);
 }
 
+TEST_CASE("[Skeleton3D] Global poses and rests with many root bones") {
+	Skeleton3D *skeleton = memnew(Skeleton3D);
+	const int roots = 64;
+	for (int i = 0; i < roots; i++) {
+		int r = skeleton->get_bone_count();
+		skeleton->add_bone(vformat("root%d", i));
+		skeleton->add_bone(vformat("child%d", i));
+		skeleton->set_bone_parent(r + 1, r);
+		skeleton->set_bone_rest(r, Transform3D(Basis(), Vector3(i, 0, 0)));
+		skeleton->set_bone_rest(r + 1, Transform3D(Basis(), Vector3(0, 1, 0)));
+		skeleton->set_bone_pose(r, Transform3D(Basis(Vector3(0, 1, 0), 0.1 * i), Vector3(i, 2, 0)));
+		skeleton->set_bone_pose(r + 1, Transform3D(Basis(Vector3(1, 0, 0), 0.2), Vector3(0, 0.5, 0)));
+	}
+	for (int i = 0; i < roots; i++) {
+		int r = 2 * i;
+		Transform3D root_pose = skeleton->get_bone_pose(r);
+		CHECK(skeleton->get_bone_global_pose(r).is_equal_approx(root_pose));
+		CHECK(skeleton->get_bone_global_pose(r + 1).is_equal_approx(root_pose * skeleton->get_bone_pose(r + 1)));
+	}
+
+	for (int i = 0; i < roots; i++) {
+		skeleton->set_bone_rest(2 * i, Transform3D(Basis(), Vector3(i, 3, 0)));
+	}
+	skeleton->set_bone_pose(2 * (roots - 1), Transform3D(Basis(), Vector3(-1, -1, -1)));
+	for (int i = 0; i < roots; i++) {
+		int r = 2 * i;
+		CHECK(skeleton->get_bone_global_rest(r + 1).is_equal_approx(Transform3D(Basis(), Vector3(i, 4, 0))));
+		CHECK(skeleton->get_bone_global_pose(r + 1).is_equal_approx(skeleton->get_bone_pose(r) * skeleton->get_bone_pose(r + 1)));
+	}
+	memdelete(skeleton);
+}
+
 } // namespace TestSkeleton3D
 
 #endif // _3D_DISABLED

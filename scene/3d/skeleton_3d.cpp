@@ -1134,8 +1134,9 @@ void Skeleton3D::force_update_all_bone_transforms() {
 
 void Skeleton3D::_force_update_all_bone_transforms() const {
 	_update_process_order();
-	for (int i = 0; i < parentless_bones.size(); i++) {
-		_force_update_bone_children_transforms(parentless_bones[i]);
+	// One walk covers every root because _force_update_bone_children_transforms walks the whole nested set.
+	if (!parentless_bones.is_empty()) {
+		_force_update_bone_children_transforms(parentless_bones[0]);
 	}
 	if (rest_dirty) {
 		rest_dirty = false;
