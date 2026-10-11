@@ -41,7 +41,9 @@
 #include "servers/audio/audio_driver_dummy.h"
 #include "servers/display/display_server.h"
 #include "servers/display/display_server_enums.h"
+#ifdef RD_ENABLED
 #include "servers/rendering/rendering_device.h"
+#endif
 #include "servers/rendering/rendering_server.h"
 
 MovieWriter *MovieWriter::writers[MovieWriter::MAX_WRITERS];
@@ -108,9 +110,13 @@ void MovieWriter::begin(const Size2i &p_movie_size, uint32_t p_fps, const String
 	// Drivers without a RenderingDevice, such as OpenGL, have no asynchronous readback. This
 	// is decided here rather than on the first request, so no frame is queued for a download
 	// that will never be issued.
+#ifdef RD_ENABLED
 	if (RenderingDevice::get_singleton() == nullptr) {
 		async_readback = false;
 	}
+#else
+	async_readback = false; // Built without RenderingDevice (the Web and Compatibility-only builds).
+#endif
 	next_request_index = 0;
 	next_write_index = 0;
 	pending_frames.clear();
@@ -222,6 +228,7 @@ void MovieWriter::set_extensions_hint() {
 
 // Must run on the rendering thread, as texture_get_data_async is render thread guarded.
 void MovieWriter::_request_frame_async(RID p_viewport_texture, uint64_t p_index) {
+#ifdef RD_ENABLED
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	RID rd_texture = RenderingServer::get_singleton()->texture_get_rd_texture(p_viewport_texture);
 	if (rd == nullptr || rd_texture.is_null()) {
@@ -249,6 +256,10 @@ void MovieWriter::_request_frame_async(RID p_viewport_texture, uint64_t p_index)
 	}
 	rd->texture_get_data_async(rd_texture, 0,
 			callable_mp(this, &MovieWriter::_frame_data_ready).bind(p_index));
+#else
+	(void)p_viewport_texture;
+	(void)p_index;
+#endif
 }
 
 void MovieWriter::_frame_data_ready(const PackedByteArray &p_data, uint64_t p_index) {
