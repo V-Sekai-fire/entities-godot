@@ -5,7 +5,7 @@ name: 🔗 GHA
 # default branch is named rather than read from the repository.
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
   merge_group:
   workflow_dispatch:
