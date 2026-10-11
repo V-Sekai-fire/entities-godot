@@ -188,11 +188,11 @@ def main():
     P("")
     names = []
     for godot, t in template.items():
-        arr = ", ".join("{ %.6ff, %.6ff, %.6ff, %.6ff }" % c for c in t["cones"])
+        arr = ", ".join("{{ {:.6f}f, {:.6f}f, {:.6f}f, {:.6f}f }}".format(*c) for c in t["cones"])
         P(f"static const ConeF TPL_{godot}[] = {{ {arr} }};")
         names.append((godot, f"TPL_{godot}", len(t["cones"]), t["twist"], "false"))
     for bone, (twist_rad, cones) in JOINT_FANS.items():
-        arr = ", ".join("{ %.6ff, %.6ff, %.6ff, %.6ff }" % c for c in cones)
+        arr = ", ".join("{{ {:.6f}f, {:.6f}f, {:.6f}f, {:.6f}f }}".format(*c) for c in cones)
         P(f"static const ConeF TPL_{bone}[] = {{ {arr} }};")
         names.append((bone, f"TPL_{bone}", len(cones), twist_rad, "true"))
     for bone, (sw, tw) in CLINICAL.items():

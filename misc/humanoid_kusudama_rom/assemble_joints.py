@@ -31,7 +31,7 @@ with open(os.path.join(_HERE, "humanoid_joint_fans.py"), "w") as o:
     o.write("BONE_FANS = {\n")
     for b in FANS:
         tw, cones = FANS[b]
-        arr = ", ".join("(%.6f, %.6f, %.6f)" % c for c in cones)
+        arr = ", ".join("({:.6f}, {:.6f}, {:.6f})".format(*c) for c in cones)
         o.write(f"    '{b}': ({tw:.6f}, [{arr}]),\n")
     o.write("}\n")
 
@@ -52,7 +52,7 @@ with open(os.path.join(_REPO, "tests", "scene", "humanoid_kusudama_rom_gold.h"),
     o.write("static const GoldCase ROM_GOLD[] = {\n")
     for b in GOLD:
         for tx, ty, tz, sx, sy, sz in GOLD[b]:
-            o.write('\t{ "%s", { %.6ff, %.6ff, %.6ff }, { %.6ff, %.6ff, %.6ff } },\n' % (b, tx, ty, tz, sx, sy, sz))
+            o.write(f'\t{{ "{b}", {{ {tx:.6f}f, {ty:.6f}f, {tz:.6f}f }}, {{ {sx:.6f}f, {sy:.6f}f, {sz:.6f}f }} }},\n')
     o.write("};\n")
     o.write(f"static const int ROM_GOLD_COUNT = {total};\n")
     o.write("} // namespace HumanoidKusudamaRomGold\n\n#endif // HUMANOID_KUSUDAMA_ROM_GOLD_H\n")
