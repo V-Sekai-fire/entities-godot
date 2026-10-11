@@ -106,6 +106,9 @@ env_cineform.Prepend(
 if env["arch"] == "arm64":
     # The shim directory answers the codec's <emmintrin.h> includes with sse2neon.
     env_cineform.Prepend(CPPPATH=["#thirdparty/sse2neon/shim"])
+    # sse2neon warns on every optimized build that it may misbehave under optimization. It
+    # is advice, not a defect, and under werror it stops the module from building at all.
+    env_cineform.Append(CPPDEFINES=["SSE2NEON_SUPPRESS_WARNINGS"])
 
 env_thirdparty = env_cineform.Clone()
 env_thirdparty.disable_warnings()

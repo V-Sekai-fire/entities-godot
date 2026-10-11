@@ -451,8 +451,8 @@ void CassieSketchGraph::_crossings(const PackedVector3Array &p_a,
 				continue;
 			}
 			reps.push_back(mid);
-			const SplitPt sa = { cum_a[a] + s * (cum_a[a + 1] - cum_a[a]), mid };
-			const SplitPt sb = { cum_b[b] + t * (cum_b[b + 1] - cum_b[b]), mid };
+			const SplitPt sa = { cum_a[a] + s * (cum_a[a + 1] - cum_a[a]), mid, Vector3() };
+			const SplitPt sb = { cum_b[b] + t * (cum_b[b + 1] - cum_b[b]), mid, Vector3() };
 			r_a.push_back(sa);
 			r_b.push_back(sb);
 		}
