@@ -139,6 +139,9 @@ env.modules_sources += thirdparty_obj
 module_obj = []
 
 env_cineform.add_source_files(module_obj, "*.cpp")
+if env["tests"]:
+    # The test helpers need the SDK and libwebm headers, which only this environment carries.
+    env_cineform.add_source_files(module_obj, "./tests/*.cpp")
 env.modules_sources += module_obj
 
 # Needed to force rebuilding the module files when the thirdparty library is updated.
