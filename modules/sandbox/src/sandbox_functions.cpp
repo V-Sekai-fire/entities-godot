@@ -1346,7 +1346,7 @@ static Variant::Type convert_guest_type_to_variant(const String &type) {
 }
 
 Dictionary Sandbox::create_public_api_function(std::string_view name, gaddr_t address,
-		std::string_view description, std::string_view return_type, std::string_view args) {
+											   std::string_view description, std::string_view return_type, std::string_view args) {
 	Dictionary func;
 	if (name.empty() || name.size() > 64 || address == 0x0) {
 		ERR_PRINT("Sandbox: Invalid public API function.");

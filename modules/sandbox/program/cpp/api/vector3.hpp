@@ -183,7 +183,7 @@ inline Vector3 Vector3::floor() const noexcept {
 	register int syscall asm("a7") = 537; // ECALL_VEC3_OPS
 
 	__asm__ volatile("ecall"
-			: "=f"(resultX), "=f"(resultY), "=f"(resultZ)
-			: "r"(op), "r"(vptr), "m"(*vptr), "r"(syscall));
+					 : "=f"(resultX), "=f"(resultY), "=f"(resultZ)
+					 : "r"(op), "r"(vptr), "m"(*vptr), "r"(syscall));
 	return { resultX, resultY, resultZ };
 }

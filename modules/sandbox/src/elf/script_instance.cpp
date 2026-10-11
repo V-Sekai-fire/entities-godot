@@ -252,7 +252,7 @@ void ELFScriptInstance::get_property_list(List<PropertyInfo> *p_properties) cons
 			fflush(stdout);
 		}
 		PropertyInfo prop_info(property.type(), property.name(), PROPERTY_HINT_NONE, "",
-				PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_SCRIPT_VARIABLE | PROPERTY_USAGE_NIL_IS_VARIANT);
+							   PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_SCRIPT_VARIABLE | PROPERTY_USAGE_NIL_IS_VARIANT);
 		p_properties->push_back(prop_info);
 	}
 	for (const PropertyInfo &prop : prop_list) {
@@ -339,9 +339,9 @@ bool ELFScriptInstance::property_can_revert(const StringName &p_name) const {
 	const String name = p_name;
 	if (name == "references_max" || name == "memory_max" || name == "execution_timeout" || name == "allocations_max" || name == "unboxed_arguments" || name == "precise_simulation"
 #ifdef RISCV_LIBTCC
-			|| name == "binary_translation_nbit_as" || name == "binary_translation_register_caching"
+		|| name == "binary_translation_nbit_as" || name == "binary_translation_register_caching"
 #endif // RISCV_LIBTCC
-			|| name == "profiling" || name == "restrictions") {
+		|| name == "profiling" || name == "restrictions") {
 		// These are default properties that can be reverted
 		return true;
 	}

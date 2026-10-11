@@ -158,11 +158,11 @@ public:
 	template <typename Callable>
 	Function(Callable callable) noexcept {
 		static_assert(sizeof(Callable) <= FunctionStorageSize,
-				"Callable too large (greater than FunctionStorageSize)");
+					  "Callable too large (greater than FunctionStorageSize)");
 		static_assert(std::is_trivially_copy_constructible_v<Callable>,
-				"Callable not trivially copy constructible");
+					  "Callable not trivially copy constructible");
 		static_assert(std::is_trivially_destructible_v<Callable>,
-				"Callable not trivially destructible");
+					  "Callable not trivially destructible");
 
 		m_func_ptr = &trampoline<Callable>;
 

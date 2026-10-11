@@ -138,7 +138,7 @@ bool ELFScript::has_method(const StringName &p_method) const {
 	}
 	if constexpr (VERBOSE_ELFSCRIPT) {
 		printf("ELFScript::_has_method: method %s => %s\n",
-				String(p_method).utf8().ptr(), result ? "true" : "false");
+			   String(p_method).utf8().ptr(), result ? "true" : "false");
 	}
 
 	return result;

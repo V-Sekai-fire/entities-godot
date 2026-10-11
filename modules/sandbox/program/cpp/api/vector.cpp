@@ -91,8 +91,8 @@ float Vector3::length() const noexcept {
 	register int syscall asm("a7") = ECALL_VEC3_OPS;
 
 	__asm__ volatile("ecall"
-			: "=f"(length)
-			: "r"(op), "r"(vptr), "m"(*vptr), "r"(syscall));
+					 : "=f"(length)
+					 : "r"(op), "r"(vptr), "m"(*vptr), "r"(syscall));
 	return length;
 }
 
@@ -105,8 +105,8 @@ Vector3 Vector3::normalized() const noexcept {
 	register int syscall asm("a7") = ECALL_VEC3_OPS;
 
 	__asm__ volatile("ecall"
-			: "=m"(*resptr)
-			: "r"(op), "r"(vptr), "m"(*vptr), "r"(resptr), "r"(syscall));
+					 : "=m"(*resptr)
+					 : "r"(op), "r"(vptr), "m"(*vptr), "r"(resptr), "r"(syscall));
 	return result;
 }
 
@@ -118,8 +118,8 @@ float Vector3::dot(const Vector3 &other) const noexcept {
 	register int syscall asm("a7") = ECALL_VEC3_OPS;
 
 	__asm__ volatile("ecall"
-			: "=f"(dot)
-			: "r"(op), "r"(vptr), "m"(*vptr), "r"(otherptr), "m"(*otherptr), "r"(syscall));
+					 : "=f"(dot)
+					 : "r"(op), "r"(vptr), "m"(*vptr), "r"(otherptr), "m"(*otherptr), "r"(syscall));
 	return dot;
 }
 
@@ -133,8 +133,8 @@ Vector3 Vector3::cross(const Vector3 &other) const noexcept {
 	register int syscall asm("a7") = ECALL_VEC3_OPS;
 
 	__asm__ volatile("ecall"
-			: "=m"(*resptr)
-			: "r"(op), "r"(vptr), "m"(*vptr), "r"(otherptr), "m"(*otherptr), "r"(resptr), "r"(syscall));
+					 : "=m"(*resptr)
+					 : "r"(op), "r"(vptr), "m"(*vptr), "r"(otherptr), "m"(*otherptr), "r"(resptr), "r"(syscall));
 	return result;
 }
 
@@ -146,8 +146,8 @@ float Vector3::distance_to(const Vector3 &other) const noexcept {
 	register int syscall asm("a7") = ECALL_VEC3_OPS;
 
 	__asm__ volatile("ecall"
-			: "=f"(distance)
-			: "r"(op), "r"(vptr), "m"(*vptr), "r"(otherptr), "m"(*otherptr), "r"(syscall));
+					 : "=f"(distance)
+					 : "r"(op), "r"(vptr), "m"(*vptr), "r"(otherptr), "m"(*otherptr), "r"(syscall));
 	return distance;
 }
 
@@ -159,8 +159,8 @@ float Vector3::distance_squared_to(const Vector3 &other) const noexcept {
 	register int syscall asm("a7") = ECALL_VEC3_OPS;
 
 	__asm__ volatile("ecall"
-			: "=f"(distance)
-			: "r"(op), "r"(vptr), "m"(*vptr), "r"(otherptr), "m"(*otherptr), "r"(syscall));
+					 : "=f"(distance)
+					 : "r"(op), "r"(vptr), "m"(*vptr), "r"(otherptr), "m"(*otherptr), "r"(syscall));
 	return float(distance);
 }
 
@@ -172,8 +172,8 @@ float Vector3::angle_to(const Vector3 &other) const noexcept {
 	register int syscall asm("a7") = ECALL_VEC3_OPS;
 
 	__asm__ volatile("ecall"
-			: "=f"(angle)
-			: "r"(op), "r"(vptr), "m"(*vptr), "r"(otherptr), "m"(*otherptr), "r"(syscall));
+					 : "=f"(angle)
+					 : "r"(op), "r"(vptr), "m"(*vptr), "r"(otherptr), "m"(*otherptr), "r"(syscall));
 	return angle;
 }
 

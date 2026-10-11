@@ -99,7 +99,7 @@ static ProfilingMachine *requisition(const std::string &elf) {
 }
 
 static void resolve(Result &res, const Callable &callback,
-		const Sandbox::ProfilingState &gprofstate) {
+					const Sandbox::ProfilingState &gprofstate) {
 	// Try to resolve the address using addr2line
 #ifdef __linux__
 	if (USE_ADDR2LINE && !res.elf.empty()) {
@@ -107,7 +107,7 @@ static void resolve(Result &res, const Callable &callback,
 		// using popen() and fgets() to read the output
 		char buffer[4096];
 		snprintf(buffer, sizeof(buffer),
-				"riscv64-linux-gnu-addr2line -e %s -f -C 0x%lX", res.elf.c_str(), long(res.pc));
+				 "riscv64-linux-gnu-addr2line -e %s -f -C 0x%lX", res.elf.c_str(), long(res.pc));
 
 		FILE *f = popen(buffer, "r");
 		if (f) {

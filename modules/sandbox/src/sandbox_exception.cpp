@@ -153,7 +153,7 @@ void Sandbox::handle_exception(gaddr_t address) {
 			close(fd);
 
 			const char *argv[] = { getenv_with_default("GDBPATH", "/usr/bin/gdb-multiarch"), "-x",
-				scrname, nullptr };
+								   scrname, nullptr };
 			// XXX: This is not kosher, but GDB is open-source, safe and let's not
 			// pretend that anyone downloads gdb-multiarch from a website anyway.
 			// There is a finite list of things we should pass to GDB to make it

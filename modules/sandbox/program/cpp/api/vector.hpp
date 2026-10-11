@@ -102,8 +102,8 @@ struct hash<Vector3> {
 		register int syscall asm("a7") = 537; // ECALL_VEC3_OPS
 
 		__asm__ volatile("ecall"
-				: "=r"(hash)
-				: "r"(op), "r"(vptr), "m"(*vptr), "r"(syscall));
+						 : "=r"(hash)
+						 : "r"(op), "r"(vptr), "m"(*vptr), "r"(syscall));
 		return hash;
 	}
 };

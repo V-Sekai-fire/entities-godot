@@ -2064,9 +2064,9 @@ void Sandbox::initialize_syscalls() {
 			},
 			[](char *buffer, size_t len, const CPU<RISCV_ARCH> &, rv32i_instruction instr) -> int {
 				return snprintf(buffer, len,
-						"DYNCALL: 4-byte idx=0x%X (inline, 0x%X)",
-						uint32_t(instr.Itype.imm),
-						instr.whole);
+								"DYNCALL: 4-byte idx=0x%X (inline, 0x%X)",
+								uint32_t(instr.Itype.imm),
+								instr.whole);
 			}
 		};
 		// Override the machines unimplemented instruction handling,

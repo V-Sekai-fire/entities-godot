@@ -103,8 +103,8 @@ extern "C" void *__wrap_malloc(size_t size) {
 	register long syscall_id __asm__("a7") = SYSCALL_MALLOC;
 
 	asm volatile("ecall"
-			: "=m"(*(char (*)[size])ret), "=r"(ret)
-			: "r"(a0), "r"(syscall_id));
+				 : "=m"(*(char (*)[size])ret), "=r"(ret)
+				 : "r"(a0), "r"(syscall_id));
 	return ret;
 }
 extern "C" void __wrap_free(void *ptr) {
@@ -112,8 +112,8 @@ extern "C" void __wrap_free(void *ptr) {
 	register long syscall_id __asm__("a7") = SYSCALL_FREE;
 
 	asm volatile("ecall"
-			:
-			: "r"(a0), "r"(syscall_id));
+				 :
+				 : "r"(a0), "r"(syscall_id));
 }
 #else // WRAP_FANCY
 

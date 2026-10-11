@@ -57,7 +57,7 @@ void CPPScriptInstance::unset_script_instance() {
 	if (this->elf_script_instance) {
 		if constexpr (VERBOSE_LOGGING) {
 			ERR_PRINT(String("CPPScriptInstance::unset_script_instance: ") +
-					String(Object::cast_to<Node>(this->elf_script_instance->get_owner())->get_path()));
+					  String(Object::cast_to<Node>(this->elf_script_instance->get_owner())->get_path()));
 		}
 		this->elf_script_instance = nullptr;
 	}
@@ -84,7 +84,7 @@ void CPPScriptInstance::manage_script_instance(ELFScript *p_script) {
 	this->set_script_instance(this->managed_esi);
 	if constexpr (VERBOSE_LOGGING) {
 		ERR_PRINT("CPPScriptInstance::manage_script_instance: managed_esi set to " +
-				String(Object::cast_to<Node>(this->managed_esi->get_owner())->get_path()));
+				  String(Object::cast_to<Node>(this->managed_esi->get_owner())->get_path()));
 	}
 }
 
@@ -119,7 +119,7 @@ bool CPPScriptInstance::set(const StringName &p_name, const Variant &p_value) {
 		this->set_script_instance(new_elf_script->get_script_instance(object));
 		if constexpr (VERBOSE_LOGGING) {
 			ERR_PRINT("CPPScriptInstance::set: associated_script to " +
-					new_elf_script->get_path());
+					  new_elf_script->get_path());
 		}
 		return true;
 	}
@@ -149,7 +149,7 @@ bool CPPScriptInstance::get(const StringName &p_name, Variant &r_ret) const {
 			r_ret = elf_script_instance->get_owner();
 			if constexpr (VERBOSE_LOGGING) {
 				ERR_PRINT("CPPScriptInstance::get: associated_script is " +
-						String(Object::cast_to<Node>(elf_script_instance->get_owner())->get_path()));
+						  String(Object::cast_to<Node>(elf_script_instance->get_owner())->get_path()));
 			}
 			return true;
 		}
@@ -222,7 +222,7 @@ Variant CPPScriptInstance::callp(
 		r_error.error = Callable::CallError::CALL_OK;
 		if constexpr (VERBOSE_LOGGING) {
 			ERR_PRINT("CPPScriptInstance::callp: set_associated_script to " +
-					String(Object::cast_to<Node>(elf_script_instance->get_owner())->get_path()));
+					  String(Object::cast_to<Node>(elf_script_instance->get_owner())->get_path()));
 		}
 		return Variant();
 	} else if (p_method == StringName("get_associated_script")) {
@@ -238,7 +238,7 @@ Variant CPPScriptInstance::callp(
 			r_error.error = Callable::CallError::CALL_OK;
 			if constexpr (VERBOSE_LOGGING) {
 				ERR_PRINT("CPPScriptInstance::callp: get_associated_script is set to " +
-						String(Object::cast_to<Node>(elf_script_instance->get_owner())->get_path()));
+						  String(Object::cast_to<Node>(elf_script_instance->get_owner())->get_path()));
 			}
 			return elf_script_instance->get_owner();
 		}
@@ -299,7 +299,7 @@ void CPPScriptInstance::get_property_list(List<PropertyInfo> *p_properties) cons
 
 	// Add a property for 'associated_script'
 	PropertyInfo prop(Variant::OBJECT, "associated_script", PROPERTY_HINT_RESOURCE_TYPE, "ELFScript",
-			PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NODE_PATH_FROM_SCENE_ROOT);
+					  PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NODE_PATH_FROM_SCENE_ROOT);
 	p_properties->push_back(prop);
 
 	if constexpr (VERBOSE_LOGGING) {
@@ -436,7 +436,7 @@ CPPScriptInstance::CPPScriptInstance(Object *p_owner, const Ref<CPPScript> p_scr
 		if constexpr (VERBOSE_LOGGING) {
 			bool r_valid;
 			ERR_PRINT("CPPScriptInstance: managed_esi set to " +
-					this->managed_esi->to_string(&r_valid));
+					  this->managed_esi->to_string(&r_valid));
 		}
 		this->set_script_instance(this->managed_esi);
 	} else {

@@ -179,8 +179,8 @@ inline float Vector2::length() const noexcept {
 	register int syscall asm("a7") = 514; // ECALL_VEC2_LENGTH
 
 	__asm__ volatile("ecall"
-			: "+f"(x)
-			: "f"(y), "r"(syscall));
+					 : "+f"(x)
+					 : "f"(y), "r"(syscall));
 	return x;
 }
 
@@ -190,8 +190,8 @@ inline Vector2 Vector2::normalized() const noexcept {
 	register int syscall asm("a7") = 515; // ECALL_VEC2_NORMALIZED
 
 	__asm__ volatile("ecall"
-			: "+f"(x), "+f"(y)
-			: "r"(syscall));
+					 : "+f"(x), "+f"(y)
+					 : "r"(syscall));
 	return { x, y };
 }
 
@@ -202,8 +202,8 @@ inline Vector2 Vector2::rotated(real_t angle) const noexcept {
 	register int syscall asm("a7") = 516; // ECALL_VEC2_ROTATED
 
 	__asm__ volatile("ecall"
-			: "+f"(x), "+f"(y)
-			: "f"(a), "r"(syscall));
+					 : "+f"(x), "+f"(y)
+					 : "f"(a), "r"(syscall));
 	return { x, y };
 }
 
@@ -222,8 +222,8 @@ inline Vector2 Vector2::sincos(float angle) noexcept {
 	register int syscall asm("a7") = 513; // ECALL_SINCOS
 
 	__asm__ volatile("ecall"
-			: "+f"(s), "=f"(c)
-			: "r"(syscall));
+					 : "+f"(s), "=f"(c)
+					 : "r"(syscall));
 	return { s, c }; // (sine, cosine)
 }
 inline Vector2 Vector2::from_angle(float angle) noexcept {

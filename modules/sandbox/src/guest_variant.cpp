@@ -83,7 +83,7 @@ Variant GuestVariant::toVariant(const Sandbox &emu) const {
 			} else {
 				char buffer[128];
 				snprintf(buffer, sizeof(buffer), "GuestVariant::toVariant(): %u (%s) is not known/scoped",
-						type, GuestVariant::type_name(type));
+						 type, GuestVariant::type_name(type));
 				throw std::runtime_error(buffer);
 			}
 	}
@@ -95,7 +95,7 @@ const Variant *GuestVariant::toVariantPtr(const Sandbox &emu) const {
 
 	char buffer[128];
 	snprintf(buffer, sizeof(buffer), "GuestVariant::toVariantPtr(): %u (%s) is not known/scoped",
-			type, GuestVariant::type_name(type));
+			 type, GuestVariant::type_name(type));
 	throw std::runtime_error(buffer);
 }
 

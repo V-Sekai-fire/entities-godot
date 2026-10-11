@@ -103,7 +103,7 @@ bool Sandbox::unshare_array(gaddr_t address) {
 	}
 
 	auto it = std::find_if(this->m_shared_memory_ranges.begin(), this->m_shared_memory_ranges.end(),
-			[address](const auto &range) { return range.contains(address); });
+						   [address](const auto &range) { return range.contains(address); });
 
 	if (it == this->m_shared_memory_ranges.end()) {
 		ERR_PRINT("Address is not in a shared memory range.");

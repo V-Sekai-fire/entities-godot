@@ -63,7 +63,7 @@ inline void print(Args &&...vars) {
 		else
 			vptrs[idx++] = Variant(vars);
 	}(),
-			...);
+	 ...);
 	sys_print(vptrs.data(), vptrs.size());
 }
 

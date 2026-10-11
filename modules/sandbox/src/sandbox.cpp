@@ -648,7 +648,7 @@ bool Sandbox::load(const PackedByteArray *buffer, const std::vector<std::string>
 				m.cpu.simulate_precise();
 				if (m.instruction_limit_reached()) {
 					throw riscv::MachineTimeoutException(riscv::MAX_INSTRUCTIONS_REACHED,
-							"Instruction count limit reached", max_instr);
+														 "Instruction count limit reached", max_instr);
 				}
 			}
 		}
@@ -1109,7 +1109,7 @@ Variant Sandbox::vmcall_internal(gaddr_t address, const Variant **args, int argc
 				m_machine->cpu.simulate_precise();
 				if (m_machine->instruction_limit_reached()) {
 					throw riscv::MachineTimeoutException(riscv::MAX_INSTRUCTIONS_REACHED,
-							"Instruction count limit reached", max_instr);
+														 "Instruction count limit reached", max_instr);
 				}
 			} else if (UNLIKELY(this->get_profiling())) {
 				LocalProfilingData &profdata = *this->m_local_profiling_data;
