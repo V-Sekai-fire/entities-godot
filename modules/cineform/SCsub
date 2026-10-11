@@ -137,6 +137,11 @@ env_libwebm.add_source_files(thirdparty_obj, libwebm_sources)
 
 env.modules_sources += thirdparty_obj
 
+# Off Windows the SDK makes its stream GUIDs with uuid_generate. On macOS that is in
+# libSystem; on Linux it lives in libuuid, which nothing else in the engine links.
+if env["platform"] == "linuxbsd":
+    env.Append(LIBS=["uuid"])
+
 # Godot source files
 
 module_obj = []
