@@ -50,7 +50,7 @@ TURBO_TYPES = [("GGML_TYPE_TURBO2_0", 43), ("GGML_TYPE_TURBO3_0", 44), ("GGML_TY
 def arch_blocks(text, arch):
     """Every `case LLM_ARCH_<arch>:` block, up to the next case label."""
     out = []
-    for m in re.finditer(r"case\s+LLM_ARCH_%s\s*:" % re.escape(arch), text):
+    for m in re.finditer(rf"case\s+LLM_ARCH_{re.escape(arch)}\s*:", text):
         nxt = re.search(r"case\s+LLM_ARCH_\w+\s*:", text[m.end() :])
         out.append(text[m.end() : m.end() + (nxt.start() if nxt else 4000)])
     return out
@@ -62,7 +62,7 @@ def arch_blocks(text, arch):
 
 def check_turbo_types(ggml_h):
     missing = [n for n, i in TURBO_TYPES if not re.search(r"%s\s*=\s*%d" % (n, i), ggml_h)]
-    return (not missing, "all three present" if not missing else "missing/renumbered: %s" % ", ".join(missing))
+    return (not missing, "all three present" if not missing else "missing/renumbered: {}".format(", ".join(missing)))
 
 
 def check_gap_hparams(model_cpp):
@@ -95,7 +95,7 @@ def check_gap_spectype(common_h, arg_cpp):
     in_flag = "draft-mtp" in arg_cpp
     hit = in_enum or in_flag
     where = ", ".join([w for w, h in (("common.h enum", in_enum), ("arg.cpp flag", in_flag)) if h])
-    return (not hit, "absent as claimed" if not hit else "PRESENT in %s -- CLAUDE.md is stale" % where)
+    return (not hit, "absent as claimed" if not hit else f"PRESENT in {where} -- CLAUDE.md is stale")
 
 
 def check_model_size(size):
@@ -106,7 +106,7 @@ def check_model_size(size):
 
 
 def check_model_hash(digest):
-    return digest == MODEL_SHA256, digest[:16] + "..." if digest == MODEL_SHA256 else "got %s..." % digest[:16]
+    return digest == MODEL_SHA256, digest[:16] + "..." if digest == MODEL_SHA256 else f"got {digest[:16]}..."
 
 
 def check_base(upstream, vendored, expected=BASE_COMMIT):
@@ -116,14 +116,14 @@ def check_base(upstream, vendored, expected=BASE_COMMIT):
         return subprocess.run(["git", "-C", upstream] + list(a), capture_output=True, text=True).stdout.strip()
 
     if not git("rev-parse", "--git-dir"):
-        return False, "%s is not a git repository" % upstream
+        return False, f"{upstream} is not a git repository"
     mismatched = []
     for f in CLEAN_FILES:
         p = os.path.join(vendored, f)
         if not os.path.exists(p):
-            return False, "vendored file missing: %s" % f
+            return False, f"vendored file missing: {f}"
         local = subprocess.run(["git", "hash-object", p], capture_output=True, text=True).stdout.strip()
-        if git("rev-parse", "%s:%s" % (expected, f)) != local:
+        if git("rev-parse", f"{expected}:{f}") != local:
             mismatched.append(f)
     if mismatched:
         return False, "%d/%d clean files differ at %s: %s" % (
@@ -147,9 +147,9 @@ def check_mtp_head(arch, nextn_layers, block_count, names):
     that cannot draft. Checking only for 'nextn' would pass that file.
     """
     if arch != "qwen35":
-        return False, "architecture is %r, expected qwen35" % arch
+        return False, f"architecture is {arch!r}, expected qwen35"
     if not nextn_layers or nextn_layers < 1:
-        return False, "nextn_predict_layers = %r" % nextn_layers
+        return False, f"nextn_predict_layers = {nextn_layers!r}"
     if not block_count:
         return False, "no block_count in metadata"
 
@@ -237,7 +237,7 @@ def read_gguf_mtp(path, _unused=None):
         pos += 4 + 8  # ggml type + offset
 
     arch = kv.get("general.architecture")
-    return (arch, kv.get("%s.nextn_predict_layers" % arch), kv.get("%s.block_count" % arch), names)
+    return (arch, kv.get(f"{arch}.nextn_predict_layers"), kv.get(f"{arch}.block_count"), names)
 
 
 def declared_mtp_state(claude_text):
@@ -275,14 +275,14 @@ def check_mtp_state(model_cpp, qwen35_cpp, common_h, arg_cpp, declared):
     absent = [k for k, v in obs.items() if not v]
 
     if present and absent:
-        return False, "PARTIAL rebase -- present: %s / absent: %s" % (
+        return False, "PARTIAL rebase -- present: {} / absent: {}".format(
             ",".join(sorted(present)),
             ",".join(sorted(absent)),
         )
     actual = "present" if present else "absent"
     if actual != declared:
-        return False, "tree is %s but CLAUDE.md declares %s" % (actual, declared)
-    return True, "all four %s, matches declared stage" % actual
+        return False, f"tree is {actual} but CLAUDE.md declares {declared}"
+    return True, f"all four {actual}, matches declared stage"
 
 
 def parse_gitrepo(text):
@@ -313,10 +313,10 @@ def check_remote_authority(push_urls):
         if url.startswith("DISABLED"):
             continue
         low = url.lower()
-        if not any(("/%s/" % o) in low or (":%s/" % o) in low for o in OWNED_ORGS):
-            offenders.append("%s:%s -> %s" % (repo, name, url))
+        if not any((f"/{o}/") in low or (f":{o}/") in low for o in OWNED_ORGS):
+            offenders.append(f"{repo}:{name} -> {url}")
     if offenders:
-        return False, "push URL outside owned orgs: %s" % "; ".join(offenders[:3])
+        return False, "push URL outside owned orgs: {}".format("; ".join(offenders[:3]))
     return True, "%d push URLs, all owned or disabled" % len(push_urls)
 
 
@@ -350,10 +350,10 @@ def check_subtree_doc(split, remotes, gitrepo_exists, claude_text):
     if not split:
         return False, "no git-subtree-split found for thirdparty/llama_cpp"
     if split not in claude_text:
-        return False, "CLAUDE.md does not state the split commit %s" % split[:12]
+        return False, f"CLAUDE.md does not state the split commit {split[:12]}"
     if not any("llama-cpp-turboquant" in r for r in remotes):
         return False, "no git remote points at llama-cpp-turboquant"
-    return True, "split %s, remote present, .gitrepo gone" % split[:12]
+    return True, f"split {split[:12]}, remote present, .gitrepo gone"
 
 
 def read_subtree_state(repo_root, prefix="thirdparty/llama_cpp"):
@@ -383,13 +383,13 @@ def check_mtp_upstream(upstream, commit=MTP_UPSTREAM):
 
     rc, subj = git("log", "-1", "--format=%s", commit)
     if rc != 0:
-        return False, "commit %s not found in %s" % (commit, upstream)
+        return False, f"commit {commit} not found in {upstream}"
     if "MTP" not in subj:
-        return False, "%s is not the MTP commit: %r" % (commit, subj[:60])
+        return False, f"{commit} is not the MTP commit: {subj[:60]!r}"
     rc, _ = git("merge-base", "--is-ancestor", commit, "master")
     if rc != 0:
-        return False, "%s is NOT an ancestor of master" % commit
-    return True, "%s ancestor of master: %s" % (commit, subj[:44])
+        return False, f"{commit} is NOT an ancestor of master"
+    return True, f"{commit} ancestor of master: {subj[:44]}"
 
 
 def sha256(path):
@@ -416,9 +416,9 @@ def guard(name, fn):
     try:
         return name, fn()
     except Missing as e:
-        return name, (False, "required file missing: %s" % e)
+        return name, (False, f"required file missing: {e}")
     except Exception as e:  # noqa: BLE001 - a broken check must fail, not vanish
-        return name, (False, "check raised %s: %s" % (type(e).__name__, e))
+        return name, (False, f"check raised {type(e).__name__}: {e}")
 
 
 def self_test():
@@ -516,11 +516,11 @@ def self_test():
         # MTP layer's own weights -- that file loads and then cannot draft.
         (
             "head: nextn without full block",
-            lambda: check_mtp_head("qwen35", 1, 65, ["blk.64.nextn.%s.weight" % s for s in NEXTN_SUFFIXES]),
+            lambda: check_mtp_head("qwen35", 1, 65, [f"blk.64.nextn.{s}.weight" for s in NEXTN_SUFFIXES]),
         ),
         (
             "head: nextn tensors stripped",
-            lambda: check_mtp_head("qwen35", 1, 65, ["blk.64.%s.weight" % s for s in BLOCK_TENSORS]),
+            lambda: check_mtp_head("qwen35", 1, 65, [f"blk.64.{s}.weight" for s in BLOCK_TENSORS]),
         ),
         ("head: wrong architecture", lambda: check_mtp_head("llama", 1, 65, [])),
         ("head: no nextn layers", lambda: check_mtp_head("qwen35", 0, 65, [])),
@@ -579,13 +579,13 @@ def main():
         try:
             results.append(("model MTP head", check_mtp_head(*read_gguf_mtp(args.model, os.path.join(LC, "gguf-py")))))
         except Exception as e:
-            results.append(("model MTP head", (False, "could not read GGUF: %s" % e)))
+            results.append(("model MTP head", (False, f"could not read GGUF: {e}")))
         if args.hash:
             results.append(("model sha256", check_model_hash(sha256(args.model))))
         else:
             unchecked.append("model sha256 (pass --hash)")
     else:
-        results.append(("model present", (False, "not found: %s" % args.model)))
+        results.append(("model present", (False, f"not found: {args.model}")))
 
     # The blob-fingerprint base check is deliberately gone. It existed only to
     # recover a base commit that git-subrepo's squash had thrown away. git
@@ -597,7 +597,7 @@ def main():
     if args.base:
         results.append(guard("upstream MTP fix", lambda: check_mtp_upstream(args.base)))
     else:
-        unchecked.append("upstream MTP fix %s (pass --base UPSTREAM_CLONE)" % MTP_UPSTREAM)
+        unchecked.append(f"upstream MTP fix {MTP_UPSTREAM} (pass --base UPSTREAM_CLONE)")
 
     failed = 0
     for name, (ok, detail) in results:
