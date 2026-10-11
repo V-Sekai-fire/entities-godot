@@ -212,6 +212,51 @@ struct block_q1_0
 #define A_TYPE block_q1_0
 #endif
 
+// PTQ1_0: ternary at group 128, base-3 packed five trits per byte.
+// Field order mirrors block_ptq1_0 in ggml-common.h EXACTLY -- qs, then qh, then d.
+// Unlike q1_0 the scale is LAST, and getting that wrong silently misindexes every
+// block rather than failing loudly.
+#define QUANT_K_PTQ1_0 128
+#define QUANT_R_PTQ1_0 1
+
+struct block_ptq1_0
+{
+    uint8_t qs[24];
+    uint8_t qh[2];
+    float16_t d;
+};
+
+#if defined(DATA_A_PTQ1_0)
+#define QUANT_K QUANT_K_PTQ1_0
+#define QUANT_R QUANT_R_PTQ1_0
+#define QUANT_AUXF 1
+#define A_TYPE block_ptq1_0
+#endif
+
+// PQ2_0: Prism Q2_0 at group 128 (same 2-bit codec, one fp16 scale per 128).
+#define QUANT_K_PQ2_0 128
+#define QUANT_R_PQ2_0 1
+
+struct block_pq2_0
+{
+    float16_t d;
+    uint8_t qs[QUANT_K_PQ2_0 / 4];
+};
+
+struct block_pq2_0_packed16
+{
+    float16_t d;
+    uint16_t qs[QUANT_K_PQ2_0 / 8];
+};
+
+#if defined(DATA_A_PQ2_0)
+#define QUANT_K QUANT_K_PQ2_0
+#define QUANT_R QUANT_R_PQ2_0
+#define QUANT_AUXF 1
+#define A_TYPE block_pq2_0
+#define A_TYPE_PACKED16 block_pq2_0_packed16
+#endif
+
 #define QUANT_K_Q2_0 64
 #define QUANT_R_Q2_0 1
 
@@ -301,6 +346,30 @@ struct block_q2_K_packed32
 #define A_TYPE_PACKED16 block_q2_K_packed16
 #define A_TYPE_PACKED32 block_q2_K_packed32
 #define SCALES_PER_32 2
+#define DATA_A_QUANT_K
+#endif
+
+#define QUANT_K_TQ2_0 256
+
+// ternary (BitNet): 2-bit codes, w = (q - 1) * d; qs layout matches q2_K's
+// two 32-byte groups with four bit-levels per byte
+struct block_tq2_0
+{
+    uint8_t qs[QUANT_K_TQ2_0/4];
+    float16_t d;
+};
+
+struct block_tq2_0_packed16
+{
+    uint16_t qs[QUANT_K_TQ2_0/4/2];
+    float16_t d;
+};
+
+#if defined(DATA_A_TQ2_0)
+#define QUANT_K QUANT_K_TQ2_0
+#define QUANT_R 1
+#define A_TYPE block_tq2_0
+#define A_TYPE_PACKED16 block_tq2_0_packed16
 #define DATA_A_QUANT_K
 #endif
 

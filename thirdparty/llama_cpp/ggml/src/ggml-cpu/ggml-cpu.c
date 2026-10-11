@@ -5,6 +5,7 @@
 #include "ggml-backend.h"
 #include "traits.h"
 #include "ggml-cpu-impl.h"
+#include "ggml-cpu.h"
 #include "ggml-impl.h"
 #include "quants.h"
 #include "ggml-quants.h"
@@ -253,6 +254,18 @@ static const struct ggml_type_traits_cpu type_traits_cpu[GGML_TYPE_COUNT] = {
     [GGML_TYPE_Q2_0] = {
         .from_float               = quantize_row_q2_0,
         .vec_dot                  = ggml_vec_dot_q2_0_q8_0,
+        .vec_dot_type             = GGML_TYPE_Q8_0,
+        .nrows                    = 1,
+    },
+    [GGML_TYPE_PQ2_0] = {
+        .from_float               = quantize_row_pq2_0,
+        .vec_dot                  = ggml_vec_dot_pq2_0_q8_K,
+        .vec_dot_type             = GGML_TYPE_Q8_K,
+        .nrows                    = 1,
+    },
+    [GGML_TYPE_PTQ1_0] = {
+        .from_float               = quantize_row_ptq1_0,
+        .vec_dot                  = ggml_vec_dot_ptq1_0_q8_0,
         .vec_dot_type             = GGML_TYPE_Q8_0,
         .nrows                    = 1,
     },
@@ -1211,6 +1224,33 @@ void ggml_set_f32_nd(const struct ggml_tensor * tensor, int i0, int i1, int i2, 
 
 // ggml_compute_forward_mul_mat
 
+// PQ2_0 stores 128 weights per block, so any multiple of 128 is a legal row width and models in
+// the wild contain rows of 128, 384, 640, ... The fast PQ2_0 kernels consume Q8_K activations,
+// which only exist in 256-element blocks; a row that is not a multiple of 256 cannot be expressed
+// in Q8_K at all, and forcing it through that path reads past the activation buffer and returns
+// garbage (or trips ggml_row_size's block-size assert on builds where it is enabled).
+//
+// Those rows keep the Q8_0 activation path they used before the Q8_K kernels landed: correct, and
+// still the AVX2 kernel rather than the generic scalar dot. Every other PQ2_0 row, which is the
+// overwhelming majority in practice, is untouched and keeps the faster Q8_K path.
+static inline bool ggml_cpu_pq2_needs_q8_0(const struct ggml_tensor * src0) {
+    return src0->type == GGML_TYPE_PQ2_0 && (src0->ne[0] % QK_K) != 0;
+}
+
+static inline enum ggml_type ggml_cpu_vec_dot_type(const struct ggml_tensor * src0) {
+    if (ggml_cpu_pq2_needs_q8_0(src0)) {
+        return GGML_TYPE_Q8_0;
+    }
+    return type_traits_cpu[src0->type].vec_dot_type;
+}
+
+static inline ggml_vec_dot_t ggml_cpu_vec_dot(const struct ggml_tensor * src0) {
+    if (ggml_cpu_pq2_needs_q8_0(src0)) {
+        return ggml_vec_dot_pq2_0_q8_0;
+    }
+    return type_traits_cpu[src0->type].vec_dot;
+}
+
 static void ggml_compute_forward_mul_mat_one_chunk(
     const struct ggml_compute_params * params,
     struct ggml_tensor * dst,
@@ -1224,12 +1264,14 @@ static void ggml_compute_forward_mul_mat_one_chunk(
     const struct ggml_tensor * src0 = dst->src[0];
     const struct ggml_tensor * src1 = dst->src[1];
 
+    GGML_UNUSED(type);
+
     GGML_TENSOR_BINARY_OP_LOCALS
 
     const bool src1_cont = ggml_is_contiguous(src1);
 
-    ggml_vec_dot_t const vec_dot      = type_traits_cpu[type].vec_dot;
-    enum ggml_type const vec_dot_type = type_traits_cpu[type].vec_dot_type;
+    ggml_vec_dot_t const vec_dot      = ggml_cpu_vec_dot(src0);
+    enum ggml_type const vec_dot_type = ggml_cpu_vec_dot_type(src0);
 
     // broadcast factors
     const int64_t r2 = ne12 / ne02;
@@ -1319,7 +1361,7 @@ void ggml_compute_forward_mul_mat(
     const int ith = params->ith;
     const int nth = params->nth;
 
-    enum ggml_type           const vec_dot_type         = type_traits_cpu[src0->type].vec_dot_type;
+    enum ggml_type           const vec_dot_type         = ggml_cpu_vec_dot_type(src0);
     ggml_from_float_t        const from_float           = type_traits_cpu[vec_dot_type].from_float;
     int64_t                  const vec_dot_num_rows     = type_traits_cpu[src0->type].nrows;
 
@@ -1378,7 +1420,9 @@ UseGgmlGemm1:;
         const size_t nbw3 = nbw2*ne12;
 
         assert(params->wsize >= ne13*nbw3);
-        GGML_ASSERT(src1->type == GGML_TYPE_F32);
+        // F16 src1 converts straight to float, so wdata rows must be floats; a quantized vec_dot_type would overrun the buffer
+        GGML_ASSERT(src1->type == GGML_TYPE_F32 ||
+                    (src1->type == GGML_TYPE_F16 && vec_dot_type == GGML_TYPE_F32));
 
     #if 0
         for (int64_t i13 = 0; i13 < ne13; ++i13) {
@@ -1397,9 +1441,15 @@ UseGgmlGemm1:;
                     size_t bs = ggml_blck_size(vec_dot_type);
                     int64_t ne10_block_start = (ith * ne10/bs) / nth;
                     int64_t ne10_block_end   = ((ith + 1) * ne10/bs) / nth;
-                    from_float((float *)((char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11 + ne10_block_start*bs*nb10),
-                               (void *)               (wdata + i13*nbw3 + i12*nbw2 + i11*nbw1 + ne10_block_start*nbw0),
-                               (ne10_block_end - ne10_block_start) * bs);
+                    const char * src1_block = (const char *) src1->data + i13*nb13 + i12*nb12 + i11*nb11 + ne10_block_start*bs*nb10;
+                    char * dst_block = wdata + i13*nbw3 + i12*nbw2 + i11*nbw1 + ne10_block_start*nbw0;
+                    const int64_t n_block = (ne10_block_end - ne10_block_start) * bs;
+
+                    if (src1->type == GGML_TYPE_F32) {
+                        from_float((const float *) src1_block, dst_block, n_block);
+                    } else {
+                        ggml_cpu_fp16_to_fp32((const ggml_fp16_t *) src1_block, (float *) dst_block, n_block);
+                    }
                 }
             }
         }
@@ -1529,10 +1579,8 @@ static void ggml_compute_forward_mul_mat_id_one_chunk(
 
     GGML_TENSOR_BINARY_OP_LOCALS
 
-    const enum ggml_type type = src0->type;
-
-    ggml_vec_dot_t    const vec_dot      = type_traits_cpu[type].vec_dot;
-    enum ggml_type    const vec_dot_type = type_traits_cpu[type].vec_dot_type;
+    ggml_vec_dot_t    const vec_dot      = ggml_cpu_vec_dot(src0);
+    enum ggml_type    const vec_dot_type = ggml_cpu_vec_dot_type(src0);
 
     const int64_t blck_0 = 16;
     const int64_t blck_1 = 16;
@@ -1606,7 +1654,7 @@ static void ggml_compute_forward_mul_mat_id_impl(
 
     const bool src1_cont = ggml_is_contiguous(src1);
 
-    enum ggml_type    const vec_dot_type    = type_traits_cpu[type].vec_dot_type;
+    enum ggml_type    const vec_dot_type    = ggml_cpu_vec_dot_type(src0);
     ggml_from_float_t const from_float      = type_traits_cpu[vec_dot_type].from_float;
 
     // we don't support permuted src0 or src1
@@ -2793,7 +2841,7 @@ static bool ggml_thread_apply_priority(int32_t prio) {
     return true;
 }
 
-#elif defined(__gnu_linux__)
+#elif defined(__linux__)
 // TODO: this may not work on BSD, to be verified
 
 static bool ggml_thread_apply_affinity(const bool * mask) {
@@ -2980,6 +3028,11 @@ struct ggml_cplan ggml_graph_plan(
     n_threads = 1;
 #endif
 
+#if defined(__wasi__)
+    // WASI doesn't support parallelism yet
+    n_threads = 1;
+#endif
+
     size_t work_size = 0;
 
     struct ggml_cplan cplan;
@@ -3032,7 +3085,7 @@ struct ggml_cplan ggml_graph_plan(
                     } break;
                 case GGML_OP_MUL_MAT:
                     {
-                        const enum ggml_type vec_dot_type = type_traits_cpu[node->src[0]->type].vec_dot_type;
+                        const enum ggml_type vec_dot_type = ggml_cpu_vec_dot_type(node->src[0]);
 
                         if (node->src[1]->type != vec_dot_type) {
                             cur = ggml_row_size(vec_dot_type, ggml_nelements(node->src[1]));
@@ -3044,7 +3097,7 @@ struct ggml_cplan ggml_graph_plan(
                         const struct ggml_tensor * src0 = node->src[0];
                         const struct ggml_tensor * src1 = node->src[1];
                         const struct ggml_tensor * ids = node->src[2];
-                        const enum ggml_type vec_dot_type = type_traits_cpu[src0->type].vec_dot_type;
+                        const enum ggml_type vec_dot_type = ggml_cpu_vec_dot_type(src0);
                         const int n_as = src0->ne[2];
                         // src1
                         if (src1->type != vec_dot_type) {

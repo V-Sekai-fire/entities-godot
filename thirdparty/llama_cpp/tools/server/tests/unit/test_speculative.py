@@ -25,33 +25,58 @@ def fixture_create_server():
 
 def test_with_and_without_draft():
     global server
+    request = {
+        "prompt": "I believe the meaning of life is",
+        "temperature": 0.2,
+        "top_k": 5,
+        "seed": 4242,
+        "n_predict": 16,
+        "return_tokens": True,
+    }
+
     server.model_draft = None  # disable draft model
     server.spec_type = None
     server.start()
-    res = server.make_request("POST", "/completion", data={
-        "prompt": "I believe the meaning of life is",
-        "temperature": 0.0,
-        "top_k": 1,
-        "n_predict": 16,
-    })
+    res = server.make_request("POST", "/completion", data=request)
     assert res.status_code == 200
-    content_no_draft = res.body["content"]
+    tokens_no_draft = res.body["tokens"]
     server.stop()
 
     # create new server with draft model
     create_server()
     server.start()
-    res = server.make_request("POST", "/completion", data={
-        "prompt": "I believe the meaning of life is",
-        "temperature": 0.0,
-        "top_k": 1,
-        "n_predict": 16,
-    })
+    res = server.make_request("POST", "/completion", data=request)
     assert res.status_code == 200
     assert res.body["timings"]["draft_n"] > 0
-    content_draft = res.body["content"]
+    tokens_draft = res.body["tokens"]
 
-    assert content_no_draft == content_draft
+    assert tokens_no_draft == tokens_draft
+
+
+def test_draft_acceptance_floor():
+    # The other tests check that drafting happens, not that drafts are accepted.
+    # This drafter/target pair is mismatched on purpose, so accept is only 15-17%.
+    global server
+    server.start()
+    for prompt in [
+        "I believe the meaning of life is",
+        "Once upon a time there was a little girl who",
+    ]:
+        res = server.make_request("POST", "/completion", data={
+            "prompt": prompt,
+            "temperature": 0.0,
+            "top_k": 1,
+            "n_predict": 64,
+        })
+        assert res.status_code == 200
+        draft_n = res.body["timings"]["draft_n"]
+        draft_n_accepted = res.body["timings"]["draft_n_accepted"]
+        assert draft_n > 0, f"nothing was drafted for {prompt!r}"
+        accept_rate = draft_n_accepted / draft_n
+        assert accept_rate > 0.05, (
+            f"draft acceptance collapsed to {100 * accept_rate:.2f}% "
+            f"({draft_n_accepted}/{draft_n}) for {prompt!r}"
+        )
 
 
 def test_different_draft_min_draft_max():

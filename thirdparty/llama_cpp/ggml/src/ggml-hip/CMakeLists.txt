@@ -66,6 +66,8 @@ file(GLOB   SRCS "../ggml-cuda/template-instances/fattn-tile*.cu")
 list(FILTER SRCS EXCLUDE REGEX "dkq(576|640)")
 list(APPEND GGML_SOURCES_ROCM ${SRCS})
 file(GLOB   SRCS "../ggml-cuda/template-instances/fattn-mma*.cu")
+# Native q4_0/q8_0 K/V MMA instances are NVIDIA-only (ggml_cuda_fattn_mma_kv_native_supported).
+list(FILTER SRCS EXCLUDE REGEX "fattn-mma-f16-instance-q[48]_0-")
 list(APPEND GGML_SOURCES_ROCM ${SRCS})
 file(GLOB   SRCS "../ggml-cuda/template-instances/mmq*.cu")
 list(APPEND GGML_SOURCES_ROCM ${SRCS})
@@ -152,9 +154,6 @@ endif()
 if (GGML_HIP_EXPORT_METRICS)
     set(CMAKE_HIP_FLAGS "${CMAKE_HIP_FLAGS} -Rpass-analysis=kernel-resource-usage --save-temps")
 endif()
-
-# Fast math for HIP, like CUDA's -use_fast_math. Not -ffast-math: that implies -ffinite-math-only, which breaks ggml's INFINITY masking and produces NaNs.
-set(CMAKE_HIP_FLAGS "${CMAKE_HIP_FLAGS} -funsafe-math-optimizations")
 
 if (NOT GGML_CUDA_FA)
     add_compile_definitions(GGML_CUDA_NO_FA)

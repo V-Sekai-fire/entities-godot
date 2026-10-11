@@ -70,21 +70,50 @@ cmake --build build --config Release
     - Tab Workload: Desktop-development with C++
     - Tab Components (select quickly via search): C++-_CMake_ Tools for Windows, _Git_ for Windows, C++-_Clang_ Compiler for Windows, MS-Build Support for LLVM-Toolset (clang)
     - Please remember to always use a Developer Command Prompt / PowerShell for VS2022 for git, build, test
-    - For Windows on ARM (arm64, WoA) build with:
-    ```bash
-    cmake --preset arm64-windows-llvm-release -D GGML_OPENMP=OFF
-    cmake --build build-arm64-windows-llvm-release
-    ```
-    For building with ninja generator and clang compiler as default:
-      -set path:set LIB=C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\um\x64;C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.41.34120\lib\x64\uwp;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\ucrt\x64
+    - For Windows on ARM (arm64, WoA), build with:
       ```bash
-      cmake --preset x64-windows-llvm-release
-      cmake --build build-x64-windows-llvm-release
+      cmake --preset arm64-windows-llvm-release -D GGML_OPENMP_FETCH=ON
+      cmake --build build-arm64-windows-llvm-release
       ```
+      - Use `ARM64 Native Tools Command Prompt for VS 2022` if you are building on an ARM64 machine.
+      - `GGML_OPENMP_FETCH` downloads the official LLVM OpenMP runtime and requires Clang, 7-Zip and network access during configuration. CMake selects the runtime from the target architecture, so this also works when cross-compiling for WoA from x64. The extracted header, import library, DLL and OpenMP license are placed under `build/_deps`. The build copies `libomp.dll` and `LICENSE-LLVM-OpenMP` to the runtime output directory and installs them together. Omit the option to use CMake's normal OpenMP detection, or pass `-D GGML_OPENMP=OFF` to disable OpenMP.
+    - For building with ninja generator and clang compiler as default:
+      - Set path:
+        ```
+        set LIB=C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\um\x64;C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.41.34120\lib\x64\uwp;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\ucrt\x64
+        ```
+      - Run:
+        ```bash
+        cmake --preset x64-windows-llvm-release
+        cmake --build build-x64-windows-llvm-release
+        ```
 - If you want HTTPS/TLS features, you may install OpenSSL development libraries. If not installed, the project will build and run without SSL support.
   - **Debian / Ubuntu:** `sudo apt-get install libssl-dev`
   - **Fedora / RHEL / Rocky / Alma:** `sudo dnf install openssl-devel`
   - **Arch / Manjaro:** `sudo pacman -S openssl`
+
+### x86 CPU instruction sets
+
+To build for x86-64 CPUs with SSSE3 and no AVX requirement, use a fresh build directory:
+
+```bash
+cmake -B build-ssse3 -DGGML_NATIVE=OFF -DGGML_SSSE3=ON \
+    -DGGML_SSE42=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF \
+    -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_BMI2=OFF
+cmake --build build-ssse3 --config Release -j 8
+```
+
+SSSE3 is a separate extension from SSE3. Set `GGML_SSSE3=OFF` in this configuration for the x86-64 SSE2 baseline. Avoid `-march=native` in custom compiler flags when targeting older CPUs.
+
+For automatic selection at startup, build the CPU variants as shared backends:
+
+```bash
+cmake -B build-auto -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=ON \
+    -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON
+cmake --build build-auto --config Release -j 8
+```
+
+On x86-64, this includes SSE2, SSSE3, SSE4.2, and AVX-family variants. Keep the backend libraries with the executable when distributing the build; the loader selects the highest-ranked variant supported by the CPU.
 
 ## BLAS Build
 

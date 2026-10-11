@@ -58,6 +58,11 @@ logger = logging.getLogger("hf-to-gguf")
 AnyModel = TypeVar("AnyModel", bound="type[ModelBase]")
 
 
+# for checkpoints that ship no config.json, we will try to provide a synthetic one
+HparamsMatcher = Callable[[Path], bool]
+HparamsLoader = Callable[[Path], dict[str, Any]]
+
+
 class SentencePieceTokenTypes(IntEnum):
     NORMAL = 1
     UNKNOWN = 2
@@ -77,6 +82,7 @@ class ModelBase:
         ModelType.TEXT: {},
         ModelType.MMPROJ: {},
     }
+    _hparams_loaders: list[tuple[HparamsMatcher, HparamsLoader]] = []
 
     dir_model: Path
     ftype: gguf.LlamaFileType
@@ -611,6 +617,161 @@ class ModelBase:
             raise ValueError(f"Can not map tensor {name!r}")
         return new_name
 
+    def hadamard_folded_names(self) -> set[str]:
+        """Source-tensor names folded under a Hadamard manifest, or empty."""
+        cached = getattr(self, "_hadamard_folded_names", None)
+        if cached is not None:
+            return cached
+        names: set[str] = set()
+        manifest_path = self.dir_model / "hadamard_packing.json"
+        if manifest_path.is_file():
+            with manifest_path.open("r", encoding="utf-8") as f:
+                for record in json.load(f).get("tensors", []):
+                    if isinstance(record, dict) and isinstance(record.get("name"), str):
+                        names.add(record["name"])
+        self._hadamard_folded_names = names
+        return names
+
+    def add_hadamard_metadata(self) -> None:
+        """Transfer a packed-checkpoint transform contract into GGUF metadata."""
+        manifest_path = self.dir_model / "hadamard_packing.json"
+        if not manifest_path.is_file():
+            return
+
+        with manifest_path.open("r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+        schema_version = manifest.get("schema_version")
+        if schema_version not in (1, 2, 3) or manifest.get("kind") != "hadamard-weight-fold":
+            raise ValueError(f"Unsupported Hadamard manifest: {manifest_path}")
+        if manifest.get("status") != "requires-matching-runtime":
+            raise ValueError(f"Unexpected Hadamard manifest status: {manifest.get('status')!r}")
+
+        transform = manifest.get("transform")
+        if not isinstance(transform, dict):
+            raise ValueError("Hadamard manifest is missing transform metadata")
+        block_size = transform.get("block_size")
+        if not isinstance(block_size, int) or block_size <= 0 or block_size & (block_size - 1):
+            raise ValueError(f"Invalid Hadamard block size: {block_size!r}")
+        if transform.get("name") != "normalized-signed-sylvester-walsh-hadamard":
+            raise ValueError(f"Unsupported Hadamard transform: {transform.get('name')!r}")
+        sign_mode = transform.get("sign_mode")
+        if sign_mode not in ("identity", "explicit"):
+            raise ValueError(f"Unsupported Hadamard sign mode: {sign_mode!r}")
+        sign_widths: list[int] = []
+        sign_values: list[int] = []
+        if sign_mode == "explicit":
+            signs = manifest.get("signs")
+            if not isinstance(signs, dict) or not signs:
+                raise ValueError("explicit sign mode requires a signs table")
+            for width_str, vec in sorted(signs.items(), key=lambda kv: int(kv[0])):
+                width = int(width_str)
+                # same width rule the runtime enforces, so a manifest that converts also loads
+                if width <= 0 or width % block_size != 0:
+                    raise ValueError(
+                        f"sign width {width} must be positive and a multiple of block size {block_size}"
+                    )
+                if len(vec) != width or any(v not in (-1, 1) for v in vec):
+                    raise ValueError(f"invalid sign vector for width {width}")
+                sign_widths.append(width)
+                sign_values.extend(int(v) for v in vec)
+
+        tensor_records = manifest.get("tensors")
+        if not isinstance(tensor_records, list) or not tensor_records:
+            raise ValueError("Hadamard manifest has no folded tensors")
+
+        # The runtime applies the activation transform only where the graph goes through
+        # build_lora_mm/build_lora_mm_id. Restrict the contract to architectures and tensor
+        # kinds verified to route every matmul through those helpers; anything else must
+        # fail here instead of producing a GGUF that loads but skips the transform.
+        _HADAMARD_ARCHS = {
+            gguf.MODEL_ARCH.LLAMA,
+            gguf.MODEL_ARCH.QWEN3,
+            gguf.MODEL_ARCH.QWEN3MOE,
+            gguf.MODEL_ARCH.QWEN35,
+            gguf.MODEL_ARCH.QWEN35MOE,
+            gguf.MODEL_ARCH.QWEN3NEXT,
+        }
+        if self.model_arch not in _HADAMARD_ARCHS:
+            raise ValueError(
+                f"Hadamard folding is not verified for arch {self.model_arch.name}; "
+                "the runtime would load the GGUF without applying the activation transform"
+            )
+        _HADAMARD_KINDS = re.compile(
+            r"output\.weight|"
+            r"blk\.\d+\.("
+            r"attn_q|attn_k|attn_v|attn_qkv|attn_gate|attn_output"
+            r"|ffn_gate|ffn_up|ffn_down"
+            r"|ffn_gate_exps|ffn_up_exps|ffn_down_exps|ffn_gate_up_exps"
+            r"|ffn_gate_shexp|ffn_up_shexp|ffn_down_shexp"
+            r"|ssm_out"
+            r")\.weight"
+        )
+        weight_names: list[str] = []
+        inverse_weight_names: list[str] = []
+        for record in tensor_records:
+            if not isinstance(record, dict) or not isinstance(record.get("name"), str):
+                raise ValueError("Hadamard manifest has an invalid tensor record")
+            if record.get("axis") != -1:
+                raise ValueError(f"Unsupported Hadamard tensor axis for {record['name']!r}")
+            role = record.get("role", "fold-before-matmul")
+            if role not in ("fold-before-matmul", "inverse-after-lookup"):
+                raise ValueError(f"Unsupported Hadamard tensor role for {record['name']!r}: {role!r}")
+            filtered = self.filter_tensors((record["name"], lambda: None))
+            if filtered is None:
+                raise ValueError(f"Hadamard tensor is filtered out: {record['name']!r}")
+            mapped = self.map_tensor_name(filtered[0])
+            if role == "inverse-after-lookup":
+                # the runtime applies the inverse transform only to the token-embedding
+                # lookup; any other latent table would load and silently stay rotated
+                if mapped != "token_embd.weight":
+                    raise ValueError(
+                        f"Hadamard tensor {record['name']!r} maps to {mapped!r}, which is not a "
+                        "verified inverse-after-lookup table"
+                    )
+                inverse_weight_names.append(mapped)
+            else:
+                if not _HADAMARD_KINDS.fullmatch(mapped):
+                    raise ValueError(
+                        f"Hadamard tensor {record['name']!r} maps to {mapped!r}, which is not on a "
+                        "verified Hadamard-aware matmul path"
+                    )
+                weight_names.append(mapped)
+
+        tied_output = manifest.get("tied_output", False)
+        if not isinstance(tied_output, bool) or (schema_version == 3) != tied_output:
+            raise ValueError("Hadamard schema 3 requires tied_output=true; older schemas forbid it")
+        if tied_output:
+            if inverse_weight_names != ["token_embd.weight"]:
+                raise ValueError("Tied Hadamard output requires one latent token embedding")
+            if not self.hparams.get("tie_word_embeddings", False):
+                raise ValueError("Tied Hadamard output requires tie_word_embeddings=true")
+            if "output.weight" in weight_names or any(
+                self.tensor_map.get_name(name, try_suffixes=(".weight", ".bias")) == "output.weight"
+                for name in self.model_tensors
+            ):
+                raise ValueError("Tied Hadamard output must not carry a separate output head")
+            self.gguf_writer.add_bool("prism.hadamard.tied_output", True)
+        elif "token_embd.weight" in inverse_weight_names and self.hparams.get("tie_word_embeddings", False):
+            raise ValueError("A tied latent embedding requires Hadamard schema 3 and tied_output=true")
+
+        self.gguf_writer.add_uint32("prism.hadamard.version", 2 if tied_output else 1)
+        self.gguf_writer.add_uint32("prism.hadamard.block_size", block_size)
+        self.gguf_writer.add_string("prism.hadamard.transform", "normalized-sylvester-walsh-hadamard")
+        self.gguf_writer.add_string("prism.hadamard.axis", "input-last-dimension")
+        self.gguf_writer.add_string("prism.hadamard.sign_mode", sign_mode)
+        self.gguf_writer.add_array("prism.hadamard.weight_names", weight_names)
+        if sign_mode == "explicit":
+            self.gguf_writer.add_array("prism.hadamard.sign_widths", sign_widths)
+            self.gguf_writer.add_array("prism.hadamard.sign_values", sign_values)
+        if inverse_weight_names:
+            self.gguf_writer.add_array("prism.hadamard.inverse_weight_names", inverse_weight_names)
+        if getattr(self, "_hadamard_gdn_v_grouped", False):
+            self.gguf_writer.add_bool("prism.hadamard.gdn_v_grouped", True)
+            logger.info("GGUF Hadamard: linear-attention out_proj kept in grouped V order")
+        logger.info("GGUF Hadamard contract: H%d, sign_mode=%s, %d folded weight(s), %d inverse-lookup",
+                    block_size, sign_mode, len(weight_names), len(inverse_weight_names))
+
     def set_gguf_parameters(self):
         raise NotImplementedError("set_gguf_parameters() must be implemented in subclasses")
 
@@ -651,6 +812,43 @@ class ModelBase:
     # some models need extra generated tensors (like rope_freqs)
     def generate_extra_tensors(self) -> Iterable[tuple[str, Tensor]]:
         return ()
+
+    @staticmethod
+    def repack_mxfp4_blocks(packed: Tensor, scale: Tensor) -> np.ndarray:
+        """
+        Repack 4-bit MX weights into ggml `block_mxfp4`. Lossless - only moves bits.
+
+        Source (compressed-tensors "mxfp4-pack-quantized", also used by DeepSeek-V4):
+          packed  uint8 [rows, cols/2]  element 2i in the low nibble, 2i+1 in the high one
+          scale   uint8 [rows, cols/32] one E8M0 biased exponent per 32-element group
+
+        Destination, per group: one scale byte then 16 code bytes, where byte j holds
+        element j in the low nibble and element j+16 in the high one.
+
+        The 4-bit codes need no remapping: both sides index into ggml's kvalues_mxfp4
+        order. ggml doubles the kvalues and halves the scale, so the value is the same.
+        """
+        p = packed.contiguous().view(torch.uint8)
+        s = scale.contiguous().view(torch.uint8)
+
+        rows, packed_cols = p.shape
+        cols = packed_cols * 2
+        if cols % 32 != 0:
+            raise ValueError(f"MXFP4 source row has {cols} values, expected a multiple of 32")
+
+        n_blocks = cols // 32
+        if tuple(s.shape) != (rows, n_blocks):
+            raise ValueError(f"MXFP4 scale shape {tuple(s.shape)} does not match {(rows, n_blocks)}")
+
+        src = p.reshape(rows, n_blocks, 16)
+        lo = src & 0x0F           # elements 0, 2, 4, ...
+        hi = (src >> 4) & 0x0F    # elements 1, 3, 5, ...
+
+        vals = torch.stack((lo, hi), dim=-1).reshape(rows, n_blocks, 32)
+        qs = vals[:, :, :16] | (vals[:, :, 16:] << 4)
+
+        raw = torch.cat((s.unsqueeze(-1), qs.to(torch.uint8)), dim=-1)
+        return raw.reshape(rows, n_blocks * 17).cpu().numpy()
 
     @staticmethod
     def _nvfp4_pack(weight: Tensor, scale: Tensor) -> tuple[np.ndarray, list[int]]:
@@ -823,7 +1021,7 @@ class ModelBase:
             elif any(str(v.get("quant_algo")).endswith("NVFP4") for v in quant_layers.values() if isinstance(v, dict)):
                 quant_algo = "NVFP4"
 
-        self._is_nvfp4 = quant_algo == "NVFP4"
+        self._is_nvfp4 = quant_algo in ("NVFP4", "W4A16_NVFP4")
         self._is_mxfp4 = quant_method == "mxfp4"
 
         # NVFP4 weights are repacked and written directly to gguf_writer.
@@ -1018,6 +1216,8 @@ class ModelBase:
         logger.info("Set model quantization version")
         self.gguf_writer.add_quantization_version(gguf.GGML_QUANT_VERSION)
 
+        self.add_hadamard_metadata()
+
     def write_vocab(self):
         raise NotImplementedError("write_vocab() must be implemented in subclasses")
 
@@ -1041,6 +1241,24 @@ class ModelBase:
         return part_names
 
     @staticmethod
+    def load_hparams_guess(dir_model: Path) -> dict[str, Any] | None:
+        # some models ship no config.json, will try to guess them
+        from conversion import load_all_models
+        load_all_models()
+
+        for matcher, loader in ModelBase._hparams_loaders:
+            if matcher(dir_model):
+                return loader(dir_model)
+        return None
+
+    @classmethod
+    def register_hparams_loader(cls, matcher: HparamsMatcher) -> Callable[[HparamsLoader], HparamsLoader]:
+        def inner(loader: HparamsLoader) -> HparamsLoader:
+            cls._hparams_loaders.append((matcher, loader))
+            return loader
+        return inner
+
+    @staticmethod
     def load_hparams(dir_model: Path, is_mistral_format: bool):
         if is_mistral_format:
             with open(dir_model / "params.json", "r", encoding="utf-8") as f:
@@ -1053,6 +1271,10 @@ class ModelBase:
             config = AutoConfig.from_pretrained(dir_model, trust_remote_code=False).to_dict()
         except Exception as e:
             logger.warning(f"Failed to load model config from {dir_model}: {e}")
+            if not (dir_model / "config.json").is_file():
+                config = ModelBase.load_hparams_guess(dir_model)
+                if config is not None:
+                    return config
             logger.warning("Trying to load config.json instead")
             with open(dir_model / "config.json", "r", encoding="utf-8") as f:
                 config = json.load(f)
@@ -1081,6 +1303,14 @@ class ModelBase:
             model_type = ModelType.MMPROJ if modelcls.model_arch == gguf.MODEL_ARCH.MMPROJ else ModelType.TEXT
             for name in names:
                 cls._model_classes[model_type][name] = modelcls
+            return modelcls
+        return func
+
+    @classmethod
+    def example(cls, *hf_repos: str) -> Callable[[AnyModel], AnyModel]:
+        del hf_repos  # unused
+
+        def func(modelcls: AnyModel) -> AnyModel:
             return modelcls
         return func
 
@@ -2633,7 +2863,10 @@ def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> st
     # Step3-VL keeps text config under text_config but uses a custom top-level architecture.
     # For text conversion we route to a dedicated text-only class.
     # TODO: refactor this later to avoid adding exception here
-    if model_type == ModelType.TEXT and arch in ("StepVLForConditionalGeneration", "Sarashina2VisionForCausalLM", "Exaone4_5_ForConditionalGeneration", "Step3p7ForConditionalGeneration"):
+    # Kimi-K3's text_config reports "KimiLinearForCausalLM", which is the older
+    # Kimi-Linear-48B architecture and cannot load K3 (no attention residuals,
+    # latent MoE, situ, ...). Route on the top-level architecture instead.
+    if model_type == ModelType.TEXT and arch in ("StepVLForConditionalGeneration", "Sarashina2VisionForCausalLM", "Exaone4_5_ForConditionalGeneration", "Step3p7ForConditionalGeneration", "KimiK3ForConditionalGeneration"):
         return arch
 
     # if "architectures" is found in the sub-config, use that instead

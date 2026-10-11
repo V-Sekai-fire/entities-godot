@@ -611,6 +611,13 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
         GGML_ASSERT(int64_t(ctx->kv.size()) == n_kv);
 
         const int alignment_idx = gguf_find_key(ctx, GGUF_KEY_GENERAL_ALIGNMENT);
+        if (alignment_idx != -1 && gguf_get_kv_type(ctx, alignment_idx) != GGUF_TYPE_UINT32) {
+            GGML_LOG_ERROR("%s: key '%s' must be of type %s but is %s\n",
+                __func__, GGUF_KEY_GENERAL_ALIGNMENT, gguf_type_name(GGUF_TYPE_UINT32),
+                gguf_type_name(gguf_get_kv_type(ctx, alignment_idx)));
+            gguf_free(ctx);
+            return nullptr;
+        }
         ctx->alignment = alignment_idx == -1 ? GGUF_DEFAULT_ALIGNMENT : gguf_get_val_u32(ctx, alignment_idx);
 
         if (ctx->alignment == 0 || (ctx->alignment & (ctx->alignment - 1)) != 0) {
@@ -682,9 +689,11 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
             }
 
             // check that the total number of elements is representable
-            if (ok && ((INT64_MAX/info.t.ne[1] <= info.t.ne[0]) ||
-                       (INT64_MAX/info.t.ne[2] <= info.t.ne[0]*info.t.ne[1]) ||
-                       (INT64_MAX/info.t.ne[3] <= info.t.ne[0]*info.t.ne[1]*info.t.ne[2]))) {
+            // (a zero-element tensor is trivially representable; the guard also avoids a division by zero below)
+            if (ok && ggml_nelements(&info.t) > 0 &&
+                ((INT64_MAX/info.t.ne[1] <= info.t.ne[0]) ||
+                 (INT64_MAX/info.t.ne[2] <= info.t.ne[0]*info.t.ne[1]) ||
+                 (INT64_MAX/info.t.ne[3] <= info.t.ne[0]*info.t.ne[1]*info.t.ne[2]))) {
 
                 GGML_LOG_ERROR("%s: total number of elements in tensor '%s' with shape "
                     "(%" PRIi64 ", %" PRIi64 ", %" PRIi64 ", %" PRIi64 ") is >= %" PRIi64 "\n",
@@ -765,11 +774,19 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
     // compute the total size of the data section, taking into account the alignment
     {
         ctx->size = 0;
+        size_t size_if_legacy_q2 = 0; // see the legacy Q2_0 layout hint below
+        bool   has_q2_0          = false;
         for (size_t i = 0; i < ctx->info.size(); ++i) {
             const gguf_tensor_info & ti = ctx->info[i];
             if (ti.offset != ctx->size) {
                 GGML_LOG_ERROR("%s: tensor '%s' has offset %" PRIu64 ", expected %zu\n",
                     __func__, ti.t.name, ti.offset, ctx->size);
+                if (has_q2_0 && ti.offset == size_if_legacy_q2) {
+                    GGML_LOG_ERROR("%s: this file matches the legacy Prism Q2_0 layout (group size 128 stored as ggml type id 42), "
+                        "but this build reads Q2_0 as the official group-64 format\n", __func__);
+                    GGML_LOG_ERROR("%s: you are probably using the wrong GGUF: use the PQ2_0 version of this model (ggml type id 142) "
+                        "or download the group-64 Q2_0 file\n", __func__);
+                }
                 GGML_LOG_ERROR("%s: failed to read tensor data\n", __func__);
                 gguf_free(ctx);
                 return nullptr;
@@ -782,6 +799,17 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
                 return nullptr;
             }
             ctx->size += padded_size;
+
+            // track the size the data section would have if the Q2_0 tensors used the
+            // legacy Prism group-128 layout, which is byte-identical to PQ2_0
+            if (ti.t.type == GGML_TYPE_Q2_0) {
+                has_q2_0 = true;
+                const size_t nrows = ggml_nrows(&ti.t);
+                const size_t nbytes_legacy = ggml_row_size(GGML_TYPE_PQ2_0, ti.t.ne[0]) * nrows;
+                size_if_legacy_q2 += GGML_PAD(nbytes_legacy, ctx->alignment);
+            } else {
+                size_if_legacy_q2 += padded_size;
+            }
         }
     }
 

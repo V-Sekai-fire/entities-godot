@@ -3180,6 +3180,11 @@ static bool ggml_hexagon_supported_argsort(const struct ggml_hexagon_session * s
 static bool ggml_hexagon_supported_rope(const struct ggml_hexagon_session * sess, const struct ggml_tensor * op) {
     const int32_t * op_params = &op->op_params[0];
 
+    // ggml_rope_set_offset: HVX kernels need a VLEN-aligned window start (32 f32 elems)
+    if (op_params[15] % 32 != 0) {
+        return false;
+    }
+
     int mode = op_params[2];
 
     // n_dims == ne0/2, so the rotation spans the full row
@@ -3930,6 +3935,7 @@ static void ggml_backend_hexagon_device_get_props(ggml_backend_dev_t dev, struct
         /* .host_buffer           = */ (bool) opt_hostbuf,
         /* .buffer_from_host_ptr  = */ false,
         /* .events                = */ false,
+        /* .mmap_support          = */ false,
     };
 }
 
@@ -4187,7 +4193,8 @@ static bool ggml_backend_hexagon_device_supports_op(ggml_backend_dev_t dev, cons
             break;
 
         case GGML_OP_GATED_DELTA_NET:
-            supp = ggml_hexagon_supported_gated_delta_net(sess, op);
+            // rows-indexed state read (src[6]) not implemented here
+            supp = op->src[6] == NULL && ggml_get_op_params_i32(op, 1) == 0 && ggml_hexagon_supported_gated_delta_net(sess, op);
             break;
 
         case GGML_OP_CUMSUM:

@@ -435,7 +435,11 @@ extern "C" {
         GGML_TYPE_TQ3_1S  = 45, // TurboQuant 3-bit weight: WHT-rotated 8-level Lloyd-Max, block_size=32
         GGML_TYPE_TQ4_1S  = 46, // TurboQuant 4-bit weight: WHT-rotated 16-level Lloyd-Max, block_size=32
         GGML_TYPE_TURBO4_0 = 47, // TurboQuant 4-bit KV cache: WHT + 4-bit PolarQuant (runtime-only KV type)
-        GGML_TYPE_COUNT   = 48,
+        // Prism-private Q2_0 at group size 128 (upstream Q2_0 is group 64). High id so it
+        // slots above upstream types; type_traits is sized to COUNT (144) with 48..141 unused.
+        GGML_TYPE_PQ2_0 = 142,
+        GGML_TYPE_PTQ1_0 = 143, // Prism-private ternary, group 128
+        GGML_TYPE_COUNT   = 144,
     };
 
     // precision
@@ -480,6 +484,8 @@ extern "C" {
         GGML_FTYPE_MOSTLY_NVFP4   = 26, // except 1d tensors
         GGML_FTYPE_MOSTLY_Q1_0    = 27, // except 1d tensors
         GGML_FTYPE_MOSTLY_Q2_0    = 28, // except 1d tensors
+        GGML_FTYPE_MOSTLY_PQ2_0 = 128, // except 1d tensors (Prism-private group-128 Q2_0)
+        GGML_FTYPE_MOSTLY_PTQ1_0 = 129, // except 1d tensors (Prism-private group-128 ternary)
     };
 
     // available tensor operations:
@@ -1730,6 +1736,19 @@ extern "C" {
             struct ggml_tensor  * a,
             int                   n_past);
 
+    GGML_API struct ggml_tensor * ggml_clamp(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            float                 min,
+            float                 max);
+
+    // in-place, returns view(a)
+    GGML_API struct ggml_tensor * ggml_clamp_inplace(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            float                 min,
+            float                 max);
+
     GGML_API struct ggml_tensor * ggml_soft_max(
             struct ggml_context * ctx,
             struct ggml_tensor  * a);
@@ -1987,14 +2006,14 @@ extern "C" {
             float                 beta_fast,
             float                 beta_slow);
 
-
-    // clamp
-    // in-place, returns view(a)
-    GGML_API struct ggml_tensor * ggml_clamp(
-            struct ggml_context * ctx,
+    // set the offset dims for RoPE
+    // a must be GGML_OP_ROPE or GGML_OP_ROPE_BACK
+    // vision RoPE is not supported
+    // example: (marking: x = rotated, 0 = unrotated)
+    //     n_embd = 10, n_dims = 4, offset = 2 --> [00xxxx0000]
+    GGML_API struct ggml_tensor * ggml_rope_set_offset(
             struct ggml_tensor  * a,
-            float                 min,
-            float                 max);
+            int                   n_offs);
 
     // im2col
     // converts data into a format that effectively results in a convolution when combined with matrix multiplication
@@ -2465,7 +2484,8 @@ extern "C" {
             struct ggml_tensor  * A,
             struct ggml_tensor  * B,
             struct ggml_tensor  * C,
-            struct ggml_tensor  * ids);
+            struct ggml_tensor  * ids,
+            int64_t               K);
 
     // partition into non-overlapping windows with padding if needed
     // example:
@@ -2599,7 +2619,42 @@ extern "C" {
             int                   group_size,    // 0 = auto (64 or 128 from ne[0])
             struct ggml_tensor  * scale);        // NULL = no InnerQ scaling
 
-    // DeepSeek V4 Lightning Indexer
+    // rows-indexed state read: instead of a gathered [S_v, S_v, H_v, n_seqs]
+    // scratch, the op reads each sequence's live state directly from `states`
+    // (2D cache view, D = S_v*S_v*H_v wide rows) at row `rows[seq]` (I32,
+    // n_seqs entries). Removes the per-layer get_rows gather from recurrent
+    // decode graphs. Output layout is identical to ggml_gated_delta_net with
+    // K = n_snap_slots.
+    GGML_API struct ggml_tensor * ggml_gated_delta_net_rows(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * q,
+            struct ggml_tensor  * k,
+            struct ggml_tensor  * v,
+            struct ggml_tensor  * g,
+            struct ggml_tensor  * beta,
+            struct ggml_tensor  * states,
+            struct ggml_tensor  * rows,
+            int                   n_snap_slots);
+
+    // fold the per-head gate activations into a gated_delta_net op (scalar gate only):
+    //   beta -> sigmoid(beta),  g -> a[h] * softplus(g + dt_bias[h])
+    // dt_bias and a are F32 with H_v elements; removes four elementwise ops per layer
+    GGML_API void ggml_gated_delta_net_set_raw_gates(
+            struct ggml_tensor  * gdn,
+            struct ggml_tensor  * dt_bias,
+            struct ggml_tensor  * a);
+
+    // DSA lightning indexer
+    //
+    // q:       [n_embd_idx, n_head_idx, n_batch, ne3 ]
+    // k:       [n_embd_idx, 1,          n_kv,    ne3 ]
+    // weights: [n_head_idx, n_batch,    1,       ne3 ] !! prescaled !!
+    // mask:    [n_kv,       n_batch,    1,       ne33] !! f16 !!
+    // res:     [n_kv,       n_batch,    1,       ne3 ]
+    //
+    // broadcast:
+    //   ne3 % ne33 == 0
+    //
     GGML_API struct ggml_tensor * ggml_lightning_indexer(
         struct ggml_context * ctx,
         struct ggml_tensor  * q,
