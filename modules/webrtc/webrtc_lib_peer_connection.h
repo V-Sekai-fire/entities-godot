@@ -28,16 +28,15 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifndef WEBRTC_LIB_PEER_CONNECTION_H
-#define WEBRTC_LIB_PEER_CONNECTION_H
+#pragma once
 
 #ifdef ENABLE_LIBDATACHANNEL
 
-#include "core/os/mutex.h"
-#include "core/templates/vector.h"
+#include "rtc/rtc.hpp"
 #include "webrtc_peer_connection.h"
 
-#include "rtc/rtc.hpp"
+#include "core/os/mutex.h"
+#include "core/templates/vector.h"
 
 class WebRTCLibPeerConnection : public WebRTCPeerConnection {
 	GDCLASS(WebRTCLibPeerConnection, WebRTCPeerConnection);
@@ -107,5 +106,3 @@ private:
 };
 
 #endif // ENABLE_LIBDATACHANNEL
-
-#endif // WEBRTC_LIB_PEER_CONNECTION_H

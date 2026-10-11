@@ -139,7 +139,7 @@ elif env["builtin_libdatachannel"] and env["libdatachannel"]:
             "GCM",
             "USE_MBEDTLS",
             "USE_NICE=0",
-            "RTC_SYSTEM_JUICE=0" "USE_NETTLE=0",
+            "RTC_SYSTEM_JUICE=0USE_NETTLE=0",
             "JUICE_STATIC",
             "SCTP_PROCESS_LEVEL_LOCKS",
             "SCTP_SIMPLE_ALLOCATOR",

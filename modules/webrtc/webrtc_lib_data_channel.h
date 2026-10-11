@@ -28,17 +28,16 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifndef WEBRTC_LIB_DATA_CHANNEL_H
-#define WEBRTC_LIB_DATA_CHANNEL_H
+#pragma once
 
 #ifdef ENABLE_LIBDATACHANNEL
-#include <utility>
+#include "rtc/rtc.hpp"
+#include "webrtc_data_channel.h"
 
 #include "core/os/mutex.h"
 #include "core/templates/vector.h"
-#include "webrtc_data_channel.h"
 
-#include "rtc/rtc.hpp"
+#include <utility>
 
 class WebRTCLibDataChannel : public WebRTCDataChannel {
 	GDCLASS(WebRTCLibDataChannel, WebRTCDataChannel);
@@ -91,5 +90,3 @@ public:
 };
 
 #endif // ENABLE_LIBDATACHANNEL
-
-#endif // WEBRTC_LIB_DATA_CHANNEL_H
