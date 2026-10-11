@@ -126,8 +126,8 @@ def glsl_to_gen_h(target, source, env):
     with open(src_path, "r") as f:
         glsl = f.read()
     with open(dst_path, "w") as f:
-        f.write("// Generated from %s - do not edit.\n" % os.path.basename(src_path))
-        f.write('static const char %s[] = R"GLSL(\n' % var_name)
+        f.write(f"// Generated from {os.path.basename(src_path)} - do not edit.\n")
+        f.write(f'static const char {var_name}[] = R"GLSL(\n')
         f.write(glsl)
         f.write(')GLSL";\n')
     return 0
@@ -152,11 +152,11 @@ def spv_to_gen_h(target, source, env):
     with open(src_path, "rb") as f:
         data = f.read()
     with open(dst_path, "w") as f:
-        f.write("// Generated from %s - do not edit.\n" % os.path.basename(src_path))
-        f.write("static const unsigned char %s[] = {\n" % var_name)
+        f.write(f"// Generated from {os.path.basename(src_path)} - do not edit.\n")
+        f.write(f"static const unsigned char {var_name}[] = {{\n")
         for i in range(0, len(data), 16):
             chunk = data[i : i + 16]
-            f.write("\t" + ", ".join("0x%02x" % b for b in chunk) + ",\n")
+            f.write("\t" + ", ".join(f"0x{b:02x}" for b in chunk) + ",\n")
         f.write("};\n")
         f.write("static const unsigned int %s_size = %d;\n" % (var_name, len(data)))
     return 0
