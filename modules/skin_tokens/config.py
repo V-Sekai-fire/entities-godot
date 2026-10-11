@@ -59,8 +59,8 @@ def can_build(env, platform):
     arch = env.get("arch", "")
     if arch.endswith("32"):
         print(
-            "skin_tokens: DISABLED - %s has no 128-bit integer type, which the "
-            "PCG64 inference sampler in model.cpp requires." % arch
+            f"skin_tokens: DISABLED - {arch} has no 128-bit integer type, which the "
+            "PCG64 inference sampler in model.cpp requires."
         )
         return False
     if _has_std_expected(env):
