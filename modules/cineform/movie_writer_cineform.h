@@ -34,7 +34,9 @@
 #include "mkvmuxer/mkvmuxer.h"
 
 #include "core/io/file_access.h"
+#include "core/templates/hash_map.h"
 #include "core/templates/list.h"
+#include "core/templates/local_vector.h"
 #include "servers/movie_writer/movie_writer.h"
 
 class MovieWriterCineForm : public MovieWriter {
@@ -57,9 +59,15 @@ class MovieWriterCineForm : public MovieWriter {
 
 	CFHD_EncoderPoolRef pool = nullptr;
 	uint32_t queued = 0;
+	// The pool's job queue length. A submit into a full queue waits for a slot that only a
+	// sample taken out by this thread frees, so write_frame takes one first.
+	static constexpr uint32_t JOB_QUEUE_LENGTH = 8;
 
-	// RGBA to BGRA, into a buffer the encoder reads asynchronously.
-	Vector<uint8_t> staging;
+	// CFHD_EncodeAsyncSample does not copy, so each frame in flight owns its converted
+	// buffer, keyed by the frame number the pool hands back. A buffer is reused only after
+	// its sample has come back; reusing it sooner mixes a frame with its successor.
+	HashMap<uint32_t, Vector<uint8_t>> staged;
+	LocalVector<Vector<uint8_t>> spare_staging;
 
 	// Audio waits here until its frame comes back from the pool, so each chunk pair stays
 	// adjacent in the file and the index remains a simple alternation.
@@ -87,6 +95,7 @@ class MovieWriterCineForm : public MovieWriter {
 	uint64_t video_track = 0;
 	uint64_t audio_track = 0;
 
+	bool _collect(bool p_block);
 	void _drain(bool p_block);
 	void _write_encoded_frame(const void *p_data, uint32_t p_size);
 

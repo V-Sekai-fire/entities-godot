@@ -106,7 +106,7 @@ Error MovieWriterCineForm::write_begin(const Size2i &p_movie_size, uint32_t p_fp
 	}
 
 	// A pool of zero encoders accepts every frame and fails it with CFHD_ERROR_UNEXPECTED.
-	CFHD_Error err = CFHD_CreateEncoderPool(&pool, threads, 8, nullptr);
+	CFHD_Error err = CFHD_CreateEncoderPool(&pool, threads, JOB_QUEUE_LENGTH, nullptr);
 	ERR_FAIL_COND_V_MSG(err != CFHD_ERROR_OKAY, ERR_CANT_CREATE,
 			vformat("CFHD_CreateEncoderPool failed with code %d.", int(err)));
 
@@ -120,8 +120,6 @@ Error MovieWriterCineForm::write_begin(const Size2i &p_movie_size, uint32_t p_fp
 	err = CFHD_StartEncoderPool(pool);
 	ERR_FAIL_COND_V_MSG(err != CFHD_ERROR_OKAY, ERR_CANT_CREATE,
 			vformat("CFHD_StartEncoderPool failed with code %d.", int(err)));
-
-	staging.resize(size.width * size.height * (depth_index == 1 ? 8 : 4));
 
 	f = FileAccess::open(base_path, FileAccess::WRITE_READ);
 	ERR_FAIL_COND_V(f.is_null(), ERR_CANT_OPEN);
@@ -199,26 +197,36 @@ void MovieWriterCineForm::_write_encoded_frame(const void *p_data, uint32_t p_si
 	}
 }
 
+bool MovieWriterCineForm::_collect(bool p_block) {
+	uint32_t number = 0;
+	CFHD_SampleBufferRef buffer = nullptr;
+	CFHD_Error err = p_block ? CFHD_WaitForSample(pool, &number, &buffer)
+							 : CFHD_TestForSample(pool, &number, &buffer);
+	if (err != CFHD_ERROR_OKAY || buffer == nullptr) {
+		if (p_block) {
+			ERR_PRINT(vformat("CFHD_WaitForSample failed with code %d; %d queued frames are lost.", int(err), queued));
+			queued = 0;
+		}
+		return false;
+	}
+	void *data = nullptr;
+	size_t len = 0;
+	if (CFHD_GetEncodedSample(buffer, &data, &len) == CFHD_ERROR_OKAY && data != nullptr) {
+		_write_encoded_frame(data, uint32_t(len));
+	}
+	CFHD_ReleaseSampleBuffer(pool, buffer);
+	// The encoder is done reading this frame, so its buffer can take a later one.
+	HashMap<uint32_t, Vector<uint8_t>>::Iterator done = staged.find(number);
+	if (done) {
+		spare_staging.push_back(done->value);
+		staged.remove(done);
+	}
+	queued--;
+	return true;
+}
+
 void MovieWriterCineForm::_drain(bool p_block) {
-	while (queued > 0) {
-		uint32_t number = 0;
-		CFHD_SampleBufferRef buffer = nullptr;
-		CFHD_Error err = p_block ? CFHD_WaitForSample(pool, &number, &buffer)
-								 : CFHD_TestForSample(pool, &number, &buffer);
-		if (err != CFHD_ERROR_OKAY || buffer == nullptr) {
-			if (p_block) {
-				ERR_PRINT(vformat("CFHD_WaitForSample failed with code %d; %d queued frames are lost.", int(err), queued));
-				queued = 0;
-			}
-			break;
-		}
-		void *data = nullptr;
-		size_t len = 0;
-		if (CFHD_GetEncodedSample(buffer, &data, &len) == CFHD_ERROR_OKAY && data != nullptr) {
-			_write_encoded_frame(data, uint32_t(len));
-		}
-		CFHD_ReleaseSampleBuffer(pool, buffer);
-		queued--;
+	while (queued > 0 && _collect(p_block)) {
 	}
 }
 
@@ -240,6 +248,19 @@ Error MovieWriterCineForm::write_frame(const Ref<Image> &p_image, const int32_t 
 	const Vector<uint8_t> src = img->get_data();
 	const uint32_t pitch = size.width * (deep ? 8 : 4);
 	ERR_FAIL_COND_V(uint32_t(src.size()) < pitch * uint32_t(size.height), ERR_INVALID_DATA);
+
+	// A full queue frees a slot only when this thread takes a sample out.
+	if (queued >= JOB_QUEUE_LENGTH) {
+		ERR_FAIL_COND_V_MSG(!_collect(true), ERR_CANT_CREATE,
+				vformat("The CineForm job queue is full and the encoder returned no sample, frame %d.", submitted_count));
+	}
+
+	Vector<uint8_t> staging;
+	if (!spare_staging.is_empty()) {
+		staging = spare_staging[spare_staging.size() - 1];
+		spare_staging.resize(spare_staging.size() - 1);
+	}
+	staging.resize(pitch * uint32_t(size.height));
 	uint8_t *out = staging.ptrw();
 
 	if (deep) {
@@ -273,9 +294,14 @@ Error MovieWriterCineForm::write_frame(const Ref<Image> &p_image, const int32_t 
 			}
 		}
 	}
+	// The buffer belongs to `staged` from here until the pool hands this frame number back.
+	staged.insert(submitted_count, staging);
 	CFHD_Error err = CFHD_EncodeAsyncSample(pool, submitted_count, out, intptr_t(pitch), nullptr);
-	ERR_FAIL_COND_V_MSG(err != CFHD_ERROR_OKAY, ERR_CANT_CREATE,
-			vformat("CFHD_EncodeAsyncSample failed on frame %d with code %d.", submitted_count, int(err)));
+	if (err != CFHD_ERROR_OKAY) {
+		staged.erase(submitted_count);
+		ERR_FAIL_V_MSG(ERR_CANT_CREATE,
+				vformat("CFHD_EncodeAsyncSample failed on frame %d with code %d.", submitted_count, int(err)));
+	}
 	submitted_count++;
 	queued++;
 
@@ -321,7 +347,8 @@ void MovieWriterCineForm::write_end() {
 	}
 	f.unref();
 
-	staging.clear();
+	staged.clear();
+	spare_staging.clear();
 	pending_audio.clear();
 }
 
