@@ -28,13 +28,13 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-
 #include "register_types.h"
+
+#include "movie_writer_cineform.h"
+#include "video_stream_cineform.h"
 
 #include "core/config/project_settings.h"
 #include "core/object/class_db.h"
-#include "movie_writer_cineform.h"
-#include "video_stream_cineform.h"
 
 static MovieWriterCineForm *writer_cineform = nullptr;
 static Ref<ResourceFormatLoaderCineForm> resource_loader_cineform;
@@ -42,10 +42,10 @@ static Ref<ResourceFormatLoaderCineForm> resource_loader_cineform;
 void initialize_cineform_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SERVERS) {
 		GLOBAL_DEF(PropertyInfo(Variant::INT, "editor/movie_writer/cineform/quality", PROPERTY_HINT_ENUM,
-						  "Low,Medium,High,Filmscan 1,Filmscan 2,Filmscan 3"),
+						   "Low,Medium,High,Filmscan 1,Filmscan 2,Filmscan 3"),
 				2);
 		GLOBAL_DEF(PropertyInfo(Variant::INT, "editor/movie_writer/cineform/thread_count", PROPERTY_HINT_RANGE,
-						  "0,64,1"),
+						   "0,64,1"),
 				0);
 		GLOBAL_DEF("editor/movie_writer/cineform/keep_alpha", false);
 

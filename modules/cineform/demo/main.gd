@@ -2,7 +2,7 @@ extends Node2D
 
 # Records a scene that is hard for the codec, so the bitrate reported is not optimistic.
 #
-# WHAT IS DRAWN, AND WHY IT IS NOT A COLOURED SQUARE. CineForm is a wavelet codec and a flat
+# WHAT IS DRAWN, AND WHY IT IS NOT A COLORED SQUARE. CineForm is a wavelet codec and a flat
 # field costs it almost nothing, so a simple scene reports a bitrate no real recording would
 # ever hit. This draws smooth gradients, hard edges, fine high frequency detail and continuous
 # motion at once, which is roughly what a real capture contains. An honest file size needs an
