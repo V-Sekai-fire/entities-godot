@@ -36,6 +36,8 @@
 #include "backends/mediafoundation/mediafoundation_backend.h"
 #elif defined(LINUXBSD_ENABLED)
 #include "backends/gstreamer/gstreamer_backend.h"
+#elif defined(WEB_ENABLED)
+#include "backends/web/web_media_backend.h"
 #endif
 
 NativeMediaBackend *NativeMediaBackend::create() {
@@ -43,6 +45,8 @@ NativeMediaBackend *NativeMediaBackend::create() {
 	return memnew(MediaFoundationBackend);
 #elif defined(LINUXBSD_ENABLED)
 	return memnew(GStreamerBackend);
+#elif defined(WEB_ENABLED)
+	return memnew(WebMediaBackend);
 #else
 	return nullptr;
 #endif

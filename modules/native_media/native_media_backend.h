@@ -39,7 +39,7 @@
 
 // OS-native media decoder backend.
 // One concrete subclass per platform — Media Foundation (Windows), GStreamer
-// (Linux/Steam Deck), AVFoundation (Apple), MediaCodec (Android). The factory
+// (Linux/Steam Deck), the browser (Web), AVFoundation (Apple), MediaCodec (Android). The factory
 // NativeMediaBackend::create() picks the right one at compile time.
 //
 // Each backend decodes both audio and video from a container buffer. It serves
@@ -113,6 +113,18 @@ public:
 	// fast-path isn't supported on this build/host — caller falls back to
 	// decode_video_frame above.
 	virtual RID decode_video_frame_imported(double *r_pts_seconds) { return RID(); }
+
+	// GPU path for callers without a RenderingDevice (the Compatibility renderer). If a
+	// new frame is ready, the backend copies it on the GPU into p_native_texture, the
+	// RenderingServer::texture_get_native_handle() of an RGBA8 texture at the video's
+	// size, and returns OK. ERR_BUSY when no new frame is ready, ERR_FILE_EOF at the end,
+	// ERR_UNAVAILABLE when the backend cannot do this; the caller then falls back to
+	// decode_video_frame.
+	virtual Error present_video_frame(uint64_t p_native_texture, double *r_pts_seconds) { return ERR_UNAVAILABLE; }
+
+	// For backends that decode against their own clock (a browser media element), so
+	// that clock stops while the player is paused. Pull-based backends ignore it.
+	virtual void set_paused(bool p_paused) {}
 
 	virtual Error seek(double p_time_seconds) = 0;
 	virtual void reset() = 0;

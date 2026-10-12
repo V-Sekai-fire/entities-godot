@@ -94,7 +94,12 @@ elif platform == "linuxbsd":
     env_native_media.add_source_files(env.modules_sources, "backends/gstreamer/gstreamer_stubs.cc")
     env_native_media.Append(CPPDEFINES=["GSTREAMER_ENABLED"])
     env.Append(LIBS=["dl"])
+elif platform == "web":
+    # The browser's decoders: a <video> element uploaded to a GL texture, and
+    # decodeAudioData for audio. See backends/web/library_godot_native_media.js.
+    env_native_media.add_source_files(env.modules_sources, "backends/web/*.cpp")
+    env.AddJSLibraries(["backends/web/library_godot_native_media.js"])
 else:
-    # Other platforms (macOS, iOS, Android, Web) are not yet supported.
+    # Other platforms (macOS, iOS, Android) are not yet supported.
     # NativeMediaBackend::create() returns nullptr until a backend is added.
     pass
