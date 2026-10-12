@@ -123,7 +123,12 @@ Patches:
   and hit undefined behaviour (an out-of-range quality enum, an `int` shift overflow, a
   null `memcpy` source, an eight-byte read of a four-byte frame number and an
   uninitialized `bool`). Upstream: the CineForm SDK fork,
-  `fix/sanitizer-findings`.
+  `dev/sanitizer-findings`.
+- `0003-decoder-races-and-undefined-behavior.patch`: an entropy thread could invert a
+  wavelet before its lowpass band was written, decoding a frame with the previous
+  frame's low frequencies; it now waits for that band. The decoder's shared wavelet
+  state is read and stored under its lock, and the decoder's undefined shifts,
+  misaligned stores and sign-changing conversions are fixed. Upstream: the same branch.
 
 The GoPro CineForm codec, used by `modules/cineform` to record Movie Maker output as a
 12-bit wavelet intermediate and to play it back.

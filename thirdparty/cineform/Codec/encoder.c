@@ -7060,7 +7060,7 @@ int ReverseByteOrder(int input)
 	output |= (input & 0xFF000000) >> 24;
 #else
 	//output = _bswap(input);
-	output = SwapInt32(input);
+	output = (int)SwapInt32(input);
 #endif
 
 	return output;
@@ -7437,7 +7437,7 @@ void EncodeQuantizedGroup(ENCODER *encoder, TRANSFORM *transform[], int num_tran
 			}
 #endif
 			// Write the number of bytes used to code this channel in the channel size table
-			channel_size_vector[channel] = ReverseByteOrder(channel_size_in_byte);
+			channel_size_vector[channel] = (DWORD)ReverseByteOrder(channel_size_in_byte);
 #else
 			// Remember the number of bytes used to code this channel
 			channel_size_in_byte = BitstreamSize(output) - channel_size_in_byte;
@@ -7832,7 +7832,7 @@ void EncodeQuantizedGroup(ENCODER *encoder, TRANSFORM *transform[], int num_tran
 			}
 	#endif
 			// Write the number of bytes used to code this channel in the channel size table
-			channel_size_vector[channel] = ReverseByteOrder(channel_size_in_byte);
+			channel_size_vector[channel] = (DWORD)ReverseByteOrder(channel_size_in_byte);
 
 			// Start numbering the subbands in the next channel beginning with zero
 			subband = 0;
@@ -10579,7 +10579,7 @@ void EncodeQuantizedChannelThreaded(ENCODER *encoder, TRANSFORM *transform, BITS
 	}
 #endif
 	// Write the number of bytes used to code this channel in the channel size table
-	channel_size_vector[channel] = ReverseByteOrder(channel_size_in_byte);
+	channel_size_vector[channel] = (DWORD)ReverseByteOrder(channel_size_in_byte);
 
 	// Start numbering the subbands in the next channel beginning with zero
 	subband = 0;
@@ -10741,8 +10741,8 @@ void EncodeQuantizedGroupThreaded(ENCODER *encoder, TRANSFORM *transform[], int 
 	for (channel = 0; channel < num_channels; channel++)
 	{
 		// Write the number of bytes used to code this channel in the channel size table
-		//channel_size_vector[channel] = ReverseByteOrder(channel_size_in_byte);
-		channel_size_vector[channel] = ReverseByteOrder(data[channel].channel_size);
+		//channel_size_vector[channel] = (DWORD)ReverseByteOrder(channel_size_in_byte);
+		channel_size_vector[channel] = (DWORD)ReverseByteOrder(data[channel].channel_size);
 
 		// Start numbering the subbands in the next channel beginning with zero
 		//subband = 0;
@@ -10971,7 +10971,7 @@ void EncodeQuantizedChannel(ENCODER *encoder, TRANSFORM *transform, int channel,
 		}
 #endif
 		// Write the number of bytes used to code this channel in the channel size table
-		encoder->channel_size_vector[channel] = ReverseByteOrder(channel_size);
+		encoder->channel_size_vector[channel] = (DWORD)ReverseByteOrder(channel_size);
 
 		// Start numbering the subbands in the next channel beginning with zero
 		//subband = 0;

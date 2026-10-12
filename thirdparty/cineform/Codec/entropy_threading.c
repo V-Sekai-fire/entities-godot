@@ -247,6 +247,8 @@ void DecodeEntropy(DECODER *decoder, int work_index, int thread_index, FSM *fsm,
 					do
 					{
 						Lock(&decoder->entropy_worker_new.lock);
+						// Nothing claimed yet; the scan below sets this only on a claim
+						wavelet = NULL;
 						// Get the transform parameters
 						for(curr_entry=0; curr_entry<data->free_entry; curr_entry++)
 						{
@@ -266,7 +268,7 @@ void DecodeEntropy(DECODER *decoder, int work_index, int thread_index, FSM *fsm,
 
 							precision = data->queue[curr_entry].precision;
 
-							if(data->queue[curr_entry].done == 0 && BANDS_ALL_VALID(wavelet))
+							if(data->queue[curr_entry].done == 0 && BANDS_READY_TO_INVERT(wavelet))
 							{
 								data->queue[curr_entry].done = 1;
 								data->next_entry++;
@@ -282,7 +284,8 @@ void DecodeEntropy(DECODER *decoder, int work_index, int thread_index, FSM *fsm,
 						// Unlock access to the transform queue
 						Unlock(&decoder->entropy_worker_new.lock);
 
-						if(wavelet && BANDS_ALL_VALID(wavelet))
+						// Set only when the claim above found the wavelet ready to invert
+						if(wavelet)
 						{
 							SCRATCH local;
 						//	int localsize;
@@ -302,7 +305,7 @@ void DecodeEntropy(DECODER *decoder, int work_index, int thread_index, FSM *fsm,
 							ReconstructWaveletBand(decoder, transform, channel, wavelet, index, precision,
 											&local, 0);
 						}
-					} while(wavelet && BANDS_ALL_VALID(wavelet));
+					} while(wavelet);
 				}
 			}
 		}

@@ -669,7 +669,7 @@ void InvertHorizontalStrip16s(PIXEL *lowpass_band,	// Horizontal lowpass coeffic
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
 			//out : ((8e+d-f)/8-E)/2,(E+(f+8e-d)/8)/2, ((8f+e-g)/8-F)/2,(F+(g+8f-e)/8)/2, ((8g+f-h)/8-G)/2,(G+(h+8g-f)/8)/2, ((8d+c-e)/8-D)/2,(D+(e+8d-c)/8)/2
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			//temp32 =  ((8d+c-e)/8-D)/2,(D+(e+8d-c)/8)/2
 			out_epi16 = _mm_insert_epi16(out_epi16, even, 0);
 			//out : ((8e+d-f)/8-E)/2,(E+(f+8e-d)/8)/2, ((8f+e-g)/8-F)/2,(F+(g+8f-e)/8)/2, ((8g+f-h)/8-G)/2,(G+(h+8g-f)/8)/2, ((8d+c-e)/8-D)/2, even32
@@ -770,7 +770,7 @@ void InvertHorizontalStrip16s(PIXEL *lowpass_band,	// Horizontal lowpass coeffic
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, even, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, odd, 1);
 
@@ -1113,7 +1113,7 @@ void InvertHorizontalStrip16s10bitLimit(PIXEL *lowpass_band,	// Horizontal lowpa
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
 			//out : ((8e+d-f)/8-E)/2,(E+(f+8e-d)/8)/2, ((8f+e-g)/8-F)/2,(F+(g+8f-e)/8)/2, ((8g+f-h)/8-G)/2,(G+(h+8g-f)/8)/2, ((8d+c-e)/8-D)/2,(D+(e+8d-c)/8)/2
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			//temp32 =  ((8d+c-e)/8-D)/2,(D+(e+8d-c)/8)/2
 			out_epi16 = _mm_insert_epi16(out_epi16, even, 0);
 			//out : ((8e+d-f)/8-E)/2,(E+(f+8e-d)/8)/2, ((8f+e-g)/8-F)/2,(F+(g+8f-e)/8)/2, ((8g+f-h)/8-G)/2,(G+(h+8g-f)/8)/2, ((8d+c-e)/8-D)/2, even32
@@ -1218,7 +1218,7 @@ void InvertHorizontalStrip16s10bitLimit(PIXEL *lowpass_band,	// Horizontal lowpa
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, even, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, odd, 1);
 
@@ -1439,7 +1439,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 		// Add the highpass correction
 		even += highpass[column];
 		//even = DivideByShift(even, 1);
-		even <<= descaleshift;
+		even *= (1 << descaleshift);
 		// Place the even result in the even column
 		output[0] = SATURATE(even);
 
@@ -1453,7 +1453,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 		// Subtract the highpass correction
 		odd -= highpass[column];
 		//odd = DivideByShift(odd, 1);
-		odd <<= descaleshift;
+		odd *= (1 << descaleshift);
 		// Place the odd result in the odd column
 		output[1] = SATURATE(odd);
 
@@ -1616,7 +1616,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 			//even = DivideByShift(even, 1);
 
 			// Remove any scaling used during encoding
-			even <<= descaleshift;
+			even *= (1 << descaleshift);
 
 			// Place the even result in the even column
 			*(colptr++) = SATURATE(even);
@@ -1633,7 +1633,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 			//odd = DivideByShift(odd, 1);
 
 			// Remove any scaling used during encoding
-			odd <<= descaleshift;
+			odd *= (1 << descaleshift);
 
 			// Place the odd result in the odd column
 			*(colptr++) = SATURATE(odd);
@@ -1658,7 +1658,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 		//even = DivideByShift(even, 1);
 
 		// Remove any scaling used during encoding
-		even <<= descaleshift;
+		even *= (1 << descaleshift);
 
 		// Place the even result in the even column
 		*(colptr++) = SATURATE(even);
@@ -1675,7 +1675,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 		//odd = DivideByShift(odd, 1);
 
 		// Remove any scaling used during encoding
-		odd <<= descaleshift;
+		odd *= (1 << descaleshift);
 
 		// Place the odd result in the odd column
 		*(colptr++) = SATURATE(odd);
@@ -1771,7 +1771,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 		//even = DivideByShift(even, 1);
 
 		// Remove any scaling used during encoding
-		//even <<= descaleshift;
+		//even *= (1 << descaleshift);
 
 #if _UNALIGNED
 		// Place the even result in the even column
@@ -1792,7 +1792,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 		//odd = DivideByShift(odd, 1);
 
 		// Remove any scaling used during encoding
-		//odd <<= descaleshift;
+		//odd *= (1 << descaleshift);
 
 #if _UNALIGNED
 		// Place the odd result in the odd column
@@ -1923,7 +1923,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
 			//out : ((8e+d-f)/8-E)/2,(E+(f+8e-d)/8)/2, ((8f+e-g)/8-F)/2,(F+(g+8f-e)/8)/2, ((8g+f-h)/8-G)/2,(G+(h+8g-f)/8)/2, ((8d+c-e)/8-D)/2,(D+(e+8d-c)/8)/2
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			//temp32 =  ((8d+c-e)/8-D)/2,(D+(e+8d-c)/8)/2
 			out_epi16 = _mm_insert_epi16(out_epi16, even, 0);
 			//out : ((8e+d-f)/8-E)/2,(E+(f+8e-d)/8)/2, ((8f+e-g)/8-F)/2,(F+(g+8f-e)/8)/2, ((8g+f-h)/8-G)/2,(G+(h+8g-f)/8)/2, ((8d+c-e)/8-D)/2, even32
@@ -2023,7 +2023,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, even, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, odd, 1);
 
@@ -2064,8 +2064,8 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 		*(colptr++) = remainder[1];
 #else
 		// Store the last two output points produced by the loop
-		even <<= descaleshift;
-		odd <<= descaleshift;
+		even *= (1 << descaleshift);
+		odd *= (1 << descaleshift);
 
 		*(colptr++) = SATURATE(even);
 		*(colptr++) = SATURATE(odd);
@@ -2089,7 +2089,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 			//even = DivideByShift(even, 1);
 
 			// Remove any scaling used during encoding
-			even <<= descaleshift;
+			even *= (1 << descaleshift);
 
 			// Place the even result in the even column
 			*(colptr++) = SATURATE(even);
@@ -2106,7 +2106,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 			//odd = DivideByShift(odd, 1);
 
 			// Remove any scaling used during encoding
-			odd <<= descaleshift;
+			odd *= (1 << descaleshift);
 
 			// Place the odd result in the odd column
 			*(colptr++) = SATURATE(odd);
@@ -2131,7 +2131,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 		//even = DivideByShift(even, 1);
 
 		// Remove any scaling used during encoding
-		even <<= descaleshift;
+		even *= (1 << descaleshift);
 
 		// Place the even result in the even column
 		*(colptr++) = SATURATE(even);
@@ -2148,7 +2148,7 @@ void InvertHorizontalStripDescale16s(PIXEL *lowpass_band, int lowpass_pitch,
 		//odd = DivideByShift(odd, 1);
 
 		// Remove any scaling used during encoding
-		odd <<= descaleshift;
+		odd *= (1 << descaleshift);
 
 		// Place the odd result in the odd column
 		*(colptr++) = SATURATE(odd);
@@ -2408,7 +2408,7 @@ void InvertHorizontalStrip1x16s(PIXEL *lowpass_band, int lowpass_pitch,
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
 			//out : ((8e+d-f)/8-E)/2,(E+(f+8e-d)/8)/2, ((8f+e-g)/8-F)/2,(F+(g+8f-e)/8)/2, ((8g+f-h)/8-G)/2,(G+(h+8g-f)/8)/2, ((8d+c-e)/8-D)/2,(D+(e+8d-c)/8)/2
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			//temp32 =  ((8d+c-e)/8-D)/2,(D+(e+8d-c)/8)/2
 			out_epi16 = _mm_insert_epi16(out_epi16, even, 0);
 			//out : ((8e+d-f)/8-E)/2,(E+(f+8e-d)/8)/2, ((8f+e-g)/8-F)/2,(F+(g+8f-e)/8)/2, ((8g+f-h)/8-G)/2,(G+(h+8g-f)/8)/2, ((8d+c-e)/8-D)/2, even32
@@ -2509,7 +2509,7 @@ void InvertHorizontalStrip1x16s(PIXEL *lowpass_band, int lowpass_pitch,
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, even, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, odd, 1);
 
@@ -3525,7 +3525,7 @@ void InvertHorizontalStripPrescaled16s(PIXEL *lowpass_band,		// Horizontal lowpa
 #elif 0
 			// Combine the new output values with the two values from the previous phase
 			temp_epi16 = _mm_srli_si128(out_epi16, 6*2);
-			temp = _mm_cvtsi128_si32(temp_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(temp_epi16);
 			out_epi16 = _mm_slli_si128(out_epi16, 2*2);
 			out_epi16 = _mm_or_si128(out_epi16, _mm_cvtsi32_si128(*((int *)remainder)));
 
@@ -3537,7 +3537,7 @@ void InvertHorizontalStripPrescaled16s(PIXEL *lowpass_band,		// Horizontal lowpa
 #else
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, even, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, odd, 1);
 
@@ -3617,7 +3617,7 @@ void InvertHorizontalStripPrescaled16s(PIXEL *lowpass_band,		// Horizontal lowpa
 #elif 0
 			// Combine the new output values with the two values from the previous phase
 			temp_epi16 = _mm_srli_si128(out_epi16, 6*2);
-			temp = _mm_cvtsi128_si32(temp_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(temp_epi16);
 			out_epi16 = _mm_slli_si128(out_epi16, 2*2);
 			out_epi16 = _mm_or_si128(out_epi16, _mm_cvtsi32_si128(*((int *)remainder)));
 
@@ -3629,7 +3629,7 @@ void InvertHorizontalStripPrescaled16s(PIXEL *lowpass_band,		// Horizontal lowpa
 #else
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, even, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, odd, 1);
 
@@ -4121,7 +4121,7 @@ void InvertHorizontalStrip16sToYUYV(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_odd_value, 1);
 
@@ -4188,7 +4188,7 @@ void InvertHorizontalStrip16sToYUYV(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_odd_value, 1);
 
@@ -4260,7 +4260,7 @@ void InvertHorizontalStrip16sToYUYV(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, u_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, u_odd_value, 1);
 
@@ -4327,7 +4327,7 @@ void InvertHorizontalStrip16sToYUYV(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, u_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, u_odd_value, 1);
 
@@ -4399,7 +4399,7 @@ void InvertHorizontalStrip16sToYUYV(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_odd_value, 1);
 
@@ -4466,7 +4466,7 @@ void InvertHorizontalStrip16sToYUYV(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_odd_value, 1);
 
@@ -4538,7 +4538,7 @@ void InvertHorizontalStrip16sToYUYV(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, v_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, v_odd_value, 1);
 
@@ -4605,7 +4605,7 @@ void InvertHorizontalStrip16sToYUYV(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, v_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, v_odd_value, 1);
 
@@ -5372,7 +5372,7 @@ void InvertHorizontalStrip16sToUYVY(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_odd_value, 1);
 
@@ -5439,7 +5439,7 @@ void InvertHorizontalStrip16sToUYVY(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_odd_value, 1);
 
@@ -5511,7 +5511,7 @@ void InvertHorizontalStrip16sToUYVY(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, u_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, u_odd_value, 1);
 
@@ -5578,7 +5578,7 @@ void InvertHorizontalStrip16sToUYVY(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, u_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, u_odd_value, 1);
 
@@ -5650,7 +5650,7 @@ void InvertHorizontalStrip16sToUYVY(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_odd_value, 1);
 
@@ -5717,7 +5717,7 @@ void InvertHorizontalStrip16sToUYVY(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, y_odd_value, 1);
 
@@ -5789,7 +5789,7 @@ void InvertHorizontalStrip16sToUYVY(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, v_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, v_odd_value, 1);
 
@@ -5856,7 +5856,7 @@ void InvertHorizontalStrip16sToUYVY(PIXEL *lowpass_band[],	// Horizontal lowpass
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, v_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, v_odd_value, 1);
 
@@ -7165,7 +7165,7 @@ void InvertHorizontalStrip16sToBayerYUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_odd_value, 1);
 
@@ -7232,7 +7232,7 @@ void InvertHorizontalStrip16sToBayerYUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_odd_value, 1);
 
@@ -7303,7 +7303,7 @@ void InvertHorizontalStrip16sToBayerYUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_odd_value, 1);
 
@@ -7369,7 +7369,7 @@ void InvertHorizontalStrip16sToBayerYUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_odd_value, 1);
 
@@ -7441,7 +7441,7 @@ void InvertHorizontalStrip16sToBayerYUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_odd_value, 1);
 
@@ -7507,7 +7507,7 @@ void InvertHorizontalStrip16sToBayerYUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_odd_value, 1);
 
@@ -8844,7 +8844,7 @@ void InvertHorizontalStrip16sRGB2YUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_odd_value, 1);
 
@@ -8911,7 +8911,7 @@ void InvertHorizontalStrip16sRGB2YUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_odd_value, 1);
 
@@ -8983,7 +8983,7 @@ void InvertHorizontalStrip16sRGB2YUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_odd_value, 1);
 
@@ -9050,7 +9050,7 @@ void InvertHorizontalStrip16sRGB2YUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_odd_value, 1);
 
@@ -9123,7 +9123,7 @@ void InvertHorizontalStrip16sRGB2YUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_odd_value, 1);
 
@@ -9190,7 +9190,7 @@ void InvertHorizontalStrip16sRGB2YUV(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_odd_value, 1);
 
@@ -10516,7 +10516,7 @@ void InvertHorizontalStrip16sRGBA2YUVA(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, g_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, g_odd_value, 1);
 
@@ -10583,7 +10583,7 @@ void InvertHorizontalStrip16sRGBA2YUVA(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, g_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, g_odd_value, 1);
 
@@ -10655,7 +10655,7 @@ void InvertHorizontalStrip16sRGBA2YUVA(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, b_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, b_odd_value, 1);
 
@@ -10722,7 +10722,7 @@ void InvertHorizontalStrip16sRGBA2YUVA(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, b_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, b_odd_value, 1);
 
@@ -10795,7 +10795,7 @@ void InvertHorizontalStrip16sRGBA2YUVA(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, r_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, r_odd_value, 1);
 
@@ -10862,7 +10862,7 @@ void InvertHorizontalStrip16sRGBA2YUVA(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, r_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, r_odd_value, 1);
 
@@ -10939,7 +10939,7 @@ void InvertHorizontalStrip16sRGBA2YUVA(HorizontalFilterParams)
 
 				// Combine the new output values with the two values from the previous phase
 				out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-				temp = _mm_cvtsi128_si32(out_epi16);
+				temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 				out_epi16 = _mm_insert_epi16(out_epi16, a_even_value, 0);
 				out_epi16 = _mm_insert_epi16(out_epi16, a_odd_value, 1);
 
@@ -11006,7 +11006,7 @@ void InvertHorizontalStrip16sRGBA2YUVA(HorizontalFilterParams)
 
 				// Combine the new output values with the two values from the previous phase
 				out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-				temp = _mm_cvtsi128_si32(out_epi16);
+				temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 				out_epi16 = _mm_insert_epi16(out_epi16, a_even_value, 0);
 				out_epi16 = _mm_insert_epi16(out_epi16, a_odd_value, 1);
 
@@ -12228,7 +12228,7 @@ void InvertHorizontalStrip16sRGB2YR16(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_odd_value, 1);
 
@@ -12295,7 +12295,7 @@ void InvertHorizontalStrip16sRGB2YR16(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_odd_value, 1);
 
@@ -12367,7 +12367,7 @@ void InvertHorizontalStrip16sRGB2YR16(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_odd_value, 1);
 
@@ -12434,7 +12434,7 @@ void InvertHorizontalStrip16sRGB2YR16(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_odd_value, 1);
 
@@ -12507,7 +12507,7 @@ void InvertHorizontalStrip16sRGB2YR16(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_odd_value, 1);
 
@@ -12574,7 +12574,7 @@ void InvertHorizontalStrip16sRGB2YR16(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_odd_value, 1);
 
@@ -12868,7 +12868,7 @@ void InvertHorizontalStrip16sRGB2YR16(HorizontalFilterParams)
 				left1_epi16 = _mm_slli_si128(u1_output_epi16, 2);
 				left2_epi16 = _mm_slli_si128(u2_output_epi16, 2);
 				left1_epi16 = _mm_insert_epi16(left1_epi16, lastU0, 0);
-				left2_epi16 = _mm_insert_epi16(left2_epi16, _mm_extract_epi16(u1_output_epi16, 7), 0);
+				left2_epi16 = _mm_insert_epi16(left2_epi16, (int16_t)_mm_extract_epi16(u1_output_epi16, 7), 0);
 				right1_epi16 = _mm_srli_si128(u1_output_epi16, 2);
 				right2_epi16 = _mm_srli_si128(u2_output_epi16, 2);
 				lastU0 = _mm_extract_epi16(u2_output_epi16, 7);
@@ -12888,7 +12888,7 @@ void InvertHorizontalStrip16sRGB2YR16(HorizontalFilterParams)
 				left1_epi16 = _mm_slli_si128(v1_output_epi16, 2);
 				left2_epi16 = _mm_slli_si128(v2_output_epi16, 2);
 				left1_epi16 = _mm_insert_epi16(left1_epi16, lastV0, 0);
-				left2_epi16 = _mm_insert_epi16(left2_epi16, _mm_extract_epi16(v1_output_epi16, 7), 0);
+				left2_epi16 = _mm_insert_epi16(left2_epi16, (int16_t)_mm_extract_epi16(v1_output_epi16, 7), 0);
 				right1_epi16 = _mm_srli_si128(v1_output_epi16, 2);
 				right2_epi16 = _mm_srli_si128(v2_output_epi16, 2);
 				lastV0 = _mm_extract_epi16(v2_output_epi16, 7);
@@ -13698,7 +13698,7 @@ void InvertHorizontalStrip16sRGB2B64A(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, g_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, g_odd_value, 1);
 
@@ -13765,7 +13765,7 @@ void InvertHorizontalStrip16sRGB2B64A(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, g_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, g_odd_value, 1);
 
@@ -13839,7 +13839,7 @@ void InvertHorizontalStrip16sRGB2B64A(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, b_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, b_odd_value, 1);
 
@@ -13906,7 +13906,7 @@ void InvertHorizontalStrip16sRGB2B64A(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, b_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, b_odd_value, 1);
 
@@ -13981,7 +13981,7 @@ void InvertHorizontalStrip16sRGB2B64A(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, r_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, r_odd_value, 1);
 
@@ -14048,7 +14048,7 @@ void InvertHorizontalStrip16sRGB2B64A(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, r_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, r_odd_value, 1);
 
@@ -14124,7 +14124,7 @@ void InvertHorizontalStrip16sRGB2B64A(HorizontalFilterParams)
 
 				// Combine the new output values with the two values from the previous phase
 				out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-				temp = _mm_cvtsi128_si32(out_epi16);
+				temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 				out_epi16 = _mm_insert_epi16(out_epi16, a_even_value, 0);
 				out_epi16 = _mm_insert_epi16(out_epi16, a_odd_value, 1);
 
@@ -14191,7 +14191,7 @@ void InvertHorizontalStrip16sRGB2B64A(HorizontalFilterParams)
 
 				// Combine the new output values with the two values from the previous phase
 				out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-				temp = _mm_cvtsi128_si32(out_epi16);
+				temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 				out_epi16 = _mm_insert_epi16(out_epi16, a_even_value, 0);
 				out_epi16 = _mm_insert_epi16(out_epi16, a_odd_value, 1);
 
@@ -15143,7 +15143,7 @@ void InvertHorizontalStrip16sRGB2RG30(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_odd_value, 1);
 
@@ -15210,7 +15210,7 @@ void InvertHorizontalStrip16sRGB2RG30(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, gg_odd_value, 1);
 
@@ -15282,7 +15282,7 @@ void InvertHorizontalStrip16sRGB2RG30(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_odd_value, 1);
 
@@ -15349,7 +15349,7 @@ void InvertHorizontalStrip16sRGB2RG30(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, bg_odd_value, 1);
 
@@ -15422,7 +15422,7 @@ void InvertHorizontalStrip16sRGB2RG30(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_odd_value, 1);
 
@@ -15489,7 +15489,7 @@ void InvertHorizontalStrip16sRGB2RG30(HorizontalFilterParams)
 
 			// Combine the new output values with the two values from the previous phase
 			out_epi16 = _mm_shuffle_epi32(out_epi16, _MM_SHUFFLE(2, 1, 0, 3));
-			temp = _mm_cvtsi128_si32(out_epi16);
+			temp = (uint32_t)_mm_cvtsi128_si32(out_epi16);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_even_value, 0);
 			out_epi16 = _mm_insert_epi16(out_epi16, rg_odd_value, 1);
 
@@ -16244,7 +16244,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 		even = DivideByShift(even, 1);
 
 		// Scale the result to the full 16-bit range
-		even <<= scale_shift;
+		even *= (1 << scale_shift);
 
 		// Place the even result in the even column
 		//even >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -16262,7 +16262,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 		odd = DivideByShift(odd, 1);
 
 		// Scale the result to the full 16-bit range
-		odd <<= scale_shift;
+		odd *= (1 << scale_shift);
 
 		// Place the odd result in the odd column
 		//odd >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -16488,7 +16488,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 			even = DivideByShift(even, 1);
 
 			// Reduce the precision to eight bits
-			even <<= scale_shift;
+			even *= (1 << scale_shift);
 
 			// Place the even result in the even column
 			//even >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -16506,7 +16506,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 			odd = DivideByShift(odd, 1);
 
 			// Reduce the precision to eight bits
-			odd <<= scale_shift;
+			odd *= (1 << scale_shift);
 
 			// Place the odd result in the odd column
 			//odd >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -16532,7 +16532,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 		even = DivideByShift(even, 1);
 
 		// Scale the result to the full 16-bit range
-		even <<= scale_shift;
+		even *= (1 << scale_shift);
 
 		// Place the even result in the even column
 		//even >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -16550,7 +16550,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 		odd = DivideByShift(odd, 1);
 
 		// Scale the result to the full 16-bit range
-		odd <<= scale_shift;
+		odd *= (1 << scale_shift);
 
 		// Place the odd result in the odd column
 		//odd >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -16660,12 +16660,12 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 		even = DivideByShift(even, 1);
 
 		// Scale the result to the full 16-bit range
-		//even <<= scale_shift;
+		//even *= (1 << scale_shift);
 
 		// Place the even result in the even column
 		//even >>= _INVERSE_TEMPORAL_PRESCALE;
 		//output[0] = SATURATE_16U(even);
-		even <<= scale_shift;
+		even *= (1 << scale_shift);
 		even = SATURATE_16U(even); //DAN20070813 -- fix for left edge of alpha channels.
 		even >>= scale_shift;
 
@@ -16681,12 +16681,12 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 		odd = DivideByShift(odd, 1);
 
 		// Scale the result to the full 16-bit range
-		//odd <<= scale_shift;
+		//odd *= (1 << scale_shift);
 
 		// Place the odd result in the odd column
 		//odd >>= _INVERSE_TEMPORAL_PRESCALE;
 		//output[1] = SATURATE_16U(odd);
-		odd <<= scale_shift;
+		odd *= (1 << scale_shift);
 		odd = SATURATE_16U(odd);//DAN20070813 -- fix for left edge of alpha channels.
 		odd >>= scale_shift;
 
@@ -16711,7 +16711,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 			rsh1_epi16 = _mm_srli_si128(low1_epi16, 2);				// [col+1]
 
 			// Insert the first coefficient from the next group into the last coefficient in this group
-			rsh1_epi16 = _mm_insert_epi16(rsh1_epi16, _mm_extract_epi16(low2_epi16, 0), 7);
+			rsh1_epi16 = _mm_insert_epi16(rsh1_epi16, (int16_t)_mm_extract_epi16(low2_epi16, 0), 7);
 
 			// Apply the three point filter for the even output values
 			even_epi16 = _mm_subs_epi16(lsh1_epi16, rsh1_epi16);	// [col-1] - [col+1]
@@ -16768,8 +16768,8 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 		else
 		{
 			// Scale the even and odd output values to the full 16-bit range
-			even <<= scale_shift;
-			odd <<= scale_shift;
+			even *= (1 << scale_shift);
+			odd *= (1 << scale_shift);
 
 			// Store the even and odd output values from the left border
 			output[0] = SATURATE_16U(even);
@@ -16796,10 +16796,10 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 			rsh1_epi16 = _mm_srli_si128(low1_epi16, 2);				// [col+1]
 
 			// Fill the first coefficient with the last coefficient from the previous group
-			lsh1_epi16 = _mm_insert_epi16(lsh1_epi16, low1, 0);
+			lsh1_epi16 = _mm_insert_epi16(lsh1_epi16, (int16_t)low1, 0);
 
 			// Fill the last coefficient with the first coefficient from the next group
-			rsh1_epi16 = _mm_insert_epi16(rsh1_epi16, _mm_extract_epi16(low2_epi16, 0), 7);
+			rsh1_epi16 = _mm_insert_epi16(rsh1_epi16, (int16_t)_mm_extract_epi16(low2_epi16, 0), 7);
 
 			// Apply the three point filter for the even output values
 			even_epi16 = _mm_subs_epi16(lsh1_epi16, rsh1_epi16);	// [col-1] - [col+1]
@@ -16860,7 +16860,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 		rsh1_epi16 = _mm_srli_si128(low1_epi16, 2);				// [col+1]
 
 		// Fill the first coefficient with the last coefficient from the previous group
-		lsh1_epi16 = _mm_insert_epi16(lsh1_epi16, low1, 0);
+		lsh1_epi16 = _mm_insert_epi16(lsh1_epi16, (int16_t)low1, 0);
 
 		// Apply the three point filter for the even output values
 		even_epi16 = _mm_subs_epi16(lsh1_epi16, rsh1_epi16);	// [col-1] - [col+1]
@@ -16922,7 +16922,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 			even = DivideByShift(even, 1);
 
 			// Reduce the precision to eight bits
-			even <<= scale_shift;
+			even *= (1 << scale_shift);
 
 			// Place the even result in the even column
 			//even >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -16940,7 +16940,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 			odd = DivideByShift(odd, 1);
 
 			// Reduce the precision to eight bits
-			odd <<= scale_shift;
+			odd *= (1 << scale_shift);
 
 			// Place the odd result in the odd column
 			//odd >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -16966,7 +16966,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 		even = DivideByShift(even, 1);
 
 		// Scale the result to the full 16-bit range
-		even <<= scale_shift;
+		even *= (1 << scale_shift);
 
 		// Place the even result in the even column
 		//even >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -16984,7 +16984,7 @@ void InvertHorizontalStrip16sToRow16u(PIXEL *lowpass_band, int lowpass_pitch,
 		odd = DivideByShift(odd, 1);
 
 		// Scale the result to the full 16-bit range
-		odd <<= scale_shift;
+		odd *= (1 << scale_shift);
 
 		// Place the odd result in the odd column
 		//odd >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -17134,7 +17134,7 @@ void InvertHorizontalStripRGB444ToB64A(PIXEL *lowpass_band, int lowpass_pitch,
 		even = DivideByShift(even, 1);
 
 		// Scale the result to the full 16-bit range
-		even <<= scale_shift;
+		even *= (1 << scale_shift);
 
 		// Place the even result in the even column
 		//even >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -17152,7 +17152,7 @@ void InvertHorizontalStripRGB444ToB64A(PIXEL *lowpass_band, int lowpass_pitch,
 		odd = DivideByShift(odd, 1);
 
 		// Scale the result to the full 16-bit range
-		odd <<= scale_shift;
+		odd *= (1 << scale_shift);
 
 		// Place the odd result in the odd column
 		//odd >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -17378,7 +17378,7 @@ void InvertHorizontalStripRGB444ToB64A(PIXEL *lowpass_band, int lowpass_pitch,
 			even = DivideByShift(even, 1);
 
 			// Reduce the precision to eight bits
-			even <<= scale_shift;
+			even *= (1 << scale_shift);
 
 			// Place the even result in the even column
 			//even >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -17396,7 +17396,7 @@ void InvertHorizontalStripRGB444ToB64A(PIXEL *lowpass_band, int lowpass_pitch,
 			odd = DivideByShift(odd, 1);
 
 			// Reduce the precision to eight bits
-			odd <<= scale_shift;
+			odd *= (1 << scale_shift);
 
 			// Place the odd result in the odd column
 			//odd >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -17422,7 +17422,7 @@ void InvertHorizontalStripRGB444ToB64A(PIXEL *lowpass_band, int lowpass_pitch,
 		even = DivideByShift(even, 1);
 
 		// Scale the result to the full 16-bit range
-		even <<= scale_shift;
+		even *= (1 << scale_shift);
 
 		// Place the even result in the even column
 		//even >>= _INVERSE_TEMPORAL_PRESCALE;
@@ -17440,7 +17440,7 @@ void InvertHorizontalStripRGB444ToB64A(PIXEL *lowpass_band, int lowpass_pitch,
 		odd = DivideByShift(odd, 1);
 
 		// Scale the result to the full 16-bit range
-		odd <<= scale_shift;
+		odd *= (1 << scale_shift);
 
 		// Place the odd result in the odd column
 		//odd >>= _INVERSE_TEMPORAL_PRESCALE;
