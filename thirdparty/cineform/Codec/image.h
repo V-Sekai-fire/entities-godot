@@ -228,6 +228,8 @@ enum {
 #define BAND_VALID_MASK(band)		(1 << (band))
 //#define BANDS_ALL_VALID(wavelet)	((wavelet)->band_valid_flags == (uint32_t)((1 << (wavelet)->num_bands) - 1))
 #define BANDS_ALL_VALID(wavelet)	((wavelet)->band_valid_flags == (wavelet)->band_started_flags)
+// Every started band is valid and the lowpass band, which an inverse transform needs, is too
+#define BANDS_READY_TO_INVERT(wavelet)	(BANDS_ALL_VALID(wavelet) && ((wavelet)->band_valid_flags & BAND_VALID_MASK(0)))
 #define BANDS_ALL_STARTED(wavelet)	(((wavelet)->band_started_flags & (uint32_t)((1 << (wavelet)->num_bands) - 2)) == (uint32_t)((1 << (wavelet)->num_bands) - 2))
 #define HIGH_BANDS_VALID(wavelet)	((wavelet)->band_valid_flags == (uint32_t)(((1 << (wavelet)->num_bands - 1) - 1) << 1)
 

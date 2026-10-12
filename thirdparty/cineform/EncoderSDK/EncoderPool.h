@@ -132,9 +132,9 @@ public:
 							 CSampleBuffer **sampleBufferOut);
 
 	//! Signal that an encoder job has finished
-	CFHD_Error SignalJobFinished()
+	CFHD_Error FinishJob(EncoderJob *job, CFHD_Error error, CSampleBuffer *sampleBuffer)
 	{
-		m_encoderJobQueue.SignalJobFinished();
+		m_encoderJobQueue.FinishJob(job, error, sampleBuffer);
 		return CFHD_ERROR_OKAY;
 	}
 

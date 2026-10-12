@@ -106,6 +106,9 @@ env_cineform.Prepend(
 if env["arch"] == "arm64":
     # The shim directory answers the codec's <emmintrin.h> includes with sse2neon.
     env_cineform.Prepend(CPPPATH=["#thirdparty/sse2neon/shim"])
+    # sse2neon warns on every optimized build that it may misbehave under optimization. It
+    # is advice, not a defect, and under werror it stops the module from building at all.
+    env_cineform.Append(CPPDEFINES=["SSE2NEON_SUPPRESS_WARNINGS"])
 
 env_thirdparty = env_cineform.Clone()
 env_thirdparty.disable_warnings()
@@ -134,11 +137,19 @@ env_libwebm.add_source_files(thirdparty_obj, libwebm_sources)
 
 env.modules_sources += thirdparty_obj
 
+# Off Windows the SDK makes its stream GUIDs with uuid_generate. On macOS that is in
+# libSystem; on Linux it lives in libuuid, which nothing else in the engine links.
+if env["platform"] == "linuxbsd":
+    env.Append(LIBS=["uuid"])
+
 # Godot source files
 
 module_obj = []
 
 env_cineform.add_source_files(module_obj, "*.cpp")
+if env["tests"]:
+    # The test helpers need the SDK and libwebm headers, which only this environment carries.
+    env_cineform.add_source_files(module_obj, "./tests/*.cpp")
 env.modules_sources += module_obj
 
 # Needed to force rebuilding the module files when the thirdparty library is updated.

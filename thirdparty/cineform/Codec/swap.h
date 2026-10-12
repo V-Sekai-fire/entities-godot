@@ -33,7 +33,7 @@ extern "C"
 #if _MSC_VER
 #define _bswap(x)		_byteswap_ulong(x)
 #endif
-#define SwapInt32(x)	_byteswap_ulong(x)
+#define SwapInt32(x)	_byteswap_ulong((unsigned long)(x))
 #define SwapInt16(x)	_byteswap_ushort(x)
 
 // Define byte swapping routines for the native format (Windows)
@@ -47,7 +47,7 @@ extern "C"
 #elif __APPLE__
 #include "CoreFoundation/CoreFoundation.h"
 #define _bswap(x)		_OSSwapInt32(x)
-#define SwapInt32(x)	_OSSwapInt32(x)
+#define SwapInt32(x)	_OSSwapInt32((uint32_t)(x))
 #define SwapInt16(x)	_OSSwapInt16(x)
 
 #define SwapInt32BtoN(x)	SwapInt32(x)
@@ -62,7 +62,7 @@ extern "C"
 #include <byteswap.h>
 
 #define SwapInt16(x)	bswap_16(x)
-#define SwapInt32(x)	bswap_32(x)
+#define SwapInt32(x)	bswap_32((uint32_t)(x))
 
 // Define byte swapping routines for the native format (Windows)
 #define SwapInt32BtoN(x)	SwapInt32(x)

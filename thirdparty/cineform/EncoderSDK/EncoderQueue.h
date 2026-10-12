@@ -371,9 +371,15 @@ public:
 		return job;
 	}
 
-	void SignalJobFinished()
+	//! Record the result of a job and wake the thread waiting for it
+	void FinishJob(EncoderJob *job, CFHD_Error error, CSampleBuffer *sampleBuffer)
 	{
-		// Wake a thread that is waiting for an encoded sample
+		// The waiting thread reads the job under this lock, so every field is
+		// written under it too.
+		CAutoLock lock(mutex);
+		job->error = error;
+		job->sampleBuffer = sampleBuffer;
+		job->status = ENCODER_JOB_STATUS_FINISHED;
 		ready.Wake();
 	}
 

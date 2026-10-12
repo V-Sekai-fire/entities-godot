@@ -217,6 +217,11 @@ typedef enum CFHD_EncodingQuality
 	CFHD_ENCODING_QUALITY_UNCOMPRESSED = 16<<8,
 	CFHD_ENCODING_QUALITY_UNC_NO_STORE = (32|16)<<8,
 
+	// Bits the encoder ORs into the quality when the encoded format is not the
+	// default for the pixel format (EncoderSDK/SampleEncoder.cpp).
+	CFHD_ENCODING_QUALITY_FLAG_TOGGLE_444_422 = 0x08000000,
+	CFHD_ENCODING_QUALITY_FLAG_TOGGLE_4444_444 = 0x20000000,
+
 	// Default encoding quality
 	CFHD_ENCODING_QUALITY_DEFAULT = CFHD_ENCODING_QUALITY_FILMSCAN1,
 

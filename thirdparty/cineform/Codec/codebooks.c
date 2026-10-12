@@ -337,7 +337,7 @@ bool InitDecoderFSM(DECODER *decoder, CODESET *cs)
 				ScaleFSM(&decoder->fsm[i].table);
 	#endif
 				// Indicate that the table was initialized
-				decoder->fsm[i].table.flags |= FSMTABLE_FLAGS_INITIALIZED;
+				decoder->fsm[i].table.flags = (short)(decoder->fsm[i].table.flags | FSMTABLE_FLAGS_INITIALIZED);
 			}
 
 			//
@@ -1138,7 +1138,7 @@ void FillVleTable(VLCBOOK *codebook, VLE *table, int size, int flags)
 
 		assert((codesize & VLE_CODESIZE_MASK) == codesize);
 		assert((codeword & VLE_CODEWORD_MASK) == codeword);
-		table[index].entry = (codesize << VLE_CODESIZE_SHIFT) | (codeword & VLE_CODEWORD_MASK);
+		table[index].entry = ((uint32_t)codesize << VLE_CODESIZE_SHIFT) | (codeword & VLE_CODEWORD_MASK);
 	}
 }
 

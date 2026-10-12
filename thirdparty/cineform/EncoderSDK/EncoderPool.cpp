@@ -602,7 +602,7 @@ CFHD_Error CEncoderPool::UpdateMetadata()
 	if (data)
 	{
 		// Get the unique frame ID from the metadata
-		int32_t uniqueFrameID = *(unsigned long *)data;
+		int32_t uniqueFrameID = (int32_t)*(uint32_t *)data;
 
 		// Has the unique frame ID for the encoder pool been initialized?
 		if (m_uniqueFrameID == -1)

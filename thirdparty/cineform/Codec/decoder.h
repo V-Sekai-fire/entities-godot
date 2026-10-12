@@ -421,6 +421,7 @@ IMAGE *GetWaveletThreadSafe(DECODER *decoder, TRANSFORM *transform, int index,
 
 void UpdateWaveletBandValidFlags(DECODER *decoder, IMAGE *wavelet, int band);
 void UpdateWaveletBandStartedFlags(DECODER *decoder, IMAGE *wavelet, int band);
+bool WaveletBandValidThreadSafe(DECODER *decoder, IMAGE *wavelet, int band);
 bool DecodedBandsValid(IMAGE *wavelet, int index, int transform_type);
 void QueueThreadedTransform(DECODER *decoder, int channel, int wavelet_index);
 bool VerifyTransformQueue(DECODER *decoder);

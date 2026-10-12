@@ -260,6 +260,14 @@ static void *malloc22(size_t size, size_t align)
 #define _THREADED_ENCODER	0		// Perform encoding using multiple threads?
 #endif
 
+// Storage class for codec state kept in a global that each encoder thread sets and
+// reads for itself.
+#if defined(_MSC_VER)
+#define CFHD_THREAD_LOCAL __declspec(thread)
+#else
+#define CFHD_THREAD_LOCAL __thread
+#endif
+
 #ifndef _THREADED_DECODER
 #define _THREADED_DECODER	1
 #endif

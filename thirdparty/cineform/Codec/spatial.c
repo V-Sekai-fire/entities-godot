@@ -498,7 +498,7 @@ void FilterHorizontalRow16s(PIXEL *input, PIXEL *lowpass, PIXEL *highpass, int w
 
 		// Shift the extra highpass coefficient into the output
 		sum1_epi16 = _mm_slli_si128(sum1_epi16, 1*2);
-		sum1_epi16 = _mm_insert_epi16(sum1_epi16, highpass_value, 0);
+		sum1_epi16 = _mm_insert_epi16(sum1_epi16, (int16_t)highpass_value, 0);
 
 		// Save the last highpass coefficient for the next loop iteration
 		highpass_value = _mm_cvtsi128_si32(sum2_epi16);
@@ -834,7 +834,7 @@ void FilterHorizontalRow16s(PIXEL *input, PIXEL *lowpass, PIXEL *highpass, int w
 
 		// Shift the extra highpass coefficient into the output
 		sum1_epi16 = _mm_slli_si128(sum1_epi16, 1*2);
-		sum1_epi16 = _mm_insert_epi16(sum1_epi16, highpass_value, 0);
+		sum1_epi16 = _mm_insert_epi16(sum1_epi16, (int16_t)highpass_value, 0);
 
 		// Save the last highpass coefficient for the next loop iteration
 		highpass_value = _mm_cvtsi128_si32(sum2_epi16);
@@ -1141,7 +1141,7 @@ void FilterHorizontalRow16s(PIXEL *input, PIXEL *lowpass, PIXEL *highpass, int w
 
 		// Shift the extra highpass coefficient into the output
 		sum1_epi16 = _mm_slli_si128(sum1_epi16, 1*2);
-		sum1_epi16 = _mm_insert_epi16(sum1_epi16, highpass_value, 0);
+		sum1_epi16 = _mm_insert_epi16(sum1_epi16, (int16_t)highpass_value, 0);
 
 		// Save the last highpass coefficient for the next loop iteration
 		highpass_value = _mm_cvtsi128_si32(sum2_epi16);
@@ -3928,7 +3928,7 @@ void FilterHorizontalRow10bit16s(PIXEL *input, PIXEL *lowpass, PIXEL *highpass, 
 
 		// Shift the extra highpass coefficient into the output
 		sum1_epi16 = _mm_slli_si128(sum1_epi16, 1*2);
-		sum1_epi16 = _mm_insert_epi16(sum1_epi16, highpass_value, 0);
+		sum1_epi16 = _mm_insert_epi16(sum1_epi16, (int16_t)highpass_value, 0);
 
 		// Save the last highpass coefficient for the next loop iteration
 		highpass_value = _mm_cvtsi128_si32(sum2_epi16);
@@ -4732,7 +4732,7 @@ void FilterHorizontalRowScaled16s(PIXEL *input, PIXEL *lowpass, PIXEL *highpass,
 
 		// Shift the extra highpass coefficient into the output
 		sum1_epi16 = _mm_slli_si128(sum1_epi16, 1*2);
-		sum1_epi16 = _mm_insert_epi16(sum1_epi16, highpass_value, 0);
+		sum1_epi16 = _mm_insert_epi16(sum1_epi16, (int16_t)highpass_value, 0);
 
 		// Save the last highpass coefficient for the next loop iteration
 		highpass_value = _mm_cvtsi128_si32(sum2_epi16);
@@ -4861,7 +4861,7 @@ void FilterHorizontalRowScaled16s(PIXEL *input, PIXEL *lowpass, PIXEL *highpass,
 
 
 //TODO:  get rid of the global.
-extern int g_midpoint_prequant; //HACK
+extern CFHD_THREAD_LOCAL int g_midpoint_prequant; //HACK
 
 
 #if _PROCESSOR_DISPATCH
@@ -5631,7 +5631,7 @@ void FilterHorizontalRowScaled16sDifferenceFiltered(PIXEL *input, PIXEL *lowpass
 
 		// Shift the extra highpass coefficient into the output
 		sum1_epi16 = _mm_slli_si128(sum1_epi16, 1*2);
-		sum1_epi16 = _mm_insert_epi16(sum1_epi16, highpass_value, 0);
+		sum1_epi16 = _mm_insert_epi16(sum1_epi16, (int16_t)highpass_value, 0);
 
 		// Save the last highpass coefficient for the next loop iteration
 		highpass_value = _mm_cvtsi128_si32(sum2_epi16);
@@ -6108,7 +6108,7 @@ void FilterHorizontalRowQuant16s(PIXEL *input, PIXEL *lowpass, PIXEL *highpass,
 
 		// Shift the extra highpass coefficient into the output
 		sum1_epi16 = _mm_slli_si128(sum1_epi16, 1*2);
-		sum1_epi16 = _mm_insert_epi16(sum1_epi16, highpass_value, 0);
+		sum1_epi16 = _mm_insert_epi16(sum1_epi16, (int16_t)highpass_value, 0);
 
 		// Save the last highpass coefficient for the next loop iteration
 		highpass_value = _mm_cvtsi128_si32(sum2_epi16);

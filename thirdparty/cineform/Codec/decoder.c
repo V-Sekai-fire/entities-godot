@@ -12383,8 +12383,8 @@ bool DecodeSampleLowPassBand(DECODER *decoder, BITSTREAM *stream, IMAGE *wavelet
 						else
 							pixels = solid_color;
 						pixel_value = (pixels>>16);
-						pixels <<= 16;
-						pixels >>= 16;
+						// Keep the low 16 bits, sign-extended
+						pixels = (int16_t)pixels;
 					}
 
 
@@ -13036,7 +13036,7 @@ void ReconstructWaveletBand(DECODER *decoder, TRANSFORM *transform, int channel,
 			}
 
 			// Has this wavelet already been reconstructed?
-			if ((lowpass->band_valid_flags & BAND_VALID_MASK(0)) == 0)
+			if (!WaveletBandValidThreadSafe(decoder, lowpass, 0))
 			{
 				// Perform the inverse spatial transform before decoding the next wavelet
 				STOP(tk_decoding);
@@ -19613,7 +19613,7 @@ bool DecodeBandFSM16sNoGap(FSM *fsm, BITSTREAM *stream, PIXEL16S *image, int wid
 		rowptr = &rowptr[entryfast->pre_post_skip & 0x1ff];
 
 		// Write down the first decoded magnitude
-		*((uint32_t *)rowptr) = entryfast->values;
+		memcpy(rowptr, &entryfast->values, sizeof(uint32_t));
 
 		// Skip the appropriate distance
 		rowptr = &rowptr[(entryfast->pre_post_skip >> 12) & 0x7];
@@ -19635,7 +19635,7 @@ bool DecodeBandFSM16sNoGap(FSM *fsm, BITSTREAM *stream, PIXEL16S *image, int wid
 		rowptr = &rowptr[entryfast->pre_post_skip & 0x1ff];
 
 		// Write down the first decoded magnitude
-		*((uint32_t *)rowptr) = entryfast->values;
+		memcpy(rowptr, &entryfast->values, sizeof(uint32_t));
 
 		// Skip the decoded zero runs
 		rowptr = &rowptr[(entryfast->pre_post_skip >> 12) & 0x7];
@@ -20601,9 +20601,9 @@ void DeQuantFSM(FSM *fsm, int quant)
 		for (j = 0; j < (1 << FSM_INDEX_SIZE); j++)
 		{
 			if(entry[j].value0 < 0x7ff0) // band end trailer
-				entry[j].value0 *= quant;
+				entry[j].value0 = (short)(entry[j].value0 * quant);
 
-			entry[j].value1 *= quant;
+			entry[j].value1 = (short)(entry[j].value1 * quant);
 		}
 	}
 #else
@@ -20614,9 +20614,9 @@ void DeQuantFSM(FSM *fsm, int quant)
 		if(entry)
 		{
 			if(entry->value0 < 0x7ff0) // band end trailer etc
-				entry->value0 *= quant;
+				entry->value0 = (short)(entry->value0 * quant);
 
-			entry->value1 *= quant;
+			entry->value1 = (short)(entry->value1 * quant);
 		}
 	}
 #endif
@@ -20764,7 +20764,7 @@ bool DecodeFastRunsFSM16s(DECODER *decoder, BITSTREAM *stream, IMAGE *wavelet,
 					value |= *(stream->lpCurrentWord-5);
 
 					tag |= *(stream->lpCurrentWord-7);
-					tag = NEG(tag);
+					tag = (unsigned short)NEG(tag);
 
 					chunksize = value;
 					chunksize &= 0xffff;
@@ -23319,7 +23319,9 @@ IMAGE *GetWaveletThreadSafe(DECODER *decoder, TRANSFORM *transform, int index,
 		wavelet = ReallocWaveletEx(wavelet, width, height, level, type);
 #endif
 		// Save this wavelet in the transform data structure
-		transform->wavelet[index] = wavelet;
+		if (transform->wavelet[index] != wavelet) {
+			transform->wavelet[index] = wavelet;
+		}
 
 		// Unlock access to the wavelet data
 #if _DELAYED_THREAD_START==0
@@ -24131,6 +24133,25 @@ void UpdateWaveletBandStartedFlags(DECODER *decoder, IMAGE *wavelet, int band)
 			Unlock(&decoder->entropy_worker_new.lock);
 #endif
 	}
+}
+
+// Test a wavelet band's valid flag under the lock the threads take to set it
+bool WaveletBandValidThreadSafe(DECODER *decoder, IMAGE *wavelet, int band)
+{
+	bool valid;
+
+#if _THREADED_DECODER
+	if (decoder->entropy_worker_new.pool.thread_count) {
+		Lock(&decoder->entropy_worker_new.lock);
+	}
+#endif
+	valid = (wavelet->band_valid_flags & BAND_VALID_MASK(band)) != 0;
+#if _THREADED_DECODER
+	if (decoder->entropy_worker_new.pool.thread_count) {
+		Unlock(&decoder->entropy_worker_new.lock);
+	}
+#endif
+	return valid;
 }
 
 bool DecodedBandsValid(IMAGE *wavelet, int index, int transform_type)
