@@ -118,6 +118,12 @@ Patches:
   its C API and catching at each entry point, which Godot cannot compile because it
   builds with exceptions disabled. The helpers return NULL and the callers check;
   `GetPixelSize` returns 0, which is not a valid size, where it threw.
+- `0002-encoder-pool-races-and-undefined-behavior.patch`: the encoder pool published a
+  finished job without the queue lock, shared `g_midpoint_prequant` across its threads,
+  and hit undefined behaviour (an out-of-range quality enum, an `int` shift overflow, a
+  null `memcpy` source, an eight-byte read of a four-byte frame number and an
+  uninitialized `bool`). Upstream: the CineForm SDK fork,
+  `fix/sanitizer-findings`.
 
 The GoPro CineForm codec, used by `modules/cineform` to record Movie Maker output as a
 12-bit wavelet intermediate and to play it back.

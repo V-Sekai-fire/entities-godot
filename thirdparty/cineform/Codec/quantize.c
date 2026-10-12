@@ -180,7 +180,7 @@ void DumpEncoderQuant(ENCODER *encoder, int channel)
 
 #define QUANT_TABLES_FILENAME "c:\\cedoc\\quant.txt"
 
-/*static*/ int g_midpoint_prequant = 2;
+/*static*/ CFHD_THREAD_LOCAL int g_midpoint_prequant = 2;
 
 // Set the quantization quality (1: low,  2: medium,  3: high)
 void QuantizationSetQuality(QUANTIZER *q,

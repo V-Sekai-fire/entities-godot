@@ -36,6 +36,7 @@ public:
 	CSampleEncodeMetadata() :
 		m_allocator(NULL),
 		//m_privateAllocatorFlag(false),//(true),
+		m_metadataChanged(true),
 		m_selectedEye(0)
 	{
 #if 0

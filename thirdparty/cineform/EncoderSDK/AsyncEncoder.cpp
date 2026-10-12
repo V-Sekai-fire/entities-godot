@@ -96,23 +96,15 @@ CFHD_Error CAsyncEncoder::MessageLoop()
 			job = message.Job();
 			assert(job != NULL);
 			error = EncodeSample(job);
-			job->error = error;
-			if (error == CFHD_ERROR_OKAY)
 			{
-				// Record the encoded sample in the job
+				// Take the encoded sample, then hand the result to the pool, which
+				// publishes it under the queue lock and wakes the waiting thread.
 				CSampleBuffer *sampleBuffer = NULL;
-				error = GetSampleBuffer(&sampleBuffer);
-				if (error != CFHD_ERROR_OKAY) {
-					return error;
+				if (error == CFHD_ERROR_OKAY) {
+					error = GetSampleBuffer(&sampleBuffer);
 				}
-				job->sampleBuffer = sampleBuffer;
+				pool->FinishJob(job, error, sampleBuffer);
 			}
-
-			// Done encoding the frame
-			job->status = ENCODER_JOB_STATUS_FINISHED;
-
-			// Signal that the encoder job has finished
-			pool->SignalJobFinished();
 		}
 	}
 }

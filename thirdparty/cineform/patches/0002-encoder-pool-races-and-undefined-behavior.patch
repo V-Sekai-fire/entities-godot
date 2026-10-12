@@ -1,0 +1,196 @@
+diff --git a/Codec/codebooks.c b/Codec/codebooks.c
+index ba4ce47d58..4f954cc0b8 100644
+--- a/Codec/codebooks.c
++++ b/Codec/codebooks.c
+@@ -1138,7 +1138,7 @@ void FillVleTable(VLCBOOK *codebook, VLE *table, int size, int flags)
+ 
+ 		assert((codesize & VLE_CODESIZE_MASK) == codesize);
+ 		assert((codeword & VLE_CODEWORD_MASK) == codeword);
+-		table[index].entry = (codesize << VLE_CODESIZE_SHIFT) | (codeword & VLE_CODEWORD_MASK);
++		table[index].entry = ((uint32_t)codesize << VLE_CODESIZE_SHIFT) | (codeword & VLE_CODEWORD_MASK);
+ 	}
+ }
+ 
+diff --git a/Codec/config.h b/Codec/config.h
+index d93cff9824..0c40811e34 100644
+--- a/Codec/config.h
++++ b/Codec/config.h
+@@ -260,6 +260,14 @@ static void *malloc22(size_t size, size_t align)
+ #define _THREADED_ENCODER	0		// Perform encoding using multiple threads?
+ #endif
+ 
++// Storage class for codec state kept in a global that each encoder thread sets and
++// reads for itself.
++#if defined(_MSC_VER)
++#define CFHD_THREAD_LOCAL __declspec(thread)
++#else
++#define CFHD_THREAD_LOCAL __thread
++#endif
++
+ #ifndef _THREADED_DECODER
+ #define _THREADED_DECODER	1
+ #endif
+diff --git a/Codec/encoder.c b/Codec/encoder.c
+index 09c7c5f0a7..b54cb33e2b 100644
+--- a/Codec/encoder.c
++++ b/Codec/encoder.c
+@@ -718,6 +718,8 @@ void AttachMetadata(ENCODER *encoder, METADATA *dst, METADATA *src)
+ 	}
+ 	else
+ 	{
++		if(src->block == NULL || src->size == 0) return;
++
+ #if _ALLOCATOR
+ 		AllocMetadata(encoder->allocator, dst, src->size);
+ #else
+diff --git a/Codec/quantize.c b/Codec/quantize.c
+index 5d6cb7d94c..bdf460464b 100644
+--- a/Codec/quantize.c
++++ b/Codec/quantize.c
+@@ -180,7 +180,7 @@ void DumpEncoderQuant(ENCODER *encoder, int channel)
+ 
+ #define QUANT_TABLES_FILENAME "c:\\cedoc\\quant.txt"
+ 
+-/*static*/ int g_midpoint_prequant = 2;
++/*static*/ CFHD_THREAD_LOCAL int g_midpoint_prequant = 2;
+ 
+ // Set the quantization quality (1: low,  2: medium,  3: high)
+ void QuantizationSetQuality(QUANTIZER *q,
+diff --git a/Codec/recursive.c b/Codec/recursive.c
+index 499f7cb659..1362d15ef8 100644
+--- a/Codec/recursive.c
++++ b/Codec/recursive.c
+@@ -445,7 +445,7 @@ void FilterVerticalMiddleStrip(PIXEL *input[6], int width, PIXEL *lowpass, PIXEL
+ 
+ 
+ //TODO:  get rid of the global.
+-extern int g_midpoint_prequant; //HACK
++extern CFHD_THREAD_LOCAL int g_midpoint_prequant; //HACK
+ 
+ 
+ void FilterVerticalMiddleStripQuantBoth(PIXEL *input[6], int width,
+diff --git a/Codec/spatial.c b/Codec/spatial.c
+index 522294a683..dcc02f15fc 100644
+--- a/Codec/spatial.c
++++ b/Codec/spatial.c
+@@ -4861,7 +4861,7 @@ void FilterHorizontalRowScaled16s(PIXEL *input, PIXEL *lowpass, PIXEL *highpass,
+ 
+ 
+ //TODO:  get rid of the global.
+-extern int g_midpoint_prequant; //HACK
++extern CFHD_THREAD_LOCAL int g_midpoint_prequant; //HACK
+ 
+ 
+ #if _PROCESSOR_DISPATCH
+diff --git a/Common/CFHDTypes.h b/Common/CFHDTypes.h
+index 6d897d0cb2..1b8d47c620 100644
+--- a/Common/CFHDTypes.h
++++ b/Common/CFHDTypes.h
+@@ -217,6 +217,11 @@ typedef enum CFHD_EncodingQuality
+ 	CFHD_ENCODING_QUALITY_UNCOMPRESSED = 16<<8,
+ 	CFHD_ENCODING_QUALITY_UNC_NO_STORE = (32|16)<<8,
+ 
++	// Bits the encoder ORs into the quality when the encoded format is not the
++	// default for the pixel format (EncoderSDK/SampleEncoder.cpp).
++	CFHD_ENCODING_QUALITY_FLAG_TOGGLE_444_422 = 0x08000000,
++	CFHD_ENCODING_QUALITY_FLAG_TOGGLE_4444_444 = 0x20000000,
++
+ 	// Default encoding quality
+ 	CFHD_ENCODING_QUALITY_DEFAULT = CFHD_ENCODING_QUALITY_FILMSCAN1,
+ 
+diff --git a/EncoderSDK/AsyncEncoder.cpp b/EncoderSDK/AsyncEncoder.cpp
+index 9903e9ed8b..446ff1ce4a 100644
+--- a/EncoderSDK/AsyncEncoder.cpp
++++ b/EncoderSDK/AsyncEncoder.cpp
+@@ -96,23 +96,15 @@ CFHD_Error CAsyncEncoder::MessageLoop()
+ 			job = message.Job();
+ 			assert(job != NULL);
+ 			error = EncodeSample(job);
+-			job->error = error;
+-			if (error == CFHD_ERROR_OKAY)
+ 			{
+-				// Record the encoded sample in the job
++				// Take the encoded sample, then hand the result to the pool, which
++				// publishes it under the queue lock and wakes the waiting thread.
+ 				CSampleBuffer *sampleBuffer = NULL;
+-				error = GetSampleBuffer(&sampleBuffer);
+-				if (error != CFHD_ERROR_OKAY) {
+-					return error;
++				if (error == CFHD_ERROR_OKAY) {
++					error = GetSampleBuffer(&sampleBuffer);
+ 				}
+-				job->sampleBuffer = sampleBuffer;
++				pool->FinishJob(job, error, sampleBuffer);
+ 			}
+-
+-			// Done encoding the frame
+-			job->status = ENCODER_JOB_STATUS_FINISHED;
+-
+-			// Signal that the encoder job has finished
+-			pool->SignalJobFinished();
+ 		}
+ 	}
+ }
+diff --git a/EncoderSDK/EncoderPool.cpp b/EncoderSDK/EncoderPool.cpp
+index 12eecdf4c2..c733832772 100644
+--- a/EncoderSDK/EncoderPool.cpp
++++ b/EncoderSDK/EncoderPool.cpp
+@@ -602,7 +602,7 @@ CFHD_Error CEncoderPool::UpdateMetadata()
+ 	if (data)
+ 	{
+ 		// Get the unique frame ID from the metadata
+-		int32_t uniqueFrameID = *(unsigned long *)data;
++		int32_t uniqueFrameID = (int32_t)*(uint32_t *)data;
+ 
+ 		// Has the unique frame ID for the encoder pool been initialized?
+ 		if (m_uniqueFrameID == -1)
+diff --git a/EncoderSDK/EncoderPool.h b/EncoderSDK/EncoderPool.h
+index 8ae405e092..0f1bf9a9db 100644
+--- a/EncoderSDK/EncoderPool.h
++++ b/EncoderSDK/EncoderPool.h
+@@ -132,9 +132,9 @@ public:
+ 							 CSampleBuffer **sampleBufferOut);
+ 
+ 	//! Signal that an encoder job has finished
+-	CFHD_Error SignalJobFinished()
++	CFHD_Error FinishJob(EncoderJob *job, CFHD_Error error, CSampleBuffer *sampleBuffer)
+ 	{
+-		m_encoderJobQueue.SignalJobFinished();
++		m_encoderJobQueue.FinishJob(job, error, sampleBuffer);
+ 		return CFHD_ERROR_OKAY;
+ 	}
+ 
+diff --git a/EncoderSDK/EncoderQueue.h b/EncoderSDK/EncoderQueue.h
+index fb5385e62a..06995d1a9f 100644
+--- a/EncoderSDK/EncoderQueue.h
++++ b/EncoderSDK/EncoderQueue.h
+@@ -371,9 +371,15 @@ public:
+ 		return job;
+ 	}
+ 
+-	void SignalJobFinished()
++	//! Record the result of a job and wake the thread waiting for it
++	void FinishJob(EncoderJob *job, CFHD_Error error, CSampleBuffer *sampleBuffer)
+ 	{
+-		// Wake a thread that is waiting for an encoded sample
++		// The waiting thread reads the job under this lock, so every field is
++		// written under it too.
++		CAutoLock lock(mutex);
++		job->error = error;
++		job->sampleBuffer = sampleBuffer;
++		job->status = ENCODER_JOB_STATUS_FINISHED;
+ 		ready.Wake();
+ 	}
+ 
+diff --git a/EncoderSDK/MetadataWriter.h b/EncoderSDK/MetadataWriter.h
+index 1330ba0ca7..059ecf40d6 100644
+--- a/EncoderSDK/MetadataWriter.h
++++ b/EncoderSDK/MetadataWriter.h
+@@ -36,6 +36,7 @@ public:
+ 	CSampleEncodeMetadata() :
+ 		m_allocator(NULL),
+ 		//m_privateAllocatorFlag(false),//(true),
++		m_metadataChanged(true),
+ 		m_selectedEye(0)
+ 	{
+ #if 0

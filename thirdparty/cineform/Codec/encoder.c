@@ -718,6 +718,8 @@ void AttachMetadata(ENCODER *encoder, METADATA *dst, METADATA *src)
 	}
 	else
 	{
+		if(src->block == NULL || src->size == 0) return;
+
 #if _ALLOCATOR
 		AllocMetadata(encoder->allocator, dst, src->size);
 #else
