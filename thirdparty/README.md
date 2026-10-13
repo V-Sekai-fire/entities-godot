@@ -1123,30 +1123,31 @@ Patches:
 
 ## tint
 
-- Upstream: https://github.com/floooh/tint-extract (subset of https://dawn.googlesource.com/dawn)
-- Version: git (308db188c0, 2025), Dawn b4219e7e4f0f0bae6239164e786bd7136af244aa (see `dawn.ref`)
+- Upstream: https://dawn.googlesource.com/dawn (`src/tint`), extracted with
+  https://github.com/floooh/tint-extract `release.sh`
+- Version: Dawn git (901f57556780077ebd194a8ea9041d377cdf17ab, 2026), see `dawn.ref`
 - License: BSD-3-Clause
 
 Files extracted from upstream source:
 
-- `include/`, `src/`, `LICENSE`, `README.md`, `dawn.ref`, `release.sh`, imported as a git subtree
-- Removed, as they need SPIRV-Tools, which Godot does not ship:
-  `src/tint/lang/spirv/reader/ast_parser/`, `src/tint/lang/spirv/reader/ast_lower/`,
-  `src/tint/lang/spirv/validate/`
+- `include/`, `src/`, `LICENSE`, `README.md`, `dawn.ref`, `release.sh`: the output of
+  tint-extract's `release.sh` run against Dawn 901f5755 (local branch `dawn-901f5755` of an
+  extract repository), imported as a squashed git subtree
+- Removed, as it needs SPIRV-Tools, which Godot does not ship: `src/tint/lang/spirv/validate/`
 - Not built (still needs SPIRV-Tools): `src/tint/lang/spirv/writer/`
 
 The SPIR-V reader reads modules with SPIRV-Cross (`thirdparty/spirv-cross`: `spirv_parser.cpp`,
 `spirv_cross_parsed_ir.cpp`) instead of SPIRV-Tools. Build the reader with `-fexceptions` like
-`drivers/metal`, as SPIRV-Cross reports parse errors with exceptions.
+`drivers/metal`, as SPIRV-Cross reports parse errors with exceptions. `src/utils` needs the
+global define `DAWN_HAVE_UTILS_BUILD_CONFIG` (and `NDEBUG` or `DAWN_ENABLE_ASSERTS`).
 
 Patches:
 
-- `0001-spirv-reader-read-with-spirv-cross.patch` (read SPIR-V with SPIRV-Cross; route
-  `spirv::reader::Read` through the IR reader and the WGSL IR raise)
-- `0002-spirv-reader-push-constant-binding.patch` (reader option that puts the `PushConstant`
-  block at a `var<uniform>` binding point chosen by the embedder; skip the `ColMajor` and
-  `Restrict` decorations, accept a `MatrixStride` that matches the WGSL layout)
-
+- `0001-spirv-reader-read-with-spirv-cross.patch` (read SPIR-V with SPIRV-Cross through
+  `parser/spirv_cross_module.{h,cc}`, which mirrors the `spvtools::opt` API the reader uses and
+  does the reader's two SPIRV-Tools passes, split combined image samplers and resolve binding
+  conflicts; also split constant-indexed arrays of images or samplers into one binding per
+  element, as WGSL has no binding arrays)
 
 ## tinyexr
 
