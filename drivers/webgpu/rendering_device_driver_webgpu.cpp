@@ -265,7 +265,9 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 
 	const bool maps_at_creation = is_transfer_buffer && (map_mode & WGPUMapMode_Write);
 
-	const uint64_t slice_size = p_size;
+	// Each frame's slice of a dynamic buffer starts on a dynamic offset, which WebGPU requires to be
+	// a multiple of minUniformBufferOffsetAlignment (256 at most).
+	const uint64_t slice_size = is_dynamic ? STEPIFY(p_size, 256) : p_size;
 	const uint64_t alloc_size = is_dynamic ? slice_size * frame_count : slice_size;
 
 	WGPUBufferDescriptor desc = (WGPUBufferDescriptor){
