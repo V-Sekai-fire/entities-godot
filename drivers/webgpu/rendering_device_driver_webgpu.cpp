@@ -42,6 +42,23 @@
 #include <cstdint>
 #include <cstring>
 
+#ifdef __EMSCRIPTEN_PTHREADS__
+#include <emscripten/proxying.h>
+#include <emscripten/threading.h>
+
+// WebGPU objects live in the browser's main thread; workers have no device. Godot compiles
+// shaders and pipelines on worker threads, so those calls run on the main thread instead.
+#define WEBGPU_ON_MAIN_THREAD(m_type, m_call) \
+	if (!emscripten_is_main_runtime_thread()) { \
+		m_type result = {}; \
+		auto call = [&]() { result = m_call; }; \
+		emscripten_proxy_sync(emscripten_proxy_get_system_queue(), emscripten_main_runtime_thread_id(), [](void *p_call) { (*(decltype(call) *)p_call)(); }, &call); \
+		return result; \
+	}
+#else
+#define WEBGPU_ON_MAIN_THREAD(m_type, m_call)
+#endif
+
 #define WGPU_LOG_LEVEL WGPULogLevel_Trace
 
 static constexpr uint32_t VERTEX_DYN_BITS = 2;
@@ -1630,6 +1647,7 @@ void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) 
 /****************/
 
 RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) {
+	WEBGPU_ON_MAIN_THREAD(ShaderID, shader_create_from_container(p_shader_container, p_immutable_samplers));
 	Ref<RenderingShaderContainerWebGpu> container = p_shader_container;
 	ERR_FAIL_COND_V(container.is_null(), ShaderID());
 
@@ -3504,6 +3522,7 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		RenderPassID p_render_pass,
 		uint32_t p_render_subpass,
 		VectorView<PipelineSpecializationConstant> p_specialization_constants) {
+	WEBGPU_ON_MAIN_THREAD(PipelineID, render_pipeline_create(p_shader, p_vertex_format, p_render_primitive, p_rasterization_state, p_multisample_state, p_depth_stencil_state, p_blend_state, p_color_attachments, p_dynamic_state, p_render_pass, p_render_subpass, p_specialization_constants));
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 	WGPURenderPipelineDescriptor pipeline_descriptor = {};
 
@@ -3800,6 +3819,7 @@ void RenderingDeviceDriverWebGpu::command_compute_dispatch_indirect(CommandBuffe
 // ----- PIPELINE -----
 
 RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_create(ShaderID p_shader, VectorView<PipelineSpecializationConstant> p_specialization_constants) {
+	WEBGPU_ON_MAIN_THREAD(PipelineID, compute_pipeline_create(p_shader, p_specialization_constants));
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
 	ERR_FAIL_COND_V_MSG(!shader_info->compute_shader, PipelineID(), "Compute pipeline shader null.");
