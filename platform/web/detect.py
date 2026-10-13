@@ -81,6 +81,7 @@ def get_flags():
         "target": "template_debug",
         "builtin_pcre2_with_jit": False,
         "vulkan": False,
+        "webgpu": True,
         "webgpu_backend": "emdawnwebgpu",
         "supported": ["webgpu"],
         # Embree is heavy and requires too much memory (GH-70621).

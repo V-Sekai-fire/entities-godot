@@ -207,7 +207,7 @@ opts.Add(BoolVariable("vulkan", "Enable the Vulkan rendering driver", True))
 opts.Add(BoolVariable("opengl3", "Enable the OpenGL/GLES3 rendering driver", True))
 opts.Add(BoolVariable("d3d12", "Enable the Direct3D 12 rendering driver on supported platforms", False))
 opts.Add(BoolVariable("metal", "Enable the Metal rendering driver on supported platforms (Apple arm64 only)", False))
-opts.Add(BoolVariable("webgpu", "Enable the WebGPU rendering driver", True))
+opts.Add(BoolVariable("webgpu", "Enable the WebGPU rendering driver on supported platforms (web only)", False))
 opts.Add(
     EnumVariable("webgpu_backend", "WebGPU backend library / platform", "auto", ["auto", "emdawnwebgpu"], ignorecase=2)
 )
