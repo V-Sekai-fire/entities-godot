@@ -9202,12 +9202,16 @@ void RenderingDevice::finalize() {
 	frames.clear();
 
 	for (int i = 0; i < upload_staging_buffers.blocks.size(); i++) {
-		driver->buffer_unmap(upload_staging_buffers.blocks[i].driver_id);
+		if (upload_staging_buffers.blocks[i].data_ptr) {
+			driver->buffer_unmap(upload_staging_buffers.blocks[i].driver_id);
+		}
 		driver->buffer_free(upload_staging_buffers.blocks[i].driver_id);
 	}
 
 	for (int i = 0; i < download_staging_buffers.blocks.size(); i++) {
-		driver->buffer_unmap(download_staging_buffers.blocks[i].driver_id);
+		if (download_staging_buffers.blocks[i].data_ptr) {
+			driver->buffer_unmap(download_staging_buffers.blocks[i].driver_id);
+		}
 		driver->buffer_free(download_staging_buffers.blocks[i].driver_id);
 	}
 
