@@ -3154,6 +3154,28 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 		render_pass_info->attachments.push_back(attachment_info);
 	}
 
+	// WebGPU has one subpass per pass; its resolve references become resolveTarget views.
+	if (_p_subpasses.size() > 0) {
+		const Subpass &subpass = _p_subpasses[0];
+		for (uint32_t i = 0; i < subpass.resolve_references.size() && i < subpass.color_references.size(); i++) {
+			const uint32_t resolve = subpass.resolve_references[i].attachment;
+			const uint32_t color = subpass.color_references[i].attachment;
+			if (resolve != AttachmentReference::UNUSED && color != AttachmentReference::UNUSED && resolve < (uint32_t)render_pass_info->attachments.size()) {
+				render_pass_info->attachments.write[resolve].resolve_of = (int32_t)color;
+			}
+		}
+		const uint32_t depth_resolve = subpass.depth_resolve_reference.attachment;
+		if (depth_resolve != AttachmentReference::UNUSED && depth_resolve < (uint32_t)render_pass_info->attachments.size()) {
+			render_pass_info->attachments.write[depth_resolve].resolve_of = -2;
+			render_pass_info->attachments.write[depth_resolve].is_depth_stencil = false;
+			render_pass_info->attachments.write[depth_resolve].is_depth_stencil_read_only = false;
+			const uint32_t depth = subpass.depth_stencil_reference.attachment;
+			if (depth != AttachmentReference::UNUSED) {
+				render_pass_info->depth_attachment_index = depth;
+			}
+		}
+	}
+
 	if (p_attachments.size() == 0) {
 		RenderPassAttachmentInfo attachment = _empty_render_pass_attachment_create();
 		render_pass_info->attachments.push_back(attachment);
@@ -3189,9 +3211,16 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 	WGPUTextureView maybe_surface_texture_view = nullptr;
 	Pair<WGPURenderPassDepthStencilAttachment, bool> maybe_depth_stencil_attachment = Pair((WGPURenderPassDepthStencilAttachment){}, false);
 
+	int32_t *color_slot = ALLOCA_ARRAY(int32_t, render_pass_info->attachments.size());
+	for (uint32_t i = 0; i < render_pass_info->attachments.size(); i++) {
+		color_slot[i] = -1;
+	}
 	for (uint32_t i = 0; i < render_pass_info->attachments.size(); i++) {
 		RenderPassAttachmentInfo attachment = render_pass_info->attachments[i];
 
+		if (attachment.resolve_of != -1) {
+			continue; // A resolve target; attached to its color attachment below.
+		}
 		if (attachment.is_depth_stencil || attachment.is_depth_stencil_read_only) {
 			TextureID attachment_texture_id = framebuffer_info->attachments[i];
 			TextureInfo *attachment_texture = (TextureInfo *)attachment_texture_id.id;
@@ -3237,7 +3266,15 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 			color_attachment.loadOp = attachment.load_op;
 			color_attachment.storeOp = attachment.store_op;
 			color_attachment.clearValue = { p_clear_values[i].color.r, p_clear_values[i].color.g, p_clear_values[i].color.b, p_clear_values[i].color.a };
+			color_slot[i] = color_attachments.size();
 			color_attachments.push_back(color_attachment);
+		}
+	}
+	for (uint32_t i = 0; i < render_pass_info->attachments.size(); i++) {
+		const int32_t of = render_pass_info->attachments[i].resolve_of;
+		if (of >= 0 && of < (int32_t)render_pass_info->attachments.size() && color_slot[of] >= 0 && !framebuffer_info->maybe_swapchain) {
+			TextureInfo *resolve_texture = (TextureInfo *)framebuffer_info->attachments[i].id;
+			color_attachments.write[color_slot[of]].resolveTarget = resolve_texture->get_default_view();
 		}
 	}
 

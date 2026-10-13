@@ -709,6 +709,10 @@ private:
 		WGPUStoreOp stencil_store_op;
 		bool is_depth_stencil = false;
 		bool is_depth_stencil_read_only = false;
+		// A multisample resolve target of the first subpass: the index of the color attachment it
+		// resolves (it becomes that attachment's resolveTarget, not a color attachment of its own),
+		// or -2 for a depth resolve, which WebGPU does not have.
+		int32_t resolve_of = -1;
 	};
 
 	struct RenderPassInfo {
