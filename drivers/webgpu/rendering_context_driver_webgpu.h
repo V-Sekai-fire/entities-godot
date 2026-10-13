@@ -10,7 +10,10 @@ class RenderingContextDriverWebGpu : public RenderingContextDriver {
 private:
 	WGPUInstance instance = nullptr;
 	TightLocalVector<WGPUAdapter> adapters;
+	TightLocalVector<WGPUPowerPreference> adapter_power;
+	TightLocalVector<bool> adapter_consumed;
 	TightLocalVector<Device> driver_devices;
+	WGPUPowerPreference requesting_power = WGPUPowerPreference_Undefined;
 
 public:
 	virtual Error initialize() override;
@@ -57,6 +60,8 @@ public:
 
 	WGPUInstance instance_get() const;
 	WGPUAdapter adapter_get(uint32_t p_adapter_index) const;
+	// A WebGPU adapter creates one device, so each device driver takes its own reference.
+	WGPUAdapter adapter_acquire(uint32_t p_adapter_index);
 	void adapter_push_back(WGPUAdapter p_adapter, Device p_device);
 };
 

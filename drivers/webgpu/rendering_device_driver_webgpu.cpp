@@ -24,12 +24,12 @@ static void handle_request_device(WGPURequestDeviceStatus p_status,
 		WGPUDevice p_device, WGPUStringView p_message,
 		void *userdata, void *_) {
 	if (p_status != WGPURequestDeviceStatus_Success) {
-		print_error(vformat("[WEBGPU] requestDevice failed: status=%d msg=%s device=%p",
-				(int)p_status, String::utf8(p_message.data, p_message.length), (void *)p_device));
+		print_error(vformat("[WEBGPU] requestDevice failed: status=%d msg=%s",
+				(int)p_status, String::utf8(p_message.data, p_message.length)));
 	} else if (p_device == nullptr) {
 		print_error("[WEBGPU] requestDevice reported success but device is null.");
 	} else {
-		print_verbose(vformat("[WEBGPU] requestDevice ok device=%p", (void *)p_device));
+		print_verbose("[WEBGPU] requestDevice ok");
 	}
 	*(WGPUDevice *)userdata = p_device;
 }
@@ -62,7 +62,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 #endif
 #endif
 
-	adapter = context_driver->adapter_get(p_device_index);
+	adapter = context_driver->adapter_acquire(p_device_index);
+	ERR_FAIL_NULL_V_MSG(adapter, FAILED, "No WebGPU adapter for this device.");
 	context_device = context_driver->device_get(p_device_index);
 	frame_count = MAX(p_frame_count, 1u);
 
@@ -4012,7 +4013,7 @@ RenderingDeviceDriverWebGpu::~RenderingDeviceDriverWebGpu() {
 		wgpuQueueRelease(queue);
 	}
 
-	if (queue != nullptr) {
+	if (adapter != nullptr) {
 		wgpuAdapterRelease(adapter);
 	}
 

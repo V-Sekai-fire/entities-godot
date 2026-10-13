@@ -83,31 +83,21 @@ Error RenderingContextDriverWebGpu::initialize() {
 
 	// There is no way to request all adapters, so we just get the high and low power ones.
 
-	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_HighPerformance;
-	WGPUFuture high_power_future = wgpuInstanceRequestAdapter(instance,
-			&adapter_options,
-			adapter_callback_info);
-
-	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_LowPower;
-	WGPUFuture low_power_future = wgpuInstanceRequestAdapter(instance,
-			&adapter_options,
-			adapter_callback_info);
-
+	const WGPUPowerPreference powers[] = { WGPUPowerPreference_HighPerformance, WGPUPowerPreference_LowPower };
+	for (WGPUPowerPreference power : powers) {
+		adapter_options.powerPreference = power;
+		requesting_power = power;
+		WGPUFuture future = wgpuInstanceRequestAdapter(instance, &adapter_options, adapter_callback_info);
 #if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
-	WGPUFutureWaitInfo wait_infos[] = {
-		{ .future = high_power_future, .completed = false },
-		{ .future = low_power_future, .completed = false },
-	};
-	for (WGPUFutureWaitInfo &wait_info : wait_infos) {
+		WGPUFutureWaitInfo wait_info = { .future = future, .completed = false };
 		WGPUWaitStatus wait_status = wgpuInstanceWaitAny(instance, 1, &wait_info, UINT64_MAX);
 		ERR_FAIL_COND_V_MSG(wait_status != WGPUWaitStatus_Success, ERR_CANT_CREATE,
 				"Failed to wait on WebGPU adapter request.");
-	}
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
-	(void)high_power_future;
-	(void)low_power_future;
-	wgpuInstanceProcessEvents(instance);
+		(void)future;
+		wgpuInstanceProcessEvents(instance);
 #endif
+	}
 
 	ERR_FAIL_COND_V_MSG(adapters.is_empty(), ERR_CANT_CREATE, "No suitable WebGPU adapter found.");
 
@@ -254,7 +244,44 @@ WGPUAdapter RenderingContextDriverWebGpu::adapter_get(uint32_t p_adapter_index) 
 
 void RenderingContextDriverWebGpu::adapter_push_back(WGPUAdapter p_adapter, Device p_device) {
 	adapters.push_back(p_adapter);
+	adapter_power.push_back(requesting_power);
+	adapter_consumed.push_back(false);
 	driver_devices.push_back(p_device);
+}
+
+static void handle_request_fresh_adapter(WGPURequestAdapterStatus p_status,
+		WGPUAdapter p_adapter, WGPUStringView p_message, void *p_userdata, void *_) {
+	ERR_FAIL_COND_MSG(p_status != WGPURequestAdapterStatus_Success,
+			vformat("Failed to get WebGPU adapter: %s", String::utf8(p_message.data, p_message.length)));
+	*(WGPUAdapter *)p_userdata = p_adapter;
+}
+
+WGPUAdapter RenderingContextDriverWebGpu::adapter_acquire(uint32_t p_adapter_index) {
+	ERR_FAIL_UNSIGNED_INDEX_V(p_adapter_index, adapters.size(), nullptr);
+	if (!adapter_consumed[p_adapter_index]) {
+		adapter_consumed[p_adapter_index] = true;
+		wgpuAdapterAddRef(adapters[p_adapter_index]);
+		return adapters[p_adapter_index];
+	}
+	// The cached adapter already made a device (a local RenderingDevice): request another.
+	WGPUAdapter fresh = nullptr;
+	WGPURequestAdapterOptions adapter_options = {};
+	adapter_options.powerPreference = adapter_power[p_adapter_index];
+	WGPURequestAdapterCallbackInfo callback_info = {
+		.mode = WGPUCallbackMode_WaitAnyOnly,
+		.callback = handle_request_fresh_adapter,
+		.userdata1 = &fresh,
+	};
+	WGPUFuture future = wgpuInstanceRequestAdapter(instance, &adapter_options, callback_info);
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	WGPUFutureWaitInfo wait_info = { .future = future, .completed = false };
+	ERR_FAIL_COND_V_MSG(wgpuInstanceWaitAny(instance, 1, &wait_info, UINT64_MAX) != WGPUWaitStatus_Success, nullptr,
+			"Failed to wait on WebGPU adapter request.");
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
+	(void)future;
+	wgpuInstanceProcessEvents(instance);
+#endif
+	return fresh;
 }
 
 void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGPUDevice p_device) {
