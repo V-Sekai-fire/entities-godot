@@ -1162,6 +1162,8 @@ Patches:
 - `0005-spirv-reader-handle-params.patch` (replace texture and sampler function parameters with
   the module-scope variables passed to them, one function copy per set of variables; replaces the
   depth-texture-parameter error from 0003)
+- `0006-spirv-reader-isnan-isinf.patch` (read `OpIsNan` and `OpIsInf` as tests on the float's
+  bits, as WGSL has no NaN or infinity tests; f16 is widened to f32 first)
 
 ## tinyexr
 

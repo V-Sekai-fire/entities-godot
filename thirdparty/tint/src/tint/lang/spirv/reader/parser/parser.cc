@@ -2754,11 +2754,11 @@ class Parser {
                     TINT_CHECK_RESULT(EmitSubgroupBitwise(inst, core::BuiltinFn::kSubgroupXor));
                     break;
                 case spv::Op::OpIsNan:
-                    return Failure(
-                        "IsNan is not supported because NaNs cannot be represented in WGSL");
+                    EmitIsNanOrInf(inst, /* is_nan */ true);
+                    break;
                 case spv::Op::OpIsInf:
-                    return Failure(
-                        "IsInf is not supported because Infinities cannot be represented in WGSL");
+                    EmitIsNanOrInf(inst, /* is_nan */ false);
+                    break;
                 default:
                     return Failure("unhandled SPIR-V instruction: " +
                                    std::string(spv::OpToString(inst.opcode())) + " (val = " +
@@ -3811,6 +3811,27 @@ class Parser {
         EmitWithoutSpvResult(b_.Call<spirv::ir::BuiltinCall>(
                                    ty_.void_(), spirv::BuiltinFn::kAtomicStore, Args(inst, 0))
                                  ->Result());
+    }
+
+    /// Godot: WGSL has no NaN or infinity tests, as an implementation may assume floats are
+    /// finite. Test the bits instead: with the sign cleared, an infinity is exactly 0x7f800000 and a
+    /// NaN is above it. An f16 operand is widened to f32 first, which keeps NaN and infinity.
+    void EmitIsNanOrInf(const spvc::Instruction& inst, bool is_nan) {
+        core::ir::Value* val = Value(inst.GetSingleWordInOperand(0));
+        auto* ty = val->Type();
+        if (ty->DeepestElement()->Is<core::type::F16>()) {
+            val = b_.Convert(ty_.MatchWidth(ty_.f32(), ty), val);
+            EmitWithoutSpvResult(val);
+        }
+        auto* u_ty = ty_.MatchWidth(ty_.u32(), ty);
+        core::ir::Value* bits = b_.Bitcast(u_ty, val);
+        EmitWithoutSpvResult(bits);
+        core::ir::Value* abs =
+            b_.Binary(core::BinaryOp::kAnd, u_ty, bits, b_.MatchWidth(0x7fffffff_u, ty));
+        EmitWithoutSpvResult(abs);
+        auto* cmp = b_.Binary(is_nan ? core::BinaryOp::kGreaterThan : core::BinaryOp::kEqual,
+                              Type(inst.type_id()), abs, b_.MatchWidth(0x7f800000_u, ty));
+        EmitOrAdd(cmp, inst.result_id());
     }
 
     void EmitBitcast(const spvc::Instruction& inst) {
