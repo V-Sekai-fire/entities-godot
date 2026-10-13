@@ -1155,6 +1155,9 @@ Patches:
   fold a workgroup `OpMemoryBarrier` into the `OpControlBarrier` right after it, as GLSL
   `memoryBarrier*(); barrier();` compiles to; refuse depth comparison sampling of a texture
   passed as a function parameter with an error instead of an internal compiler error)
+- `0004-spirv-reader-run-time-indexed-handle-arrays.patch` (read an array of images or samplers
+  indexed with a run-time value through an `OpSwitch` over the elements, each case reading its
+  own binding; an index past the end reads the last element)
 
 ## tinyexr
 
