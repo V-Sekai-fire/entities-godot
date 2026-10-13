@@ -789,7 +789,11 @@ class Parser {
             }
             // ArrayStride is only handled on the array type for now
             if (array_stride > 0) {
-                if (type->kind() != spvc::analysis::Type::kArray &&
+                // Slang decorates StorageBuffer pointer types with ArrayStride. The stride only
+                // matters to OpPtrAccessChain, which the reader does not support, so drop it.
+                if (type->kind() == spvc::analysis::Type::kPointer) {
+                    array_stride = 0;
+                } else if (type->kind() != spvc::analysis::Type::kArray &&
                     type->kind() != spvc::analysis::Type::kRuntimeArray) {
                     TINT_UNREACHABLE()
                         << "ArrayStride is only accepted on an Array or RuntimeArray";

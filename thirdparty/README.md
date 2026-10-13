@@ -1183,6 +1183,9 @@ Patches:
   read a `NonWritable` storage image as a sampled texture read with `textureLoad`, a cube one as a
   2D array; both read the same texels, and sampled textures count against the per-stage sampled
   texture limit instead of the lower storage texture limit, which SDFGI's shaders exceed)
+- `0014-spirv-reader-pointer-array-stride.patch` (ignore `ArrayStride` on pointer types: Slang
+  puts it on every StorageBuffer pointer, it only matters to `OpPtrAccessChain`, which the reader
+  does not handle, and the reader stopped with an internal compiler error on it)
 
 ## tinyexr
 
