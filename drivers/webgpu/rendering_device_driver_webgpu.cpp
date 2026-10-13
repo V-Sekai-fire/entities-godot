@@ -145,8 +145,12 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	}
 #if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 	texture_swizzle_supported = wgpuAdapterHasFeature(adapter, WGPUFeatureName_TextureComponentSwizzle);
+	texture_formats_tier1_supported = wgpuAdapterHasFeature(adapter, WGPUFeatureName_TextureFormatsTier1);
+	subgroups_supported = wgpuAdapterHasFeature(adapter, WGPUFeatureName_Subgroups);
 #else
 	texture_swizzle_supported = true;
+	texture_formats_tier1_supported = true;
+	subgroups_supported = true;
 #endif
 	// Features listed for reference only; enabling them needs matching runtime paths.
 	//   WGPUNativeFeature_Immediates — currently emulated via push constants.
@@ -804,11 +808,68 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::texture_get_data(TextureID p_textur
 	CRASH_NOW_MSG("TODO --> texture_get_data");
 }
 
+// WebGPU spec 26.1.1 "Plain color formats": formats usable as write-only and read-only storage
+// textures without any optional feature ("core-features-and-limits" is always on for core devices).
+static bool webgpu_storage_format_is_core(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_RGBA8Unorm:
+		case WGPUTextureFormat_RGBA8Snorm:
+		case WGPUTextureFormat_RGBA8Uint:
+		case WGPUTextureFormat_RGBA8Sint:
+		case WGPUTextureFormat_RGBA16Uint:
+		case WGPUTextureFormat_RGBA16Sint:
+		case WGPUTextureFormat_RGBA16Float:
+		case WGPUTextureFormat_R32Uint:
+		case WGPUTextureFormat_R32Sint:
+		case WGPUTextureFormat_R32Float:
+		case WGPUTextureFormat_RG32Uint:
+		case WGPUTextureFormat_RG32Sint:
+		case WGPUTextureFormat_RG32Float:
+		case WGPUTextureFormat_RGBA32Uint:
+		case WGPUTextureFormat_RGBA32Sint:
+		case WGPUTextureFormat_RGBA32Float:
+			return true;
+		default:
+			return false;
+	}
+}
+
+// The same table: formats that become storage formats with "texture-formats-tier1".
+static bool webgpu_storage_format_is_tier1(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_R8Unorm:
+		case WGPUTextureFormat_R8Uint:
+		case WGPUTextureFormat_R8Sint:
+		case WGPUTextureFormat_RG8Unorm:
+		case WGPUTextureFormat_RG8Uint:
+		case WGPUTextureFormat_RG8Sint:
+		case WGPUTextureFormat_R16Uint:
+		case WGPUTextureFormat_R16Sint:
+		case WGPUTextureFormat_R16Float:
+		case WGPUTextureFormat_RG16Uint:
+		case WGPUTextureFormat_RG16Sint:
+		case WGPUTextureFormat_RG16Float:
+		case WGPUTextureFormat_RGB10A2Uint:
+		case WGPUTextureFormat_RGB10A2Unorm:
+		case WGPUTextureFormat_RG11B10Ufloat:
+			return true;
+		default:
+			return false;
+	}
+}
+
 BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::texture_get_usages_supported_by_format(DataFormat p_format, bool p_cpu_readable) {
+	const WGPUTextureFormat wgpu_format = webgpu_texture_format_from_rd(p_format);
 	for (WGPUTextureFormat format : WEBGPU_CORE_SUPPORTED_FORMATS) {
-		if (webgpu_texture_format_from_rd(p_format) == format) {
-			// TODO: Read this https://www.w3.org/TR/webgpu/#texture-format-caps
+		if (wgpu_format == format) {
+			// Only the storage column is checked here; the other usages are still reported as supported.
 			BitField<RDD::TextureUsageBits> supported = INT64_MAX;
+			const bool storage = webgpu_storage_format_is_core(wgpu_format) ||
+					(texture_formats_tier1_supported && webgpu_storage_format_is_tier1(wgpu_format));
+			if (!storage) {
+				supported.clear_flag(TEXTURE_USAGE_STORAGE_BIT);
+				supported.clear_flag(TEXTURE_USAGE_STORAGE_ATOMIC_BIT);
+			}
 			return supported;
 		}
 	}
@@ -4002,6 +4063,10 @@ uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
 	WGPUNativeLimits extras;
 	limits.nextInChain = &extras.chain;
 #endif
+
+	if (!subgroups_supported && (p_limit == LIMIT_SUBGROUP_IN_SHADERS || p_limit == LIMIT_SUBGROUP_OPERATIONS)) {
+		return 0;
+	}
 
 	wgpuDeviceGetLimits(device, &limits);
 	return rd_limit_from_webgpu(p_limit, limits);
