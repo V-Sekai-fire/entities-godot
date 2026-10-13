@@ -34,6 +34,7 @@
 #include "src/tint/lang/spirv/reader/lower/builtins.h"
 #include "src/tint/lang/spirv/reader/lower/decompose_strided_array.h"
 #include "src/tint/lang/spirv/reader/lower/decompose_strided_matrix.h"
+#include "src/tint/lang/spirv/reader/lower/depth_sample.h"
 #include "src/tint/lang/spirv/reader/lower/handle_params.h"
 #include "src/tint/lang/spirv/reader/lower/shader_io.h"
 #include "src/tint/lang/spirv/reader/lower/texture.h"
@@ -59,6 +60,8 @@ Result<SuccessType> Lower(core::ir::Module& mod) {
     TINT_CHECK_RESULT(lower::DecomposeStridedArray(mod));
     TINT_CHECK_RESULT(lower::Atomics(mod));
     TINT_CHECK_RESULT(lower::Texture(mod));
+    // Godot: depth textures read with a non-comparison sampler are read with loads instead.
+    TINT_CHECK_RESULT(lower::DepthSample(mod));
 
     // Remove the terminator args at this point. There are no logical short-circuiting operators in
     // SPIR-V that we will lose track of, all the terminators are for hoisted values. We don't do

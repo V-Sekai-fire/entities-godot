@@ -1169,6 +1169,9 @@ Patches:
 - `0008-spirv-reader-binding-plan.patch` (reader option that takes every texture, sampler and
   buffer binding from the embedder, so all stages of a shader number split arrays and combined
   image samplers the same way; the driver builds the plan from the whole shader's uniforms)
+- `0009-spirv-reader-depth-sample.patch` (read a 2D or 2D array depth texture sampled without
+  comparison with four `textureLoad`s blended bilinearly, as WebGPU cannot pair depth textures
+  with filtering samplers; Godot reads its shadow atlases with a linear sampler)
 
 ## tinyexr
 
