@@ -1148,6 +1148,9 @@ Patches:
   does the reader's two SPIRV-Tools passes, split combined image samplers and resolve binding
   conflicts; also split constant-indexed arrays of images or samplers into one binding per
   element, as WGSL has no binding arrays)
+- `0002-spirv-reader-push-constant-binding.patch` (reader option that puts the `PushConstant`
+  block at a `var<uniform>` binding point chosen by the embedder, with a size limit; the driver
+  uses the same `webgpu_immediates_set()` rule from `drivers/webgpu/webgpu_common.h`)
 
 ## tinyexr
 

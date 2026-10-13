@@ -208,6 +208,28 @@ class Parser {
 
         RegisterNames();
 
+        // Godot: a push constant block becomes a `var<uniform>` at a binding point chosen by the
+        // embedder.
+        for (const auto& inst : spirv_context_->types_values()) {
+            if (inst.opcode() == spv::Op::OpVariable &&
+                spv::StorageClass(inst.GetSingleWordInOperand(0)) ==
+                    spv::StorageClass::PushConstant) {
+                if (!options_.push_constant_binding) {
+                    return Failure(
+                        "SPIR-V push constant block found but no push constant binding point was "
+                        "given in the reader options");
+                }
+                auto* ptr = Type(inst.type_id())->As<core::type::Pointer>();
+                if (options_.push_constant_max_size && ptr &&
+                    ptr->StoreType()->Size() > options_.push_constant_max_size) {
+                    return Failure("SPIR-V push constant block is " +
+                                   std::to_string(ptr->StoreType()->Size()) +
+                                   " bytes, the limit is " +
+                                   std::to_string(options_.push_constant_max_size));
+                }
+            }
+        }
+
         id_stack_.emplace_back();
         {
             TINT_SCOPED_ASSIGNMENT(current_block_, ir_.root_block);
@@ -659,7 +681,8 @@ class Parser {
             case spv::StorageClass::Workgroup:
                 return core::AddressSpace::kWorkgroup;
             case spv::StorageClass::PushConstant:
-                return core::AddressSpace::kImmediate;
+                // Godot: WGSL has no push constants, emit the block as a uniform buffer.
+                return core::AddressSpace::kUniform;
             default:
                 TINT_UNREACHABLE()
                     << "unhandled SPIR-V storage class: " << spv::StorageClassToString(sc);
@@ -4864,6 +4887,12 @@ class Parser {
             var->SetInitializer(Value(inst.GetSingleWordOperand(3)));
         }
 
+        if (spv::StorageClass(inst.GetSingleWordInOperand(0)) == spv::StorageClass::PushConstant) {
+            // Godot: checked in Run().
+            TINT_ASSERT(options_.push_constant_binding);
+            group = options_.push_constant_binding->group;
+            binding = options_.push_constant_binding->binding;
+        }
         if (group || binding) {
             TINT_ASSERT(group && binding);
             // Remap any samplers which match an entry in the sampler mappings
