@@ -42,3 +42,16 @@ const GodotEmscripten = {
 };
 autoAddDeps(GodotEmscripten, '$GodotEmscripten');
 addToLibrary(GodotEmscripten);
+
+// Under JSPI, Emscripten's dlopen always loads asynchronously and suspends. Worker threads
+// replay the main thread's dlopen calls (to sync GDExtension libraries) from their message loop,
+// which is not a promising export, so that suspension throws a SuspendError and kills the thread.
+// Godot preloads every GDExtension wasm at startup (gdextensionLibs), so load synchronously on
+// every thread. Settings such as MAIN_MODULE are globals while Emscripten evaluates libraries.
+if (MAIN_MODULE && PTHREADS && ASYNCIFY === 2) { // eslint-disable-line no-undef
+	addToLibrary({
+		_dlopen_js__deps: ['$dlopenInternal'],
+		_dlopen_js__async: false,
+		_dlopen_js: (handle) => dlopenInternal(handle, { loadAsync: false }), // eslint-disable-line no-undef
+	});
+}
