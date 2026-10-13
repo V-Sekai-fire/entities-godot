@@ -145,8 +145,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	required_limits.maxBindGroups = pick_limit(WEBGPU_MAX_BIND_GROUPS, adapter_limits.maxBindGroups);
 	required_limits.maxImmediateSize = pick_limit(64, adapter_limits.maxImmediateSize);
 	required_limits.maxSampledTexturesPerShaderStage = pick_limit(48, adapter_limits.maxSampledTexturesPerShaderStage);
-	required_limits.maxStorageBuffersPerShaderStage = pick_limit(12, adapter_limits.maxStorageBuffersPerShaderStage);
-	required_limits.maxStorageTexturesPerShaderStage = pick_limit(8, adapter_limits.maxStorageTexturesPerShaderStage);
+	required_limits.maxStorageBuffersPerShaderStage = pick_limit(16, adapter_limits.maxStorageBuffersPerShaderStage);
+	required_limits.maxStorageTexturesPerShaderStage = pick_limit(16, adapter_limits.maxStorageTexturesPerShaderStage);
 
 	WGPUDeviceDescriptor device_desc = WGPU_DEVICE_DESCRIPTOR_INIT;
 	device_desc.requiredFeatureCount = required_features_count;
