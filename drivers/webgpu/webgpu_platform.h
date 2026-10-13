@@ -38,3 +38,21 @@
 #if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 #include <webgpu/webgpu.h>
 #endif
+
+#ifdef WEBGPU_SHADER_BAKER_ONLY
+// The editor bakes WebGPU shader containers without a WebGPU implementation; the container needs
+// only these binding-type values, which match webgpu.h.
+typedef enum WGPUSamplerBindingType {
+	WGPUSamplerBindingType_Filtering = 0x00000002,
+	WGPUSamplerBindingType_NonFiltering = 0x00000003,
+	WGPUSamplerBindingType_Comparison = 0x00000004,
+} WGPUSamplerBindingType;
+
+typedef enum WGPUTextureSampleType {
+	WGPUTextureSampleType_Float = 0x00000002,
+	WGPUTextureSampleType_UnfilterableFloat = 0x00000003,
+	WGPUTextureSampleType_Depth = 0x00000004,
+	WGPUTextureSampleType_Sint = 0x00000005,
+	WGPUTextureSampleType_Uint = 0x00000006,
+} WGPUTextureSampleType;
+#endif

@@ -201,6 +201,10 @@
 #include "editor/shader/shader_baker/shader_baker_export_plugin_platform_d3d12.h"
 #endif
 
+#ifdef WEBGPU_SHADER_BAKER_ENABLED
+#include "editor/shader/shader_baker/shader_baker_export_plugin_platform_webgpu.h"
+#endif
+
 #ifdef METAL_ENABLED
 #include "editor/shader/shader_baker/shader_baker_export_plugin_platform_metal.h"
 #endif
@@ -9688,6 +9692,12 @@ EditorNode::EditorNode() {
 	Ref<ShaderBakerExportPluginPlatformMetal> shader_baker_export_plugin_platform_metal;
 	shader_baker_export_plugin_platform_metal.instantiate();
 	shader_baker_export_plugin->add_platform(shader_baker_export_plugin_platform_metal);
+#endif
+
+#ifdef WEBGPU_SHADER_BAKER_ENABLED
+	Ref<ShaderBakerExportPluginPlatformWebGpu> shader_baker_export_plugin_platform_webgpu;
+	shader_baker_export_plugin_platform_webgpu.instantiate();
+	shader_baker_export_plugin->add_platform(shader_baker_export_plugin_platform_webgpu);
 #endif
 
 	EditorExport::get_singleton()->add_export_plugin(shader_baker_export_plugin);

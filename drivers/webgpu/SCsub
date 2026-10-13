@@ -5,7 +5,10 @@ Import("env")
 
 import os
 
-if env["platform"] != "web":
+# Off the web, only the editor's shader baker is built: the shader container and its SPIR-V to
+# WGSL step, so an export can carry WGSL instead of converting it in the browser.
+baker_only = env["platform"] != "web"
+if baker_only and not env.editor_build:
     raise ValueError('The WebGPU driver is only supported on platform "web" (via emdawnwebgpu).')
 
 # Thirdparty: tint's SPIR-V reader (on SPIRV-Cross's parser) and WGSL writer, for SPIR-V to WGSL.
@@ -32,7 +35,10 @@ for root, _dirs, files in os.walk(os.path.join(tint_root, "src", "tint")):
             tint_sources.append(os.path.join(root, f))
 tint_sources.sort()
 
-spirv_cross_sources = [spirv_cross_dir + f for f in ["spirv_parser.cpp", "spirv_cross_parsed_ir.cpp"]]
+# The Metal driver already builds these two (with the rest of SPIRV-Cross) on macOS.
+spirv_cross_sources = []
+if not (baker_only and env["metal"]):
+    spirv_cross_sources = [spirv_cross_dir + f for f in ["spirv_parser.cpp", "spirv_cross_parsed_ir.cpp"]]
 
 env_tint = env.Clone()
 env_tint.disable_warnings()
@@ -75,7 +81,12 @@ env.drivers_sources += thirdparty_obj
 # Godot source files
 
 driver_obj = []
-env.add_source_files(driver_obj, [f for f in Glob("*.cpp") if f.name != "webgpu_tint.cpp"])
+if baker_only:
+    env_baker = env.Clone()
+    env_baker.Append(CPPDEFINES=["WEBGPU_SHADER_BAKER_ONLY"])
+    env_baker.add_source_files(driver_obj, ["rendering_shader_container_webgpu.cpp"])
+else:
+    env.add_source_files(driver_obj, [f for f in Glob("*.cpp") if f.name != "webgpu_tint.cpp"])
 env.drivers_sources += driver_obj
 
 # Rebuild the driver when the thirdparty code changes.

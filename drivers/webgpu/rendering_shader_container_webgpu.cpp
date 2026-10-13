@@ -28,7 +28,7 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifdef WEBGPU_ENABLED
+#if defined(WEBGPU_ENABLED) || defined(WEBGPU_SHADER_BAKER_ONLY)
 
 #include "rendering_shader_container_webgpu.h"
 
@@ -507,4 +507,4 @@ RenderingDeviceCommons::ShaderSpirvVersion RenderingShaderContainerFormatWebGpu:
 RenderingShaderContainerFormatWebGpu::RenderingShaderContainerFormatWebGpu() {}
 RenderingShaderContainerFormatWebGpu::~RenderingShaderContainerFormatWebGpu() {}
 
-#endif // WEBGPU_ENABLED
+#endif // WEBGPU_ENABLED || WEBGPU_SHADER_BAKER_ONLY

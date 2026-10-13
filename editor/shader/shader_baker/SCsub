@@ -11,3 +11,6 @@ if env["d3d12"]:
 
 if env["metal"]:
     env.add_source_files(env.editor_sources, "shader_baker_export_plugin_platform_metal.cpp")
+
+if env["webgpu_shader_baker"]:
+    env.add_source_files(env.editor_sources, "shader_baker_export_plugin_platform_webgpu.cpp")

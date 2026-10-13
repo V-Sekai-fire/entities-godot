@@ -49,6 +49,8 @@ if env["rendering_device"]:
             print_error("Target platform '{}' does not support the WebGPU rendering driver".format(env["platform"]))
             Exit(255)
         SConscript("webgpu/SCsub")
+    elif env["webgpu_shader_baker"] and env.editor_build:
+        SConscript("webgpu/SCsub")
     if env["vulkan"]:
         SConscript("vulkan/SCsub")
     if env["d3d12"]:

@@ -209,6 +209,11 @@ opts.Add(BoolVariable("d3d12", "Enable the Direct3D 12 rendering driver on suppo
 opts.Add(BoolVariable("metal", "Enable the Metal rendering driver on supported platforms (Apple arm64 only)", False))
 opts.Add(BoolVariable("webgpu", "Enable the WebGPU rendering driver on supported platforms (web only)", False))
 opts.Add(
+    BoolVariable(
+        "webgpu_shader_baker", "Build the WebGPU shader baker into the editor, to bake WGSL into web exports", True
+    )
+)
+opts.Add(
     EnumVariable("webgpu_backend", "WebGPU backend library / platform", "auto", ["auto", "emdawnwebgpu"], ignorecase=2)
 )
 opts.Add(BoolVariable("use_volk", "Use the volk library to load the Vulkan loader dynamically", True))
@@ -725,6 +730,10 @@ if env["rendering_device"]:
             env.Append(CPPDEFINES=["MOBILE_RD_ENABLED"])
         if env["forward_plus_renderer"]:
             env.Append(CPPDEFINES=["FORWARD_RD_ENABLED"])
+if not (env["rendering_device"] and env.editor_build and env["platform"] != "web"):
+    env["webgpu_shader_baker"] = False
+if env["webgpu_shader_baker"]:
+    env.Append(CPPDEFINES=["WEBGPU_SHADER_BAKER_ENABLED"])
 # These need to be set before platform detection.
 if not env["rendering_device"] or not (env["forward_mobile_renderer"] or env["forward_plus_renderer"]):
     env["d3d12"] = False
