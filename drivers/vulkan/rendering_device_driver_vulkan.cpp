@@ -7506,6 +7506,8 @@ bool RenderingDeviceDriverVulkan::has_feature(Features p_feature) {
 #else
 			return context_driver->is_colorspace_supported();
 #endif // defined(WINDOWS_ENABLED)
+		case SUPPORTS_TEXTURE_SWIZZLE:
+			return true;
 		case SUPPORTS_GPU_MAPPABLE_BUFFER:
 			return device_local_host_visible_host_coherent_memory_support;
 		default:

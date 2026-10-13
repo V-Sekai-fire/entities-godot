@@ -2817,6 +2817,8 @@ bool RenderingDeviceDriverMetal::has_feature(Features p_feature) {
 #endif
 			return is_supported;
 		}
+		case SUPPORTS_TEXTURE_SWIZZLE:
+			return true;
 		case SUPPORTS_GPU_MAPPABLE_BUFFER:
 			return true;
 		default:

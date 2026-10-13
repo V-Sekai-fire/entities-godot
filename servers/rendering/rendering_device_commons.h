@@ -1038,6 +1038,8 @@ public:
 		SUPPORTS_HDR_OUTPUT,
 		SUPPORTS_RASTERIZATION_RATE_MAP,
 		SUPPORTS_GPU_MAPPABLE_BUFFER,
+		// If not supported, texture views ignore their component swizzle (WebGPU without texture-component-swizzle).
+		SUPPORTS_TEXTURE_SWIZZLE,
 	};
 
 	enum SubgroupOperations {

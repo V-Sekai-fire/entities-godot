@@ -53,6 +53,7 @@ class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 
 	Capabilities capabilities;
 	MultiviewCapabilities multiview_capabilities;
+	bool texture_swizzle_supported = false;
 	FragmentShadingRateCapabilities fsr_capabilities;
 	FragmentDensityMapCapabilities fdm_capabilities;
 

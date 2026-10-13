@@ -143,6 +143,11 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 			required_features[required_features_count++] = wanted_features[i];
 		}
 	}
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	texture_swizzle_supported = wgpuAdapterHasFeature(adapter, WGPUFeatureName_TextureComponentSwizzle);
+#else
+	texture_swizzle_supported = true;
+#endif
 	// Features listed for reference only; enabling them needs matching runtime paths.
 	//   WGPUNativeFeature_Immediates — currently emulated via push constants.
 	//   Binding-array features (TextureBindingArray, StorageResourceBindingArray,
@@ -592,7 +597,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	WGPUTextureViewDimension view_dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type);
 
 	WGPUTextureViewDescriptor texture_view_desc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
-	texture_view_desc.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras;
+	texture_view_desc.nextInChain = texture_swizzle_supported ? (WGPUChainedStruct *)&texture_view_desc_extras : nullptr;
 	texture_view_desc.format = view_format;
 	texture_view_desc.dimension = view_dimension;
 	texture_view_desc.mipLevelCount = texture_desc.mipLevelCount;
@@ -654,7 +659,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 #endif
 
 	WGPUTextureViewDescriptor texture_view_desc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
-	texture_view_desc.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras;
+	texture_view_desc.nextInChain = texture_swizzle_supported ? (WGPUChainedStruct *)&texture_view_desc_extras : nullptr;
 	texture_view_desc.format = webgpu_texture_format_from_rd(p_view.format);
 	texture_view_desc.dimension = texture_info->texture_view_desc.dimension;
 	texture_view_desc.baseMipLevel = texture_info->texture_view_desc.baseMipLevel;
@@ -704,7 +709,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format);
 	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_view.format);
 	WGPUTextureViewDescriptor texture_view_desc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
-	texture_view_desc.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras;
+	texture_view_desc.nextInChain = texture_swizzle_supported ? (WGPUChainedStruct *)&texture_view_desc_extras : nullptr;
 	texture_view_desc.format = view_format;
 	texture_view_desc.dimension = texture_info->texture_view_desc.dimension;
 	texture_view_desc.baseMipLevel = p_mipmap;
@@ -4033,6 +4038,8 @@ bool RenderingDeviceDriverWebGpu::has_feature(Features p_feature) {
 			return false;
 		case SUPPORTS_HDR_OUTPUT:
 			return false;
+		case SUPPORTS_TEXTURE_SWIZZLE:
+			return texture_swizzle_supported;
 		default:
 			return false;
 	}
