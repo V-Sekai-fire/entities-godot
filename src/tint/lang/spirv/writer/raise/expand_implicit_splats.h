@@ -28,6 +28,8 @@
 #ifndef SRC_TINT_LANG_SPIRV_WRITER_RAISE_EXPAND_IMPLICIT_SPLATS_H_
 #define SRC_TINT_LANG_SPIRV_WRITER_RAISE_EXPAND_IMPLICIT_SPLATS_H_
 
+#include "src/tint/lang/core/ir/module.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 #include "src/tint/utils/result.h"
 
 // Forward declarations.

@@ -29,6 +29,7 @@
 #define SRC_TINT_UTILS_RTTI_CASTABLE_H_
 
 #include <stdint.h>
+
 #include <functional>
 #include <tuple>
 #include <type_traits>
@@ -61,11 +62,49 @@ TINT_CASTABLE_PUSH_DISABLE_WARNINGS();
 // Forward declarations
 namespace tint {
 class CastableBase;
+
+enum Dialect {
+    kCore,
+    kSpirv,
+    kHlsl,
+    kMsl,
+    kGlsl,
+    kWgsl,
+};
+
 }  // namespace tint
 
 namespace tint::detail {
 template <typename T>
 struct TypeInfoOf;
+
+void non_consteval_fail_compile();
+
+consteval tint::Dialect DetermineTypeDialect(const std::string_view str) {
+    if (str.starts_with("tint::spirv")) {
+        return tint::Dialect::kSpirv;
+    }
+    if (str.starts_with("tint::hlsl")) {
+        return tint::Dialect::kHlsl;
+    }
+    if (str.starts_with("tint::glsl")) {
+        return tint::Dialect::kGlsl;
+    }
+    if (str.starts_with("tint::msl")) {
+        return tint::Dialect::kMsl;
+    }
+    if (str.starts_with("tint::wgsl") || str.starts_with("tint::ast") ||
+        str.starts_with("tint::sem") || str.starts_with("tint::resolver")) {
+        return tint::Dialect::kWgsl;
+    }
+    if (str.starts_with("tint::core") || str.starts_with("tint::test")) {
+        return tint::Dialect::kCore;
+    } else {
+        non_consteval_fail_compile();
+    }
+    return tint::Dialect::kCore;
+}
+
 }  // namespace tint::detail
 
 namespace tint {
@@ -73,22 +112,24 @@ namespace tint {
 /// True if all template types that are not Ignore derive from CastableBase
 template <typename... TYPES>
 static constexpr bool IsCastable =
-    ((tint::traits::IsTypeOrDerived<TYPES, CastableBase> || std::is_same_v<TYPES, Ignore>)&&...) &&
+    ((tint::traits::IsTypeOrDerived<TYPES, CastableBase> || std::is_same_v<TYPES, Ignore>) &&
+     ...) &&
     !(std::is_same_v<TYPES, Ignore> && ...);
 
 /// Helper macro to instantiate the TypeInfo<T> template for `CLASS`.
-#define TINT_INSTANTIATE_TYPEINFO(CLASS)                        \
-    TINT_CASTABLE_PUSH_DISABLE_WARNINGS();                      \
-    template <>                                                 \
-    const tint::TypeInfo tint::detail::TypeInfoOf<CLASS>::info{ \
-        &tint::detail::TypeInfoOf<CLASS::TrueBase>::info,       \
-        #CLASS,                                                 \
-        tint::TypeCode::Of<CLASS>(),                            \
-        tint::TypeCodeSet::OfHierarchy<CLASS>(),                \
-    };                                                          \
-    TINT_CASTABLE_POP_DISABLE_WARNINGS();                       \
-    static_assert(std::is_same_v<CLASS, CLASS::Base::Class>,    \
-                  #CLASS " does not derive from Castable<" #CLASS "[, BASE]>")
+#define TINT_INSTANTIATE_TYPEINFO(CLASS) TINT_INSTANTIATE_TYPEINFO_NAMED(#CLASS, CLASS)
+
+#define TINT_INSTANTIATE_TYPEINFO_NAMED(NAME, CLASS)                                   \
+    TINT_CASTABLE_PUSH_DISABLE_WARNINGS();                                             \
+    template <>                                                                        \
+    const tint::TypeInfo tint::detail::TypeInfoOf<CLASS>::info{                        \
+        &tint::detail::TypeInfoOf<CLASS::TrueBase>::info, NAME,                        \
+        tint::detail::DetermineTypeDialect(NAME),         tint::TypeCode::Of<CLASS>(), \
+        tint::TypeCodeSet::OfHierarchy<CLASS>(),                                       \
+    };                                                                                 \
+    TINT_CASTABLE_POP_DISABLE_WARNINGS();                                              \
+    static_assert(std::is_same_v<CLASS, CLASS::Base::Class>,                           \
+                  NAME " does not derive from Castable<" NAME "[, BASE]>")
 
 /// Bit flags that can be passed to the template parameter `FLAGS` of Is() and As().
 enum CastFlags {
@@ -189,6 +230,8 @@ struct TypeInfo {
     const TypeInfo* base;
     /// The type name
     const char* name;
+    /// The type kind
+    const Dialect dialect;
     /// The type's TypeCode
     const TypeCode type_code;
     /// The set of this type's TypeCode and all ancestor's TypeCodes
@@ -272,6 +315,9 @@ struct TypeInfo {
     inline bool IsAnyOf() const {
         return IsAnyOfTuple<std::tuple<TYPES...>>();
     }
+
+    /// @returns true if this TypeInfo has a dialect of `d`
+    inline bool IsDialect(Dialect d) const { return d == dialect; }
 };
 
 namespace detail {
@@ -492,6 +538,9 @@ class Castable : public BASE {
                    ? static_cast<const TO*>(static_cast<const CastableBase*>(this))
                    : nullptr;
     }
+
+    /// @returns true if the type dialect is `d`
+    inline bool IsDialect(tint::Dialect d) const { return this->TypeInfo().dialect == d; }
 };
 
 namespace detail {

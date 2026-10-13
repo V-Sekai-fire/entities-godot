@@ -30,7 +30,7 @@
 
 #include <string>
 
-#include "src/tint/lang/core/builtin_fn.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/intrinsic/dialect.h"
 #include "src/tint/lang/core/intrinsic/table_data.h"
 #include "src/tint/lang/core/ir/builtin_call.h"
@@ -81,7 +81,7 @@ class CoreBuiltinCall final : public Castable<CoreBuiltinCall, BuiltinCall> {
     Accesses GetSideEffects() const override;
 
   private:
-    core::BuiltinFn func_;
+    core::BuiltinFn func_ = core::BuiltinFn::kNone;
 };
 
 }  // namespace tint::core::ir

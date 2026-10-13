@@ -31,7 +31,7 @@
 #include <string>
 #include <utility>
 
-#include "src/tint/lang/core/builtin_type.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/type/abstract_float.h"
 #include "src/tint/lang/core/type/abstract_int.h"
 #include "src/tint/lang/core/type/bool.h"
@@ -193,6 +193,40 @@ Struct* CreateAtomicCompareExchangeResult(Manager& types, SymbolTable& symbols, 
         [&](const I32*) { return build(core::BuiltinType::kAtomicCompareExchangeResultI32); },
         [&](const U32*) { return build(core::BuiltinType::kAtomicCompareExchangeResultU32); },
         TINT_ICE_ON_NO_MATCH);
+}
+
+Struct* CreateAddCarryResult(Manager& types, SymbolTable& symbols, const Type* ty) {
+    std::string name = "add_carry_result_";
+    if (auto* vec_ty = ty->As<Vector>()) {
+        name += "vec" + std::to_string(vec_ty->Width()) + "_";
+    }
+    name += ty->DeepestElement()->FriendlyName();
+
+    auto symbol = symbols.Register(name);
+    if (auto* existing = types.Find<type::Struct>(symbol, /* is_wgsl_internal */ true)) {
+        return existing;
+    }
+    return types.WgslInternalStruct(symbol, {
+                                                {symbols.Register("result"), ty},
+                                                {symbols.Register("carry"), ty},
+                                            });
+}
+
+Struct* CreateUMulExtendedResult(Manager& types, SymbolTable& symbols, const Type* ty) {
+    std::string name = "umul_extended_result_";
+    if (auto* vec_ty = ty->As<Vector>()) {
+        name += "vec" + std::to_string(vec_ty->Width()) + "_";
+    }
+    name += ty->DeepestElement()->FriendlyName();
+
+    auto symbol = symbols.Register(name);
+    if (auto* existing = types.Find<type::Struct>(symbol, /* is_wgsl_internal */ true)) {
+        return existing;
+    }
+    return types.WgslInternalStruct(symbol, {
+                                                {symbols.Register("lower"), ty},
+                                                {symbols.Register("upper"), ty},
+                                            });
 }
 
 }  // namespace tint::core::type

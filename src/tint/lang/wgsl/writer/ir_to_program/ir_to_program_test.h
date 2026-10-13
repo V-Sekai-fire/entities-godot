@@ -33,6 +33,7 @@
 
 #include "src/tint/lang/core/ir/ir_helper_test.h"
 #include "src/tint/lang/core/type/reference.h"
+#include "src/tint/lang/wgsl/writer/common/options.h"
 
 namespace tint::wgsl::writer {
 
@@ -51,7 +52,7 @@ class IRToProgramTest : public core::ir::IRTestHelper {
         std::string err;
     };
     /// @returns the WGSL generated from the IR
-    Result Run();
+    Result RunTest();
 
     /// Creates a new `var` declaration with a name and initializer value, using a reference type.
     /// @tparam SPACE the var's address space
@@ -59,12 +60,11 @@ class IRToProgramTest : public core::ir::IRTestHelper {
     /// @param name the var name
     /// @param init the var initializer
     /// @returns the instruction
-    template <
-        core::AddressSpace SPACE = core::AddressSpace::kFunction,
-        core::Access ACCESS = core::Access::kReadWrite,
-        typename VALUE = void,
-        typename = std::enable_if_t<
-            !traits::IsTypeOrDerived<std::remove_pointer_t<std::decay_t<VALUE>>, core::type::Type>>>
+    template <core::AddressSpace SPACE = core::AddressSpace::kFunction,
+              core::Access ACCESS = core::Access::kReadWrite,
+              typename VALUE = void>
+        requires(
+            !traits::IsTypeOrDerived<std::remove_pointer_t<std::decay_t<VALUE>>, core::type::Type>)
     core::ir::Var* Var(std::string_view name, VALUE&& init) {
         auto* val = b.Value(std::forward<VALUE>(init));
         if (DAWN_UNLIKELY(!val)) {
@@ -76,6 +76,11 @@ class IRToProgramTest : public core::ir::IRTestHelper {
         mod.SetName(var->Result(), name);
         return var;
     }
+
+    /// Creates a new `var` declaration with a name and initializer value, using a reference type.
+    /// @param mv the type
+    /// @returns the instruction
+    core::ir::Var* Var(const core::type::MemoryView* mv) { return b.Var(mv); }
 
     /// Creates a new `var` declaration
     /// @tparam SPACE the var's address space
@@ -97,11 +102,16 @@ class IRToProgramTest : public core::ir::IRTestHelper {
     core::ir::Var* Var(std::string_view name) {
         return b.Var(name, mod.Types().ref<SPACE, T, ACCESS>());
     }
+
+    /// The options to use when generating WGSL.
+    Options options{
+        .allowed_features = AllowedFeatures::Everything(),
+    };
 };
 
 #define EXPECT_WGSL(expected_wgsl)                                                   \
     do {                                                                             \
-        if (auto got = Run(); got.err.empty()) {                                     \
+        if (auto got = RunTest(); got.err.empty()) {                                 \
             auto expected = std::string(tint::TrimSpace(expected_wgsl));             \
             if (!expected.empty()) {                                                 \
                 expected = "\n" + expected + "\n";                                   \

@@ -29,6 +29,7 @@
 #define SRC_TINT_LANG_CORE_NUMBER_H_
 
 #include <stdint.h>
+
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -129,6 +130,12 @@ struct NumberBase {
     static NumberT Inf() { return NumberT(std::numeric_limits<UnwrapNumber<NumberT>>::infinity()); }
 };
 
+// Largest integers representable in the source floating point format.
+// These values are chosen specifically to enable f32 clamping.
+// See https://github.com/gpuweb/gpuweb/issues/5043
+constexpr int32_t kMaxI32WhichIsAlsoF32 = 0x7FFFFF80;
+constexpr uint32_t kMaxU32WhichIsAlsoF32 = 0xFFFFFF00;
+
 /// Number wraps a integer or floating point number, enforcing explicit casting.
 template <typename T>
 struct Number : NumberBase<Number<T>> {
@@ -160,6 +167,7 @@ struct Number : NumberBase<Number<T>> {
     /// Constructor.
     /// @param v the value to initialize this Number to
     template <typename U>
+        requires(std::is_arithmetic_v<U> || std::is_enum_v<U>)
     explicit Number(U v) : value(static_cast<T>(v)) {}
 
     /// Constructor.
@@ -169,6 +177,7 @@ struct Number : NumberBase<Number<T>> {
 
     /// Conversion operator
     /// @returns the value as T
+    // NOLINTNEXTLINE(google-explicit-constructor)
     operator T() const { return value; }
 
     /// Negation operator
@@ -191,7 +200,8 @@ struct Number : NumberBase<Number<T>> {
 /// @param out the stream to write to
 /// @param num the Number
 /// @return the stream so calls can be chained
-template <typename STREAM, typename T, typename = traits::EnableIfIsOStream<STREAM>>
+template <typename STREAM, typename T>
+    requires(traits::IsOStream<STREAM>)
 auto& operator<<(STREAM& out, Number<T> num) {
     return out << num.value;
 }
@@ -227,6 +237,7 @@ struct Number<tint::core::detail::NumberKindF16>
     /// Constructor.
     /// @param v the value to initialize this Number to
     template <typename U>
+        requires(std::is_arithmetic_v<U>)
     explicit Number(U v) : value(Quantize(static_cast<type>(v))) {}
 
     /// Constructor.
@@ -236,6 +247,7 @@ struct Number<tint::core::detail::NumberKindF16>
 
     /// Conversion operator
     /// @returns the value as the internal representation type of F16
+    // NOLINTNEXTLINE(google-explicit-constructor)
     operator float() const { return value; }
 
     /// Negation operator
@@ -284,6 +296,8 @@ using i8 = Number<int8_t>;
 using i32 = Number<int32_t>;
 /// `u8` is a type alias to `Number<uint8_t>`.
 using u8 = Number<uint8_t>;
+/// `u16` is a type alias to `Number<uint16_t>`.
+using u16 = Number<uint16_t>;
 /// `u32` is a type alias to `Number<uint32_t>`.
 using u32 = Number<uint32_t>;
 /// `u64` is a type alias to `Number<uint64_t>`.
@@ -301,15 +315,13 @@ static_assert(std::numeric_limits<float>::has_quiet_NaN);
 static_assert(std::numeric_limits<double>::has_infinity);
 static_assert(std::numeric_limits<double>::has_quiet_NaN);
 
-template <typename T, tint::traits::EnableIf<IsFloatingPoint<T>>* = nullptr>
-inline const auto kPi = T(UnwrapNumber<T>(3.14159265358979323846));
-
 /// True iff T is an abstract number type
 template <typename T>
 constexpr bool IsAbstract = std::is_same_v<T, AInt> || std::is_same_v<T, AFloat>;
 
 /// @returns the friendly name of Number type T
-template <typename T, tint::traits::EnableIf<IsNumber<T>>* = nullptr>
+template <typename T>
+    requires(IsNumber<T>)
 const char* FriendlyName() {
     if constexpr (std::is_same_v<T, AInt>) {
         return "abstract-int";
@@ -317,6 +329,8 @@ const char* FriendlyName() {
         return "abstract-float";
     } else if constexpr (std::is_same_v<T, i32>) {
         return "i32";
+    } else if constexpr (std::is_same_v<T, u16>) {
+        return "u16";
     } else if constexpr (std::is_same_v<T, u32>) {
         return "u32";
     } else if constexpr (std::is_same_v<T, f32>) {
@@ -329,7 +343,8 @@ const char* FriendlyName() {
 }
 
 /// @returns the friendly name of T when T is bool
-template <typename T, tint::traits::EnableIf<std::is_same_v<T, bool>>* = nullptr>
+template <typename T>
+    requires(std::is_same_v<T, bool>)
 const char* FriendlyName() {
     return "bool";
 }
@@ -344,7 +359,8 @@ enum class ConversionFailure {
 /// @param out the stream to write to
 /// @param failure the ConversionFailure
 /// @return the stream so calls can be chained
-template <typename STREAM, typename = traits::EnableIfIsOStream<STREAM>>
+template <typename STREAM>
+    requires(traits::IsOStream<STREAM>)
 auto& operator<<(STREAM& out, ConversionFailure failure) {
     switch (failure) {
         case ConversionFailure::kExceedsPositiveLimit:
@@ -363,7 +379,7 @@ tint::Result<TO, ConversionFailure> CheckedConvert(Number<FROM> num) {
     // Use the highest-precision integer or floating-point type to perform the comparisons.
     using T = std::conditional_t<IsFloatingPoint<UnwrapNumber<TO>> || IsFloatingPoint<FROM>,
                                  AFloat::type, AInt::type>;
-    const auto value = static_cast<T>(num.value);
+    const auto value = static_cast<T>(num.value);  // NOLINT(bugprone-signed-char-misuse)
     // Float to integral conversions clamp to the target range.
     // https://gpuweb.github.io/gpuweb/wgsl/#scalar-floating-point-to-integral-conversion
     constexpr auto float_to_integral = IsFloatingPoint<FROM> && IsIntegral<UnwrapNumber<TO>>;
@@ -376,6 +392,21 @@ tint::Result<TO, ConversionFailure> CheckedConvert(Number<FROM> num) {
             if constexpr (IsSignedIntegral<FROM>) {
                 return ConversionFailure::kExceedsNegativeLimit;
             }
+        }
+    } else if constexpr (std::is_same_v<FROM, float> &&
+                         (std::is_same_v<TO, i32> || std::is_same_v<TO, u32>)) {
+        // The WGSL spec dictates that the conversion of f32 to u32/i32 saturates to integer
+        // values representable in float. This highly particular for f32 converting to u32/i32 for
+        // only the highest integer value.
+        const T kHighestIntWhichIsAlsoFloat = IsSignedIntegral<TO>
+                                                  ? static_cast<T>(kMaxI32WhichIsAlsoF32)
+                                                  : static_cast<T>(kMaxU32WhichIsAlsoF32);
+        if (value > kHighestIntWhichIsAlsoFloat) {
+            return TO(kHighestIntWhichIsAlsoFloat);
+        }
+
+        if (value < static_cast<T>(TO::kLowestValue)) {
+            return TO(TO::kLowestValue);
         }
     } else {
         if (value > static_cast<T>(TO::kHighestValue)) {
@@ -405,8 +436,8 @@ bool operator==(Number<A> a, Number<B> b) {
     // Use the highest-precision integer or floating-point type to perform the comparisons.
     using T =
         std::conditional_t<IsFloatingPoint<A> || IsFloatingPoint<B>, AFloat::type, AInt::type>;
-    auto va = static_cast<T>(a.value);
-    auto vb = static_cast<T>(b.value);
+    auto va = static_cast<T>(a.value);  // NOLINT(bugprone-signed-char-misuse)
+    auto vb = static_cast<T>(b.value);  // NOLINT(bugprone-signed-char-misuse)
     return std::equal_to<T>()(va, vb);
 }
 
@@ -424,7 +455,8 @@ bool operator!=(Number<A> a, Number<B> b) {
 /// @param b the RHS number
 /// @returns true if the numbers `a` and `b` are exactly equal.
 template <typename A, typename B>
-std::enable_if_t<IsNumeric<B>, bool> operator==(Number<A> a, B b) {
+    requires(IsNumeric<B>)
+bool operator==(Number<A> a, B b) {
     return a == Number<B>(b);
 }
 
@@ -433,7 +465,8 @@ std::enable_if_t<IsNumeric<B>, bool> operator==(Number<A> a, B b) {
 /// @param b the RHS number
 /// @returns true if the numbers `a` and `b` are exactly unequal.
 template <typename A, typename B>
-std::enable_if_t<IsNumeric<B>, bool> operator!=(Number<A> a, B b) {
+    requires(IsNumeric<B>)
+bool operator!=(Number<A> a, B b) {
     return !(a == b);
 }
 
@@ -442,7 +475,8 @@ std::enable_if_t<IsNumeric<B>, bool> operator!=(Number<A> a, B b) {
 /// @param b the RHS number
 /// @returns true if the numbers `a` and `b` are exactly equal.
 template <typename A, typename B>
-std::enable_if_t<IsNumeric<A>, bool> operator==(A a, Number<B> b) {
+    requires(IsNumeric<A>)
+bool operator==(A a, Number<B> b) {
     return Number<A>(a) == b;
 }
 
@@ -451,7 +485,8 @@ std::enable_if_t<IsNumeric<A>, bool> operator==(A a, Number<B> b) {
 /// @param b the RHS number
 /// @returns true if the numbers `a` and `b` are exactly unequal.
 template <typename A, typename B>
-std::enable_if_t<IsNumeric<A>, bool> operator!=(A a, Number<B> b) {
+    requires(IsNumeric<A>)
+bool operator!=(A a, Number<B> b) {
     return !(a == b);
 }
 
@@ -494,8 +529,8 @@ inline std::optional<AInt> CheckedAdd(AInt a, AInt b) {
 /// @param a the LHS number
 /// @param b the RHS number
 /// @returns a + b, or an empty optional if the resulting value overflowed the float value
-template <typename FloatingPointT,
-          typename = tint::traits::EnableIf<IsFloatingPoint<FloatingPointT>>>
+template <typename FloatingPointT>
+    requires(IsFloatingPoint<FloatingPointT>)
 inline std::optional<FloatingPointT> CheckedAdd(FloatingPointT a, FloatingPointT b) {
     auto result = FloatingPointT{a.value + b.value};
     if (!std::isfinite(result.value)) {
@@ -531,8 +566,8 @@ inline std::optional<AInt> CheckedSub(AInt a, AInt b) {
 /// @param a the LHS number
 /// @param b the RHS number
 /// @returns a + b, or an empty optional if the resulting value overflowed the float value
-template <typename FloatingPointT,
-          typename = tint::traits::EnableIf<IsFloatingPoint<FloatingPointT>>>
+template <typename FloatingPointT>
+    requires(IsFloatingPoint<FloatingPointT>)
 inline std::optional<FloatingPointT> CheckedSub(FloatingPointT a, FloatingPointT b) {
     auto result = FloatingPointT{a.value - b.value};
     if (!std::isfinite(result.value)) {
@@ -580,8 +615,8 @@ inline std::optional<AInt> CheckedMul(AInt a, AInt b) {
 /// @param a the LHS number
 /// @param b the RHS number
 /// @returns a * b, or an empty optional if the resulting value overflowed the float value
-template <typename FloatingPointT,
-          typename = tint::traits::EnableIf<IsFloatingPoint<FloatingPointT>>>
+template <typename FloatingPointT>
+    requires(IsFloatingPoint<FloatingPointT>)
 inline std::optional<FloatingPointT> CheckedMul(FloatingPointT a, FloatingPointT b) {
     auto result = FloatingPointT{a.value * b.value};
     if (!std::isfinite(result.value)) {
@@ -608,8 +643,8 @@ inline std::optional<AInt> CheckedDiv(AInt a, AInt b) {
 /// @param a the LHS number
 /// @param b the RHS number
 /// @returns a / b, or an empty optional if the resulting value overflowed the float value
-template <typename FloatingPointT,
-          typename = tint::traits::EnableIf<IsFloatingPoint<FloatingPointT>>>
+template <typename FloatingPointT>
+    requires(IsFloatingPoint<FloatingPointT>)
 inline std::optional<FloatingPointT> CheckedDiv(FloatingPointT a, FloatingPointT b) {
     if (b == FloatingPointT{0.0}) {
         return {};
@@ -655,8 +690,8 @@ inline std::optional<AInt> CheckedMod(AInt a, AInt b) {
 /// @param b the RHS number
 /// @returns the remainder of a / b, or an empty optional if the resulting value overflowed the
 /// float value
-template <typename FloatingPointT,
-          typename = tint::traits::EnableIf<IsFloatingPoint<FloatingPointT>>>
+template <typename FloatingPointT>
+    requires(IsFloatingPoint<FloatingPointT>)
 inline std::optional<FloatingPointT> CheckedMod(FloatingPointT a, FloatingPointT b) {
     if (b == FloatingPointT{0.0}) {
         return {};
@@ -683,8 +718,8 @@ inline std::optional<AInt> CheckedMadd(AInt a, AInt b, AInt c) {
 /// @param exp the exponent
 /// @returns the value of `base` raised to the power `exp`, or an empty optional if the operation
 /// cannot be performed.
-template <typename FloatingPointT,
-          typename = tint::traits::EnableIf<IsFloatingPoint<FloatingPointT>>>
+template <typename FloatingPointT>
+    requires(IsFloatingPoint<FloatingPointT>)
 inline std::optional<FloatingPointT> CheckedPow(FloatingPointT base, FloatingPointT exp) {
     static_assert(IsNumber<FloatingPointT>);
     if ((base < 0) || (base == 0 && exp <= 0)) {

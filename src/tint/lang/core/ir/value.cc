@@ -31,13 +31,14 @@
 
 #include "src/tint/lang/core/ir/constant.h"
 #include "src/tint/lang/core/ir/instruction.h"
+#include "src/tint/lang/core/ir/instruction_result.h"
 #include "src/tint/utils/ice/ice.h"
 
 TINT_INSTANTIATE_TYPEINFO(tint::core::ir::Value);
 
 namespace tint::core::ir {
 
-Value::Value() = default;
+Value::Value(const core::type::Type* type) : type_(type) {}
 
 Value::~Value() = default;
 
@@ -79,6 +80,20 @@ Vector<Usage, 4> Value::UsagesSorted() const {
     auto v = uses_.Vector();
     std::sort(v.begin(), v.end());
     return v;
+}
+
+Instruction* Value::AsInstruction() {
+    if (auto* res = As<InstructionResult>()) {
+        return res->Instruction();
+    }
+    return nullptr;
+}
+
+const Instruction* Value::AsInstruction() const {
+    if (auto* res = As<InstructionResult>()) {
+        return res->Instruction();
+    }
+    return nullptr;
 }
 
 }  // namespace tint::core::ir

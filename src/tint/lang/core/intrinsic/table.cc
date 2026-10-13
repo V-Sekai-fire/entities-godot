@@ -30,14 +30,15 @@
 #include <algorithm>
 #include <limits>
 #include <ostream>
+#include <span>
 #include <utility>
+#include <variant>
 
 #include "src/tint/lang/core/evaluation_stage.h"
 #include "src/tint/lang/core/intrinsic/table_data.h"
 #include "src/tint/lang/core/type/invalid.h"
 #include "src/tint/lang/core/type/manager.h"
 #include "src/tint/lang/core/type/void.h"
-#include "src/tint/utils/containers/slice.h"
 #include "src/tint/utils/ice/ice.h"
 #include "src/tint/utils/macros/defer.h"
 #include "src/tint/utils/text/string_stream.h"
@@ -84,10 +85,28 @@ static inline void SortCandidates(Candidates& candidates) {
                      [&](const Candidate& a, const Candidate& b) { return a.score < b.score; });
 }
 
-/// Prints a list of types.
-static void PrintTypeList(StyledText& ss, VectorRef<const core::type::Type*> types) {
+/// Prints a list of template parameters.
+static void PrintTemplateParamList(StyledText& ss, VectorRef<TemplateParameter> params) {
     bool first = true;
-    for (auto* arg : types) {
+    for (auto arg : params) {
+        if (!first) {
+            ss << ", ";
+        }
+        first = false;
+        if (std::holds_alternative<const core::type::Type*>(arg)) {
+            auto* ty = std::get<const core::type::Type*>(arg);
+            ss << style::Type((ty != nullptr) ? ty->FriendlyName() : "undef");
+        } else if (std::holds_alternative<core::Majorness>(arg)) {
+            auto major = std::get<core::Majorness>(arg);
+            ss << style::Enum(major);
+        } else {
+            ss << style::Type("undef");
+        }
+    }
+}
+static void PrintTypeList(StyledText& ss, VectorRef<const core::type::Type*> args) {
+    bool first = true;
+    for (auto arg : args) {
         if (!first) {
             ss << ", ";
         }
@@ -100,7 +119,7 @@ static void PrintTypeList(StyledText& ss, VectorRef<const core::type::Type*> typ
 /// @param context the intrinsic context
 /// @param intrinsic the intrinsic being called
 /// @param intrinsic_name the name of the intrinsic
-/// @param template_args the template argument types
+/// @param template_args the template arguments
 /// @param args the argument types
 /// @param earliest_eval_stage the earliest evaluation stage that the call can be made
 /// @param member_function `true` if the builtin should be a member function
@@ -110,7 +129,7 @@ static void PrintTypeList(StyledText& ss, VectorRef<const core::type::Type*> typ
 Result<Overload, StyledText> MatchIntrinsic(Context& context,
                                             const IntrinsicInfo& intrinsic,
                                             std::string_view intrinsic_name,
-                                            VectorRef<const core::type::Type*> template_args,
+                                            VectorRef<TemplateParameter> template_args,
                                             VectorRef<const core::type::Type*> args,
                                             EvaluationStage earliest_eval_stage,
                                             bool member_function,
@@ -129,7 +148,7 @@ enum class ScoreMode {
 /// Evaluates the single overload for the provided argument types.
 /// @param context the intrinsic context
 /// @param overload the overload being considered
-/// @param template_args the template argument types
+/// @param template_args the template arguments
 /// @param args the argument types
 /// @tparam MODE the scoring mode to use. Passed as a template argument to ensure that the
 /// extremely-hot function is specialized without scoring logic for the common code path.
@@ -137,7 +156,7 @@ enum class ScoreMode {
 template <ScoreMode MODE>
 Candidate ScoreOverload(Context& context,
                         const OverloadInfo& overload,
-                        VectorRef<const core::type::Type*> template_args,
+                        VectorRef<TemplateParameter> template_args,
                         VectorRef<const core::type::Type*> args,
                         EvaluationStage earliest_eval_stage);
 
@@ -146,14 +165,14 @@ Candidate ScoreOverload(Context& context,
 /// @param context the intrinsic context
 /// @param candidates the list of candidate overloads
 /// @param intrinsic_name the name of the intrinsic
-/// @param template_args the template argument types
+/// @param template_args the template arguments
 /// @param args the argument types
 /// @see https://www.w3.org/TR/WGSL/#overload-resolution-section
 /// @returns the resolved Candidate.
 Result<Candidate, StyledText> ResolveCandidate(Context& context,
                                                Candidates&& candidates,
                                                std::string_view intrinsic_name,
-                                               VectorRef<const core::type::Type*> template_args,
+                                               VectorRef<TemplateParameter> template_args,
                                                VectorRef<const core::type::Type*> args);
 
 // Prints the list of candidates for emitting diagnostics
@@ -161,25 +180,25 @@ void PrintCandidates(StyledText& err,
                      Context& context,
                      VectorRef<Candidate> candidates,
                      std::string_view intrinsic_name,
-                     VectorRef<const core::type::Type*> template_args,
+                     VectorRef<TemplateParameter> template_args,
                      VectorRef<const core::type::Type*> args);
 
 /// Raises an ICE when no overload is a clear winner of overload resolution
 StyledText ErrAmbiguousOverload(Context& context,
                                 std::string_view intrinsic_name,
-                                VectorRef<const core::type::Type*> template_args,
+                                VectorRef<TemplateParameter> template_args,
                                 VectorRef<const core::type::Type*> args,
                                 VectorRef<Candidate> candidates);
 
 /// @return a string representing a call to a builtin with the given argument types.
 StyledText CallSignature(std::string_view intrinsic_name,
-                         VectorRef<const core::type::Type*> template_args,
+                         VectorRef<TemplateParameter> template_args,
                          VectorRef<const core::type::Type*> args) {
     StyledText out;
     out << style::Code << style::Function(intrinsic_name);
     if (!template_args.IsEmpty()) {
         out << "<";
-        PrintTypeList(out, template_args);
+        PrintTemplateParamList(out, template_args);
         out << ">";
     }
     out << "(";
@@ -192,7 +211,7 @@ StyledText CallSignature(std::string_view intrinsic_name,
 Result<Overload, StyledText> MatchIntrinsic(Context& context,
                                             const IntrinsicInfo& intrinsic,
                                             std::string_view intrinsic_name,
-                                            VectorRef<const core::type::Type*> template_args,
+                                            VectorRef<TemplateParameter> template_args,
                                             VectorRef<const core::type::Type*> args,
                                             EvaluationStage earliest_eval_stage,
                                             bool member_function,
@@ -222,6 +241,7 @@ Result<Overload, StyledText> MatchIntrinsic(Context& context,
     // How many candidates matched?
     if (DAWN_UNLIKELY(num_matched == 0)) {
         // Perform the full scoring of each overload
+        size_t candidate_idx = 0;
         for (size_t overload_idx = 0; overload_idx < num_overloads; overload_idx++) {
             auto& overload = context.data[intrinsic.overloads + overload_idx];
 
@@ -230,7 +250,7 @@ Result<Overload, StyledText> MatchIntrinsic(Context& context,
                 continue;
             }
 
-            candidates[overload_idx] = ScoreOverload<ScoreMode::kFull>(
+            candidates[candidate_idx++] = ScoreOverload<ScoreMode::kFull>(
                 context, overload, template_args, args, earliest_eval_stage);
         }
         // Sort the candidates with the most promising first
@@ -243,12 +263,9 @@ Result<Overload, StyledText> MatchIntrinsic(Context& context,
     if (num_matched == 1) {
         match = std::move(candidates[match_idx]);
     } else {
-        auto result =
-            ResolveCandidate(context, std::move(candidates), intrinsic_name, template_args, args);
-        if (DAWN_UNLIKELY(result != Success)) {
-            return result.Failure();
-        }
-        match = result.Get();
+        TINT_CHECK_RESULT_UNWRAP(result, ResolveCandidate(context, std::move(candidates),
+                                                          intrinsic_name, template_args, args));
+        match = result;
     }
 
     // Build the return type
@@ -274,7 +291,7 @@ Result<Overload, StyledText> MatchIntrinsic(Context& context,
 template <ScoreMode MODE>
 Candidate ScoreOverload(Context& context,
                         const OverloadInfo& overload,
-                        VectorRef<const core::type::Type*> template_args,
+                        VectorRef<TemplateParameter> template_args,
                         VectorRef<const core::type::Type*> args,
                         EvaluationStage earliest_eval_stage) {
 #define MATCH_FAILURE(PENALTY)                           \
@@ -323,17 +340,40 @@ Candidate ScoreOverload(Context& context,
     auto num_tmpl_args = std::min<size_t>(overload.num_explicit_templates, template_args.Length());
     for (size_t i = 0; i < num_tmpl_args; ++i) {
         auto& tmpl = context.data[overload.templates + i];
-        auto* type = template_args[i];
-        if (auto* matcher_indices = context.data[tmpl.matcher_indices]) {
-            // Ensure type matches the template's matcher.
-            type =
-                context.Match(templates, overload, matcher_indices, earliest_eval_stage).Type(type);
-            if (!type) {
+        if (std::holds_alternative<const core::type::Type*>(template_args[i])) {
+            if (tmpl.kind != TemplateInfo::Kind::kType) {
                 MATCH_FAILURE(kMismatchedExplicitTemplateTypePenalty);
                 continue;
             }
+            auto* type = std::get<const core::type::Type*>(template_args[i]);
+            if (auto* matcher_indices = context.data[tmpl.matcher_indices]) {
+                // Ensure type matches the template's matcher.
+                type = context.Match(templates, overload, matcher_indices, earliest_eval_stage)
+                           .Type(type);
+                if (!type) {
+                    MATCH_FAILURE(kMismatchedExplicitTemplateTypePenalty);
+                    continue;
+                }
+            }
+            templates.SetType(i, type);
+        } else if (std::holds_alternative<core::Majorness>(template_args[i])) {
+            if (tmpl.kind != TemplateInfo::Kind::kmajorness) {
+                MATCH_FAILURE(kMismatchedExplicitTemplateTypePenalty);
+                continue;
+            }
+            auto major = std::get<core::Majorness>(template_args[i]);
+            if (auto* matcher_indices = context.data[tmpl.matcher_indices]) {
+                auto num = context.Match(templates, overload, matcher_indices, earliest_eval_stage)
+                               .Num(Number{static_cast<uint32_t>(major)});
+                if (major != static_cast<core::Majorness>(num.Value())) {
+                    MATCH_FAILURE(kMismatchedExplicitTemplateTypePenalty);
+                    continue;
+                }
+            }
+            templates.SetNum(i, Number{static_cast<uint32_t>(major)});
+        } else {
+            TINT_UNREACHABLE() << "Unhandled template kind";
         }
-        templates.SetType(i, type);
     }
 
     // Invoke the matchers for each parameter <-> argument pair.
@@ -387,7 +427,7 @@ Candidate ScoreOverload(Context& context,
                 break;
             }
 
-            case TemplateInfo::Kind::kNumber: {
+            default: {
                 // Checking that the inferred number matches the constraints on the
                 // template. Increments `score` and assigns the template an invalid number if the
                 // template numbers do not match their constraint matchers.
@@ -408,7 +448,7 @@ Candidate ScoreOverload(Context& context,
         auto* matcher_indices = context.data[parameter.matcher_indices];
         auto* ty =
             context.Match(templates, overload, matcher_indices, earliest_eval_stage).Type(args[p]);
-        parameters.Emplace(ty, parameter.usage);
+        parameters.Emplace(ty, parameter.usage, parameter.is_const);
     }
 
     return Candidate{score, &overload, templates, parameters};
@@ -418,7 +458,7 @@ Candidate ScoreOverload(Context& context,
 Result<Candidate, StyledText> ResolveCandidate(Context& context,
                                                Candidates&& candidates,
                                                std::string_view intrinsic_name,
-                                               VectorRef<const core::type::Type*> template_args,
+                                               VectorRef<TemplateParameter> template_args,
                                                VectorRef<const core::type::Type*> args) {
     Vector<uint32_t, kNumFixedParameters> best_ranks;
     best_ranks.Resize(args.Length(), 0xffffffff);
@@ -484,7 +524,7 @@ void PrintCandidates(StyledText& ss,
                      Context& context,
                      VectorRef<Candidate> candidates,
                      std::string_view intrinsic_name,
-                     VectorRef<const core::type::Type*> template_args,
+                     VectorRef<TemplateParameter> template_args,
                      VectorRef<const core::type::Type*> args) {
     for (auto& candidate : candidates) {
         ss << " • ";
@@ -495,7 +535,7 @@ void PrintCandidates(StyledText& ss,
 
 StyledText ErrAmbiguousOverload(Context& context,
                                 std::string_view intrinsic_name,
-                                VectorRef<const core::type::Type*> template_args,
+                                VectorRef<TemplateParameter> template_args,
                                 VectorRef<const core::type::Type*> args,
                                 VectorRef<Candidate> candidates) {
     StyledText err;
@@ -518,13 +558,13 @@ void PrintCandidate(StyledText& ss,
                     Context& context,
                     const Candidate& candidate,
                     std::string_view intrinsic_name,
-                    VectorRef<const core::type::Type*> template_args,
+                    VectorRef<TemplateParameter> template_args,
                     VectorRef<const core::type::Type*> args) {
     // Restore old style before returning.
     auto prev_style = ss.Style();
     TINT_DEFER(ss << prev_style);
 
-    auto& overload = *candidate.overload;
+    const OverloadInfo& overload = *candidate.overload;
 
     TemplateState templates = candidate.templates;
 
@@ -536,14 +576,36 @@ void PrintCandidate(StyledText& ss,
     if (overload.num_explicit_templates > 0) {
         ss << "<";
         for (size_t i = 0; i < overload.num_explicit_templates; i++) {
-            const auto& tmpl = context.data[overload.templates + i];
+            const TemplateInfo& tmpl = context.data[overload.templates + i];
 
             bool matched = false;
             if (i < template_args.Length()) {
-                auto* matcher_indices = context.data[tmpl.matcher_indices];
-                matched = (matcher_indices == nullptr) ||
-                          (context.Match(templates, overload, matcher_indices, earliest_eval_stage)
-                               .Type(template_args[i]) != nullptr);
+                const MatcherIndex* matcher_indices = context.data[tmpl.matcher_indices];
+                const core::type::Type* ty = nullptr;
+                uint32_t value = std::numeric_limits<uint32_t>::max();
+                // Check the template kind first.
+                if (std::holds_alternative<const core::type::Type*>(template_args[i])) {
+                    ty = std::get<const core::type::Type*>(template_args[i]);
+                    matched = tmpl.kind == TemplateInfo::Kind::kType;
+                } else if (std::holds_alternative<core::Majorness>(template_args[i])) {
+                    value = static_cast<uint32_t>(std::get<core::Majorness>(template_args[i]));
+                    matched = tmpl.kind == TemplateInfo::Kind::kmajorness;
+                } else {
+                    TINT_UNREACHABLE() << "Unhandled template kind";
+                }
+
+                if (matched) {
+                    // Template kind matched so check the matcher if there's one.
+                    if (matcher_indices) {
+                        auto match = context.Match(templates, overload, matcher_indices,
+                                                   earliest_eval_stage);
+                        if (ty) {
+                            matched = match.Type(ty) != nullptr;
+                        } else {
+                            matched = match.Num(Number{value}).IsValid();
+                        }
+                    }
+                }
             }
 
             if (i > 0) {
@@ -562,8 +624,8 @@ void PrintCandidate(StyledText& ss,
     bool all_params_match = true;
     ss << "(";
     for (size_t i = 0; i < overload.num_parameters; i++) {
-        const auto& parameter = context.data[overload.parameters + i];
-        auto* matcher_indices = context.data[parameter.matcher_indices];
+        const ParameterInfo& parameter = context.data[overload.parameters + i];
+        const MatcherIndex* matcher_indices = context.data[parameter.matcher_indices];
 
         bool matched = false;
         if (i < args.Length()) {
@@ -591,7 +653,7 @@ void PrintCandidate(StyledText& ss,
     ss << ")";
     if (overload.return_matcher_indices.IsValid()) {
         ss << " -> ";
-        auto* matcher_indices = context.data[overload.return_matcher_indices];
+        const MatcherIndex* matcher_indices = context.data[overload.return_matcher_indices];
         context.Match(templates, overload, matcher_indices, earliest_eval_stage).PrintType(ss);
     }
 
@@ -618,35 +680,35 @@ void PrintCandidate(StyledText& ss,
     }
 
     for (size_t i = 0; i < overload.num_templates; i++) {
-        auto& tmpl = context.data[overload.templates + i];
-        if (auto* matcher_indices = context.data[tmpl.matcher_indices]) {
-            separator();
-            bool matched = false;
-            if (tmpl.kind == TemplateInfo::Kind::kType) {
-                if (auto* ty = templates.Type(i)) {
-                    matched =
-                        (context.Match(templates, overload, matcher_indices, earliest_eval_stage)
-                             .Type(ty) != nullptr);
-                }
-            } else {
-                matched = context.Match(templates, overload, matcher_indices, earliest_eval_stage)
-                              .Num(templates.Num(i))
-                              .IsValid();
-            }
-            if (matched) {
-                ss << style::Match(" ✓ ") << style::Plain(" ");
-            } else {
-                ss << style::Mismatch(" ✗ ") << style::Plain(" ");
-            }
+        const TemplateInfo& tmpl = context.data[overload.templates + i];
+        const MatcherIndex* matcher_indices = context.data[tmpl.matcher_indices];
+        if (!matcher_indices) {
+            continue;
+        }
 
-            ss << style::Type(tmpl.name) << style::Plain(" is ");
-            if (tmpl.kind == TemplateInfo::Kind::kType) {
-                context.Match(templates, overload, matcher_indices, earliest_eval_stage)
-                    .PrintType(ss);
-            } else {
-                context.Match(templates, overload, matcher_indices, earliest_eval_stage)
-                    .PrintNum(ss);
+        separator();
+        bool matched = false;
+        if (tmpl.kind == TemplateInfo::Kind::kType) {
+            if (const core::type::Type* ty = templates.Type(i)) {
+                matched = (context.Match(templates, overload, matcher_indices, earliest_eval_stage)
+                               .Type(ty) != nullptr);
             }
+        } else {
+            matched = context.Match(templates, overload, matcher_indices, earliest_eval_stage)
+                          .Num(templates.Num(i))
+                          .IsValid();
+        }
+        if (matched) {
+            ss << style::Match(" ✓ ") << style::Plain(" ");
+        } else {
+            ss << style::Mismatch(" ✗ ") << style::Plain(" ");
+        }
+
+        ss << style::Type(tmpl.name) << style::Plain(" is ");
+        if (tmpl.kind == TemplateInfo::Kind::kType) {
+            context.Match(templates, overload, matcher_indices, earliest_eval_stage).PrintType(ss);
+        } else {
+            context.Match(templates, overload, matcher_indices, earliest_eval_stage).PrintNum(ss);
         }
     }
 }
@@ -654,7 +716,7 @@ void PrintCandidate(StyledText& ss,
 Result<Overload, StyledText> LookupFn(Context& context,
                                       std::string_view intrinsic_name,
                                       size_t function_id,
-                                      VectorRef<const core::type::Type*> template_args,
+                                      VectorRef<TemplateParameter> template_args,
                                       VectorRef<const core::type::Type*> args,
                                       EvaluationStage earliest_eval_stage) {
     // Generates an error when no overloads match the provided arguments
@@ -679,7 +741,7 @@ Result<Overload, StyledText> LookupFn(Context& context,
 Result<Overload, StyledText> LookupMemberFn(Context& context,
                                             std::string_view intrinsic_name,
                                             size_t function_id,
-                                            VectorRef<const core::type::Type*> template_args,
+                                            VectorRef<TemplateParameter> template_args,
                                             VectorRef<const core::type::Type*> args,
                                             EvaluationStage earliest_eval_stage) {
     // Generates an error when no overloads match the provided arguments
@@ -856,7 +918,7 @@ Result<Overload, StyledText> LookupBinary(Context& context,
 Result<Overload, StyledText> LookupCtorConv(Context& context,
                                             std::string_view type_name,
                                             size_t type_id,
-                                            VectorRef<const core::type::Type*> template_args,
+                                            VectorRef<TemplateParameter> template_args,
                                             VectorRef<const core::type::Type*> args,
                                             EvaluationStage earliest_eval_stage) {
     // Generates an error when no overloads match the provided arguments

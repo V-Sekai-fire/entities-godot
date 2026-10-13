@@ -35,6 +35,7 @@
 
 #include "src/tint/utils/ice/ice.h"
 #include "src/tint/utils/rtti/traits.h"
+#include "src/utils/compiler.h"
 
 namespace tint {
 
@@ -42,7 +43,7 @@ namespace tint {
 struct SuccessType {};
 
 /// An instance of SuccessType that can be used as a generic success value for a Result.
-static constexpr const SuccessType Success;
+inline constexpr const SuccessType Success;
 
 /// The default Result error type.
 struct Failure {
@@ -60,7 +61,8 @@ struct Failure {
 /// @param out the output stream
 /// @param failure the Failure
 /// @returns the output stream
-template <typename STREAM, typename = traits::EnableIfIsOStream<STREAM>>
+template <typename STREAM>
+    requires(traits::IsOStream<STREAM>)
 auto& operator<<(STREAM& out, const Failure& failure) {
     return out << failure.reason;
 }
@@ -81,23 +83,20 @@ struct [[nodiscard]] Result {
 
     /// Constructor
     /// @param success the success result
-    Result(const SUCCESS_TYPE& success)  // NOLINT(runtime/explicit):
-        : value{success} {}
+    explicit(false) Result(const SUCCESS_TYPE& success) : value{success} {}
 
     /// Constructor
     /// @param success the success result
-    Result(SUCCESS_TYPE&& success)  // NOLINT(runtime/explicit):
+    explicit(false) Result(SUCCESS_TYPE&& success)
         : value(std::move(SUCCESS_TYPE(std::move(success)))) {}
 
     /// Constructor
     /// @param failure the failure result
-    Result(const FAILURE_TYPE& failure)  // NOLINT(runtime/explicit):
-        : value{failure} {}
+    explicit(false) Result(const FAILURE_TYPE& failure) : value{failure} {}
 
     /// Constructor
     /// @param failure the failure result
-    Result(FAILURE_TYPE&& failure)  // NOLINT(runtime/explicit):
-        : value{std::move(failure)} {}
+    explicit(false) Result(FAILURE_TYPE&& failure) : value{std::move(failure)} {}
 
     /// Copy constructor with success / failure casting
     /// @param other the Result to copy
@@ -105,7 +104,7 @@ struct [[nodiscard]] Result {
               typename F,
               typename = std::void_t<decltype(SUCCESS_TYPE{std::declval<S>()}),
                                      decltype(FAILURE_TYPE{std::declval<F>()})>>
-    Result(const Result<S, F>& other) {  // NOLINT(runtime/explicit):
+    explicit(false) Result(const Result<S, F>& other) {
         if (other == Success) {
             value = SUCCESS_TYPE{other.Get()};
         } else {
@@ -217,10 +216,8 @@ struct [[nodiscard]] Result {
 /// @param out the stream to write to
 /// @param res the result
 /// @return the stream so calls can be chained
-template <typename STREAM,
-          typename SUCCESS,
-          typename FAILURE,
-          typename = traits::EnableIfIsOStream<STREAM>>
+template <typename STREAM, typename SUCCESS, typename FAILURE>
+    requires(traits::IsOStream<STREAM>)
 auto& operator<<(STREAM& out, const Result<SUCCESS, FAILURE>& res) {
     if (res == Success) {
         if constexpr (traits::HasOperatorShiftLeft<STREAM&, SUCCESS>) {
@@ -236,6 +233,25 @@ auto& operator<<(STREAM& out, const Result<SUCCESS, FAILURE>& res) {
         }
     }
 }
+
+/// Check that @p result is Success and propagate the failure if not.
+#define TINT_CHECK_RESULT(result)                                  \
+    if (auto&& tint_check_result_value = (result);                 \
+        DAWN_UNLIKELY(tint_check_result_value != tint::Success)) { \
+        return tint_check_result_value.Failure();                  \
+    }                                                              \
+    TINT_REQUIRE_SEMICOLON
+
+#define TINT_CHECK_RESULT_UNWRAP_IMPL(to, from, result) \
+    auto from = (result);                               \
+    if (DAWN_UNLIKELY(from != tint::Success)) {         \
+        return from.Failure();                          \
+    }                                                   \
+    auto to = from.Move();                              \
+    TINT_REQUIRE_SEMICOLON
+/// Check that @p result is Success and propagate the failure if not.
+#define TINT_CHECK_RESULT_UNWRAP(to, result) \
+    TINT_CHECK_RESULT_UNWRAP_IMPL(to, TINT_CONCAT(tint_check_result_value, __LINE__), result)
 
 }  // namespace tint
 

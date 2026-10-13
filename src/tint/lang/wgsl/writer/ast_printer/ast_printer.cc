@@ -29,7 +29,7 @@
 
 #include <string>
 
-#include "src/tint/lang/core/texel_format.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/wgsl/ast/accessor_expression.h"
 #include "src/tint/lang/wgsl/ast/alias.h"
 #include "src/tint/lang/wgsl/ast/assignment_statement.h"
@@ -57,8 +57,8 @@
 #include "src/tint/lang/wgsl/ast/index_accessor_expression.h"
 #include "src/tint/lang/wgsl/ast/input_attachment_index_attribute.h"
 #include "src/tint/lang/wgsl/ast/int_literal_expression.h"
-#include "src/tint/lang/wgsl/ast/internal_attribute.h"
 #include "src/tint/lang/wgsl/ast/interpolate_attribute.h"
+#include "src/tint/lang/wgsl/ast/interpolated_string_expression.h"
 #include "src/tint/lang/wgsl/ast/invariant_attribute.h"
 #include "src/tint/lang/wgsl/ast/let.h"
 #include "src/tint/lang/wgsl/ast/loop_statement.h"
@@ -68,12 +68,11 @@
 #include "src/tint/lang/wgsl/ast/override.h"
 #include "src/tint/lang/wgsl/ast/phony_expression.h"
 #include "src/tint/lang/wgsl/ast/return_statement.h"
-#include "src/tint/lang/wgsl/ast/row_major_attribute.h"
 #include "src/tint/lang/wgsl/ast/stage_attribute.h"
-#include "src/tint/lang/wgsl/ast/stride_attribute.h"
+#include "src/tint/lang/wgsl/ast/string_literal_expression.h"
 #include "src/tint/lang/wgsl/ast/struct_member_align_attribute.h"
-#include "src/tint/lang/wgsl/ast/struct_member_offset_attribute.h"
 #include "src/tint/lang/wgsl/ast/struct_member_size_attribute.h"
+#include "src/tint/lang/wgsl/ast/subgroup_size_attribute.h"
 #include "src/tint/lang/wgsl/ast/switch_statement.h"
 #include "src/tint/lang/wgsl/ast/templated_identifier.h"
 #include "src/tint/lang/wgsl/ast/unary_op_expression.h"
@@ -82,8 +81,11 @@
 #include "src/tint/lang/wgsl/ast/while_statement.h"
 #include "src/tint/lang/wgsl/ast/workgroup_attribute.h"
 #include "src/tint/lang/wgsl/program/program.h"
+#include "src/tint/lang/wgsl/reserved_words.h"
+#include "src/tint/lang/wgsl/sem/member_accessor_expression.h"
 #include "src/tint/lang/wgsl/sem/struct.h"
 #include "src/tint/lang/wgsl/sem/switch_statement.h"
+#include "src/tint/lang/wgsl/sem/value_expression.h"
 #include "src/tint/utils/macros/defer.h"
 #include "src/tint/utils/macros/scoped_assignment.h"
 #include "src/tint/utils/math/math.h"
@@ -93,11 +95,49 @@
 
 namespace tint::wgsl::writer {
 
-ASTPrinter::ASTPrinter(const Program& program) : program_(program) {}
+namespace {
+
+void EmitStringLiteralContents(StringStream& out, std::string_view str) {
+    for (size_t i = 0; i < str.length(); ++i) {
+        char c = str[i];
+        switch (c) {
+            case '\\':
+                out << "\\\\";
+                break;
+            case '`':
+                out << "\\`";
+                break;
+            case '\n':
+                out << "\\n";
+                break;
+            case '\r':
+                out << "\\r";
+                break;
+            case '\t':
+                out << "\\t";
+                break;
+            case '$':
+                out << "\\$";
+                break;
+            default:
+                out << c;
+                break;
+        }
+    }
+}
+
+}  // namespace
+
+ASTPrinter::ASTPrinter(const Program& program, const Options& options)
+    : program_(program), options_(options) {}
 
 ASTPrinter::~ASTPrinter() = default;
 
 bool ASTPrinter::Generate() {
+    if (options_.minify) {
+        BuildUnrenameableNames();
+    }
+
     // Generate directives before any other global declarations.
     bool has_directives = false;
     for (auto enable : program_.AST().Enables()) {
@@ -139,6 +179,13 @@ bool ASTPrinter::Generate() {
     return !diagnostics_.ContainsErrors();
 }
 
+std::string ASTPrinter::Result() const {
+    if (options_.minify) {
+        return main_buffer_.MinifiedString();
+    }
+    return main_buffer_.String();
+}
+
 void ASTPrinter::EmitDiagnosticControl(StringStream& out,
                                        const ast::DiagnosticControl& diagnostic) {
     out << "diagnostic(" << diagnostic.severity << ", " << diagnostic.rule_name->String() << ")";
@@ -175,7 +222,7 @@ void ASTPrinter::EmitTypeDecl(const ast::TypeDecl* ty) {
         ty,  //
         [&](const ast::Alias* alias) {
             auto out = Line();
-            out << "alias " << alias->name->symbol.Name() << " = ";
+            out << "alias " << GetSymbolName(alias->name->symbol) << " = ";
             EmitExpression(out, alias->type);
             out << ";";
         },
@@ -190,6 +237,7 @@ void ASTPrinter::EmitExpression(StringStream& out, const ast::Expression* expr) 
         [&](const ast::BinaryExpression* b) { EmitBinary(out, b); },
         [&](const ast::CallExpression* c) { EmitCall(out, c); },
         [&](const ast::IdentifierExpression* i) { EmitIdentifier(out, i); },
+        [&](const ast::InterpolatedStringExpression* t) { EmitInterpolatedString(out, t); },
         [&](const ast::LiteralExpression* l) { EmitLiteral(out, l); },
         [&](const ast::MemberAccessorExpression* m) { EmitMemberAccessor(out, m); },
         [&](const ast::PhonyExpression*) { out << "_"; },
@@ -226,7 +274,15 @@ void ASTPrinter::EmitMemberAccessor(StringStream& out, const ast::MemberAccessor
         out << ")";
     }
 
-    out << "." << expr->member->symbol.Name();
+    auto* sem = program_.Sem().GetVal(expr->object);
+    auto* str = sem ? sem->Type()->UnwrapPtrOrRef()->As<core::type::Struct>() : nullptr;
+    if (str && !str->IsWgslInternal()) {
+        // If we are accessing a non-builtin struct, we can minify the member name.
+        out << "." << GetSymbolName(expr->member->symbol);
+    } else {
+        // Builtin structure members and vector accessors are never renamed.
+        out << "." << expr->member->symbol.NameView();
+    }
 }
 
 void ASTPrinter::EmitCall(StringStream& out, const ast::CallExpression* expr) {
@@ -262,8 +318,30 @@ void ASTPrinter::EmitLiteral(StringStream& out, const ast::LiteralExpression* li
                     << l->suffix;
             }
         },
-        [&](const ast::IntLiteralExpression* l) { out << l->value << l->suffix; },  //
+        [&](const ast::IntLiteralExpression* l) { out << l->value << l->suffix; },
+        [&](const ast::StringLiteralExpression* l) { EmitStringLiteral(out, l); },  //
         TINT_ICE_ON_NO_MATCH);
+}
+
+void ASTPrinter::EmitStringLiteral(StringStream& out, const ast::StringLiteralExpression* expr) {
+    out << "`";
+    EmitStringLiteralContents(out, expr->value);
+    out << "`";
+}
+
+void ASTPrinter::EmitInterpolatedString(StringStream& out,
+                                        const ast::InterpolatedStringExpression* expr) {
+    out << "`";
+    for (auto* element : expr->elements) {
+        if (auto* lit = element->As<ast::StringLiteralExpression>()) {
+            EmitStringLiteralContents(out, lit->value);
+        } else {
+            out << "${";
+            EmitExpression(out, element);
+            out << "}";
+        }
+    }
+    out << "`";
 }
 
 void ASTPrinter::EmitIdentifier(StringStream& out, const ast::IdentifierExpression* expr) {
@@ -272,11 +350,7 @@ void ASTPrinter::EmitIdentifier(StringStream& out, const ast::IdentifierExpressi
 
 void ASTPrinter::EmitIdentifier(StringStream& out, const ast::Identifier* ident) {
     if (auto* tmpl_ident = ident->As<ast::TemplatedIdentifier>()) {
-        if (!tmpl_ident->attributes.IsEmpty()) {
-            EmitAttributes(out, tmpl_ident->attributes);
-            out << " ";
-        }
-        out << ident->symbol.Name() << "<";
+        out << GetSymbolName(ident->symbol) << "<";
         TINT_DEFER(out << ">");
         for (auto* expr : tmpl_ident->arguments) {
             if (expr != tmpl_ident->arguments.Front()) {
@@ -285,7 +359,7 @@ void ASTPrinter::EmitIdentifier(StringStream& out, const ast::Identifier* ident)
             EmitExpression(out, expr);
         }
     } else {
-        out << ident->symbol.Name();
+        out << GetSymbolName(ident->symbol);
     }
 }
 
@@ -295,7 +369,7 @@ void ASTPrinter::EmitFunction(const ast::Function* func) {
     }
     {
         auto out = Line();
-        out << "fn " << func->name->symbol.Name() << "(";
+        out << "fn " << GetSymbolName(func->name->symbol) << "(";
 
         bool first = true;
         for (auto* v : func->params) {
@@ -309,7 +383,7 @@ void ASTPrinter::EmitFunction(const ast::Function* func) {
                 out << " ";
             }
 
-            out << v->name->symbol.Name() << " : ";
+            out << GetSymbolName(v->name->symbol) << " : ";
 
             EmitExpression(out, v->type);
         }
@@ -354,11 +428,11 @@ void ASTPrinter::EmitStructType(const ast::Struct* str) {
     if (str->attributes.Length()) {
         EmitAttributes(Line(), str->attributes);
     }
-    Line() << "struct " << str->name->symbol.Name() << " {";
+    Line() << "struct " << GetSymbolName(str->name->symbol) << " {";
 
     Hashset<std::string, 8> member_names;
     for (auto* mem : str->members) {
-        member_names.Add(std::string(mem->name->symbol.NameView()));
+        member_names.Add(std::string(GetSymbolName(mem->name->symbol)));
     }
     size_t padding_idx = 0;
     auto new_padding_name = [&] {
@@ -381,39 +455,27 @@ void ASTPrinter::EmitStructType(const ast::Struct* str) {
     IncrementIndent();
     uint32_t offset = 0;
     for (auto* mem : str->members) {
-        // TODO(crbug.com/tint/798) move the @offset attribute handling to the transform::Wgsl
-        // sanitizer.
+        // Emit comments to show non-default struct member offsets.
         if (auto* mem_sem = program_.Sem().Get(mem)) {
             offset = tint::RoundUp(mem_sem->Align(), offset);
+            if (mem_sem->Offset() != offset) {
+                Line() << "/* offset(" << mem_sem->Offset() << ") */";
+            }
+
             if (uint32_t padding = mem_sem->Offset() - offset) {
                 add_padding(padding);
                 offset += padding;
             }
+
             offset += mem_sem->Size();
         }
 
-        // Offset attributes no longer exist in the WGSL spec, but are emitted
-        // by the SPIR-V reader and are consumed by the Resolver(). These should not
-        // be emitted, but instead struct padding fields should be emitted.
-        Vector<const ast::Attribute*, 4> attributes_sanitized;
-        attributes_sanitized.Reserve(mem->attributes.Length());
-        for (auto* attr : mem->attributes) {
-            if (attr->Is<ast::StructMemberOffsetAttribute>()) {
-                auto l = Line();
-                l << "/* ";
-                EmitAttributes(l, Vector{attr});
-                l << " */";
-            } else {
-                attributes_sanitized.Push(attr);
-            }
-        }
-
-        if (!attributes_sanitized.IsEmpty()) {
-            EmitAttributes(Line(), attributes_sanitized);
+        if (!mem->attributes.IsEmpty()) {
+            EmitAttributes(Line(), mem->attributes);
         }
 
         auto out = Line();
-        out << mem->name->symbol.Name() << " : ";
+        out << GetSymbolName(mem->name->symbol) << " : ";
         EmitExpression(out, mem->type);
         out << ",";
     }
@@ -446,7 +508,7 @@ void ASTPrinter::EmitVariable(StringStream& out, const ast::Variable* v) {
         [&](const ast::Const*) { out << "const"; },  //
         TINT_ICE_ON_NO_MATCH);
 
-    out << " " << v->name->symbol.Name();
+    out << " " << GetSymbolName(v->name->symbol);
 
     if (auto ty = v->type) {
         out << " : ";
@@ -534,12 +596,6 @@ void ASTPrinter::EmitAttributes(StringStream& out, VectorRef<const ast::Attribut
                 out << ")";
             },
             [&](const ast::MustUseAttribute*) { out << "must_use"; },
-            [&](const ast::RowMajorAttribute*) { out << "row_major"; },
-            [&](const ast::StructMemberOffsetAttribute* offset) {
-                out << "offset(";
-                EmitExpression(out, offset->expr);
-                out << ")";
-            },
             [&](const ast::StructMemberSizeAttribute* size) {
                 out << "size(";
                 EmitExpression(out, size->expr);
@@ -550,13 +606,14 @@ void ASTPrinter::EmitAttributes(StringStream& out, VectorRef<const ast::Attribut
                 EmitExpression(out, align->expr);
                 out << ")";
             },
-            [&](const ast::StrideAttribute* stride) { out << "stride(" << stride->stride << ")"; },
-            [&](const ast::InternalAttribute* internal) {
-                out << "internal(" << internal->InternalName() << ")";
-            },
             [&](const ast::InputAttachmentIndexAttribute* index) {
                 out << "input_attachment_index(";
                 EmitExpression(out, index->expr);
+                out << ")";
+            },
+            [&](const ast::SubgroupSizeAttribute* subgroup_size) {
+                out << "subgroup_size(";
+                EmitExpression(out, subgroup_size->subgroup_size);
                 out << ")";
             },  //
             TINT_ICE_ON_NO_MATCH);
@@ -1011,6 +1068,76 @@ void ASTPrinter::EmitSwitch(const ast::SwitchStatement* stmt) {
     }
 
     Line() << "}";
+}
+
+void ASTPrinter::BuildUnrenameableNames() {
+    // Find all the entry points and overrides and mark their names as unrenameable.
+    for (auto* func : program_.AST().Functions()) {
+        if (func->IsEntryPoint()) {
+            unrenameable_.Add(func->name->symbol.NameView());
+        }
+    }
+    for (auto* var : program_.AST().GlobalVariables()) {
+        if (var->Is<ast::Override>()) {
+            unrenameable_.Add(var->name->symbol.NameView());
+        }
+    }
+}
+
+std::string ASTPrinter::NextMinifiedName() {
+    constexpr std::string_view kMinifiedIdentifierChars =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    constexpr auto kNumMinifiedIdentifierChars = kMinifiedIdentifierChars.length();
+
+    // Three characters is 140K names.
+    std::string name;
+    name.reserve(3);
+
+    auto idx = next_minified_name_idx_++;
+    while (true) {
+        // Add the next character based on the modulo of the index.
+        name += kMinifiedIdentifierChars[idx % kNumMinifiedIdentifierChars];
+
+        // Reduce the index by a factor of `kNumMinifiedIdentifierChars`.
+        idx /= kNumMinifiedIdentifierChars;
+        if (idx == 0) {
+            break;
+        }
+        idx--;
+    }
+    return name;
+}
+
+std::string_view ASTPrinter::GetSymbolName(tint::Symbol sym) {
+    if (!options_.minify) {
+        return sym.NameView();
+    }
+
+    // Returns `true` if `name` can be renamed, or can be used as a minified identifier.
+    auto can_rename_to_or_from = [&](std::string_view name) {
+        if (unrenameable_.Contains(name)) {
+            return false;
+        }
+        if (IsReserved(name) || IsKeyword(name) || IsEnumName(name) || IsTypeName(name) ||
+            wgsl::ParseBuiltinFn(name) != wgsl::BuiltinFn::kNone) {
+            return false;
+        }
+        return true;
+    };
+
+    return symbol_to_name_.GetOrAdd(sym, [&] {
+        if (!can_rename_to_or_from(sym.NameView())) {
+            return sym.Name();
+        }
+
+        // Generate minified names until we find one that we can use.
+        while (true) {
+            auto name = NextMinifiedName();
+            if (can_rename_to_or_from(name)) {
+                return name;
+            }
+        }
+    });
 }
 
 }  // namespace tint::wgsl::writer

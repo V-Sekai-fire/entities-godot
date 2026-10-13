@@ -27,9 +27,11 @@
 
 #include "src/tint/lang/core/ir/transform/binary_polyfill.h"
 
+#include <vector>
+
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 
 using namespace tint::core::fluent_types;     // NOLINT
 using namespace tint::core::number_suffixes;  // NOLINT
@@ -56,51 +58,42 @@ struct State {
     SymbolTable& sym{ir.symbols};
 
     /// Map from integer type to its divide helper function.
-    Hashmap<const type::Type*, Function*, 4> int_div_helpers{};
+    Hashmap<const core::type::Type*, Function*, 4> int_div_helpers{};
 
     /// Map from integer type to its modulo helper function.
-    Hashmap<const type::Type*, Function*, 4> int_mod_helpers{};
+    Hashmap<const core::type::Type*, Function*, 4> int_mod_helpers{};
 
     /// Process the module.
     void Process() {
         // Find the binary instructions that need to be polyfilled.
-        Vector<ir::CoreBinary*, 64> worklist;
+        std::vector<std::function<void()>> worklist;
+        worklist.reserve(128);
         for (auto* inst : ir.Instructions()) {
-            if (auto* binary = inst->As<ir::CoreBinary>()) {
-                switch (binary->Op()) {
-                    case BinaryOp::kDivide:
-                    case BinaryOp::kModulo:
-                        if (config.int_div_mod &&
-                            binary->Result()->Type()->IsIntegerScalarOrVector()) {
-                            worklist.Push(binary);
-                        }
-                        break;
-                    case BinaryOp::kShiftLeft:
-                    case BinaryOp::kShiftRight:
-                        if (config.bitshift_modulo) {
-                            worklist.Push(binary);
-                        }
-                        break;
-                    default:
-                        break;
-                }
+            core::ir::CoreBinary* binary = inst->As<ir::CoreBinary>();
+            if (binary == nullptr) {
+                continue;
             }
-        }
 
-        // Polyfill the binary instructions that we found.
-        for (auto* binary : worklist) {
             switch (binary->Op()) {
                 case BinaryOp::kDivide:
                 case BinaryOp::kModulo:
-                    IntDivMod(binary);
+                    if (config.int_div_mod && binary->Result()->Type()->IsIntegerScalarOrVector()) {
+                        worklist.push_back([this, binary] { IntDivMod(binary); });
+                    }
                     break;
                 case BinaryOp::kShiftLeft:
                 case BinaryOp::kShiftRight:
-                    MaskShiftAmount(binary);
+                    if (config.bitshift_modulo) {
+                        worklist.push_back([this, binary] { MaskShiftAmount(binary); });
+                    }
                     break;
                 default:
                     break;
             }
+        }
+
+        for (auto& cb : worklist) {
+            cb();
         }
     }
 
@@ -117,7 +110,7 @@ struct State {
             // Generate a name for the helper function.
             StringStream name;
             name << "tint_" << (is_div ? "div_" : "mod_");
-            if (auto* vec = result_ty->As<type::Vector>()) {
+            if (auto* vec = result_ty->As<core::type::Vector>()) {
                 name << "v" << vec->Width() << vec->Type()->FriendlyName();
             } else {
                 name << result_ty->FriendlyName();
@@ -142,28 +135,26 @@ struct State {
 
                 // Select either the RHS or a constant one value if the RHS is zero.
                 // If this is a signed operation, we also check for `INT_MIN / -1`.
-                auto* bool_ty = ty.MatchWidth(ty.bool_(), result_ty);
-                auto* cond = b.Equal(bool_ty, rhs, zero);
+                auto* cond = b.Equal(rhs, zero);
                 if (is_signed) {
                     auto* lowest = b.MatchWidth(i32::Lowest(), result_ty);
                     auto* minus_one = b.MatchWidth(-1_i, result_ty);
-                    auto* lhs_is_lowest = b.Equal(bool_ty, lhs, lowest);
-                    auto* rhs_is_minus_one = b.Equal(bool_ty, rhs, minus_one);
-                    cond = b.Or(bool_ty, cond, b.And(bool_ty, lhs_is_lowest, rhs_is_minus_one));
+                    auto* lhs_is_lowest = b.Equal(lhs, lowest);
+                    auto* rhs_is_minus_one = b.Equal(rhs, minus_one);
+                    cond = b.Or(cond, b.And(lhs_is_lowest, rhs_is_minus_one));
                 }
                 auto* rhs_or_one = b.Call(result_ty, core::BuiltinFn::kSelect, rhs, one, cond);
 
                 if (binary->Op() == BinaryOp::kDivide) {
                     // Perform the divide with the modified RHS.
-                    b.Return(func, b.Divide(result_ty, lhs, rhs_or_one)->Result());
+                    b.Return(func, b.Divide(lhs, rhs_or_one));
                 } else if (binary->Op() == BinaryOp::kModulo) {
                     // Calculate the modulo manually, as modulo with negative operands is undefined
                     // behavior for many backends:
                     //   result = lhs - ((lhs / rhs_or_one) * rhs_or_one)
-                    auto* whole = b.Divide(result_ty, lhs, rhs_or_one);
-                    auto* remainder =
-                        b.Subtract(result_ty, lhs, b.Multiply(result_ty, whole, rhs_or_one));
-                    b.Return(func, remainder->Result());
+                    auto* whole = b.Divide(lhs, rhs_or_one);
+                    auto* remainder = b.Subtract(lhs, b.Multiply(whole, rhs_or_one));
+                    b.Return(func, remainder);
                 }
             });
             return func;
@@ -171,8 +162,8 @@ struct State {
 
         /// Helper to splat a value to match the vector width of the result type if necessary.
         auto maybe_splat = [&](ir::Value* value) -> ir::Value* {
-            if (value->Type()->Is<type::Scalar>() && result_ty->Is<core::type::Vector>()) {
-                return b.Construct(result_ty, value)->Result();
+            if (value->Type()->Is<core::type::Scalar>() && result_ty->Is<core::type::Vector>()) {
+                return b.Construct(result_ty, value);
             }
             return value;
         };
@@ -192,19 +183,16 @@ struct State {
         auto* lhs = binary->LHS();
         auto* rhs = binary->RHS();
         auto mask = u32(lhs->Type()->DeepestElement()->Size() * 8 - 1);
-        auto* masked = b.And(rhs->Type(), rhs, b.MatchWidth(mask, rhs->Type()));
-        masked->InsertBefore(binary);
-        binary->SetOperand(ir::CoreBinary::kRhsOperandOffset, masked->Result());
+        Value* masked = nullptr;
+        b.InsertBefore(binary, [&] { masked = b.And(rhs, b.MatchWidth(mask, rhs->Type())); });
+        binary->SetOperand(ir::CoreBinary::kRhsOperandOffset, masked);
     }
 };
 
 }  // namespace
 
 Result<SuccessType> BinaryPolyfill(Module& ir, const BinaryPolyfillConfig& config) {
-    auto result = ValidateAndDumpIfNeeded(ir, "core.BinaryPolyfill");
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(ir, "before core.BinaryPolyfill");
 
     State{config, ir}.Process();
 

@@ -33,7 +33,6 @@
 #include "src/tint/lang/core/ir/return.h"
 #include "src/tint/lang/core/ir/user_call.h"
 #include "src/tint/utils/containers/hashmap.h"
-#include "src/tint/utils/rtti/switch.h"
 
 /// Utility that helps guarantee the same const-ness is applied to both types.
 template <class Src, class Dst>
@@ -73,7 +72,7 @@ class ReferencedFunctions {
     /// @param ir the module
     explicit ReferencedFunctions(M& ir) {
         // Loop over functions, recording the blocks that they are called from.
-        for (auto func : ir.functions) {
+        for (auto& func : ir.functions) {
             if (!func) {
                 continue;
             }

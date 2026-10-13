@@ -62,6 +62,11 @@ uint32_t SubgroupMatrix::Align() const {
     return subtype_->Align();
 }
 
+TypeAndCount SubgroupMatrix::Elements(const type::Type* /* type_if_invalid = nullptr */,
+                                      uint32_t /* count_if_invalid = 0 */) const {
+    return {subtype_, columns_};
+}
+
 std::string SubgroupMatrix::FriendlyName() const {
     StringStream out;
     out << "subgroup_matrix_";
@@ -79,6 +84,26 @@ std::string SubgroupMatrix::FriendlyName() const {
             TINT_UNREACHABLE();
     }
     out << "<" << subtype_->FriendlyName() << ", " << columns_ << ", " << rows_ << ">";
+    return out.str();
+}
+
+std::string SubgroupMatrix::IdentifierName() const {
+    StringStream out;
+    out << "subgroup_matrix_";
+    switch (kind_) {
+        case SubgroupMatrixKind::kLeft:
+            out << "left";
+            break;
+        case SubgroupMatrixKind::kRight:
+            out << "right";
+            break;
+        case SubgroupMatrixKind::kResult:
+            out << "result";
+            break;
+        case SubgroupMatrixKind::kUndefined:
+            TINT_UNREACHABLE();
+    }
+    out << "_" << subtype_->FriendlyName() << "_" << columns_ << "_" << rows_;
     return out.str();
 }
 

@@ -29,7 +29,7 @@
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 
 using namespace tint::core::fluent_types;     // NOLINT
 using namespace tint::core::number_suffixes;  // NOLINT
@@ -73,6 +73,7 @@ struct State {
             // Remove arguments from all terminators that we found.
             for (auto* terminator : terminators_to_clear) {
                 if (auto* breakif = terminator->As<BreakIf>()) {
+                    breakif->SetNumNextIterValues(0);
                     // We retain the condition operand on break_if instructions.
                     breakif->SetOperands(Vector{breakif->Condition()});
                 } else {
@@ -162,11 +163,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> RemoveTerminatorArgs(Module& ir) {
-    auto result =
-        ValidateAndDumpIfNeeded(ir, "core.RemoveTerminatorArgs", kRemoveTerminatorArgsCapabilities);
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(ir, "before core.RemoveTerminatorArgs");
 
     State{ir}.Process();
 

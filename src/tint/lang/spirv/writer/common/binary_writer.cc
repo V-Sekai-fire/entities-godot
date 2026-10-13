@@ -31,6 +31,7 @@
 #include <string>
 
 #include "src/tint/utils/memory/bitcast.h"
+#include "src/utils/compiler.h"
 
 namespace tint::spirv::writer {
 namespace {
@@ -52,9 +53,9 @@ void BinaryWriter::WriteInstruction(const Instruction& inst) {
     ProcessInstruction(inst);
 }
 
-void BinaryWriter::WriteHeader(uint32_t bound, uint32_t version) {
+void BinaryWriter::WriteHeader(uint32_t bound, uint32_t version, uint32_t spirv_version) {
     out_.push_back(spv::MagicNumber);
-    out_.push_back(0x00010300);  // Version 1.3
+    out_.push_back(spirv_version);
     out_.push_back(kGeneratorId | version);
     out_.push_back(bound);
     out_.push_back(0);
@@ -79,8 +80,12 @@ void BinaryWriter::ProcessOp(const Operand& op) {
     }
     if (auto* str = std::get_if<std::string>(&op)) {
         auto idx = out_.size();
-        out_.resize(out_.size() + OperandLength(op), 0);
-        memcpy(&out_[idx], str->c_str(), str->size() + 1);
+        out_.resize(idx + OperandLength(op), 0);
+        // SAFETY: out_ has been resized to hold at least OperandLength(op) words (OperandLength is
+        // length * 4 bytes plus space for the null) starting at `idx`. The copied string size plus
+        // its null-terminator is `str->size() + 1` bytes, which is guaranteed to be less than or
+        // equal to the added size.
+        DAWN_UNSAFE_BUFFERS(memcpy(&out_[idx], str->c_str(), str->size() + 1));
         return;
     }
 }

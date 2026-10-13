@@ -53,6 +53,12 @@ class Pointer final : public Castable<Pointer, MemoryView> {
     /// declared in WGSL.
     std::string FriendlyName() const override;
 
+    /// @returns the name for this type in an identifier safe string.
+    std::string IdentifierName() const override;
+
+    /// @returns the alignment in bytes of the type.
+    uint32_t Align() const override;
+
     /// @param ctx the clone context
     /// @returns a clone of this type
     Pointer* Clone(CloneContext& ctx) const override;

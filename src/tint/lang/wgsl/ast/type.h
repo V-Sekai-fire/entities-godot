@@ -28,8 +28,6 @@
 #ifndef SRC_TINT_LANG_WGSL_AST_TYPE_H_
 #define SRC_TINT_LANG_WGSL_AST_TYPE_H_
 
-#include "src/tint/utils/generation_id.h"
-
 // Forward declarations
 namespace tint::ast {
 class IdentifierExpression;
@@ -49,17 +47,10 @@ struct Type {
 
     /// Implicit conversion operator to the type's expression
     /// @return #expr
+    // NOLINTNEXTLINE(google-explicit-constructor)
     operator const IdentifierExpression*() const { return expr; }
 };
 
 }  // namespace tint::ast
-
-namespace tint {
-
-/// @param type an AST type
-/// @returns the GenerationID of the given AST type.
-GenerationID GenerationIDOf(ast::Type type);
-
-}  // namespace tint
 
 #endif  // SRC_TINT_LANG_WGSL_AST_TYPE_H_

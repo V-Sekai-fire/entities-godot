@@ -59,11 +59,25 @@ std::string Pointer::FriendlyName() const {
     return out.str();
 }
 
+std::string Pointer::IdentifierName() const {
+    StringStream out;
+    out << "ptr_";
+    if (AddressSpace() != core::AddressSpace::kUndefined) {
+        out << AddressSpace() << "_";
+    }
+    out << StoreType()->IdentifierName() << "_" << Access();
+    return out.str();
+}
+
 Pointer::~Pointer() = default;
 
 Pointer* Pointer::Clone(CloneContext& ctx) const {
     auto* ty = StoreType()->Clone(ctx);
     return ctx.dst.mgr->Get<Pointer>(AddressSpace(), ty, Access());
+}
+
+uint32_t Pointer::Align() const {
+    return 1;
 }
 
 }  // namespace tint::core::type

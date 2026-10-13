@@ -28,20 +28,25 @@
 #ifndef SRC_TINT_LANG_WGSL_WRITER_AST_PRINTER_AST_PRINTER_H_
 #define SRC_TINT_LANG_WGSL_WRITER_AST_PRINTER_AST_PRINTER_H_
 
+#include <string>
+#include <string_view>
+
 #include "src/tint/lang/core/binary_op.h"
+#include "src/tint/lang/wgsl/writer/common/options.h"
+#include "src/tint/utils/containers/hashmap.h"
+#include "src/tint/utils/containers/hashset.h"
+#include "src/tint/utils/symbol/symbol.h"
 #include "src/tint/utils/text/string_stream.h"
 #include "src/tint/utils/text_generator/text_generator.h"
 
 // Forward declarations
 namespace tint {
 class Program;
-}
+}  // namespace tint
 namespace tint::ast {
 class AssignmentStatement;
 class Attribute;
 class BinaryExpression;
-class BitcastExpression;
-class BlockStatement;
 class BlockStatement;
 class BreakIfStatement;
 class BreakStatement;
@@ -61,14 +66,14 @@ class IdentifierExpression;
 class IfStatement;
 class IncrementDecrementStatement;
 class IndexAccessorExpression;
+class InterpolatedStringExpression;
 class LiteralExpression;
 class LoopStatement;
 class MemberAccessorExpression;
 class Requires;
 class ReturnStatement;
 class Statement;
-class Statement;
-class Statement;
+class StringLiteralExpression;
 class Struct;
 class SwitchStatement;
 class TypeDecl;
@@ -88,12 +93,16 @@ class ASTPrinter : public tint::TextGenerator {
   public:
     /// Constructor
     /// @param program the program
-    explicit ASTPrinter(const Program& program);
+    /// @param options the writer options
+    explicit ASTPrinter(const Program& program, const Options& options = {});
     ~ASTPrinter() override;
 
     /// Generates the result data
     /// @returns true on successful generation, false otherwise
     bool Generate();
+
+    /// @returns the result data
+    std::string Result() const override;
 
     /// Handles generating a diagnostic control
     /// @param out the output stream
@@ -150,6 +159,14 @@ class ASTPrinter : public tint::TextGenerator {
     /// @param out the output stream
     /// @param expr the literal expression expression
     void EmitLiteral(StringStream& out, const ast::LiteralExpression* expr);
+    /// Handles generating a string literal expression
+    /// @param out the output stream
+    /// @param expr the string literal expression
+    void EmitStringLiteral(StringStream& out, const ast::StringLiteralExpression* expr);
+    /// Handles generating an interpolated string expression
+    /// @param out the output stream
+    /// @param expr the interpolated string expression
+    void EmitInterpolatedString(StringStream& out, const ast::InterpolatedStringExpression* expr);
     /// Handles a continue statement
     /// @param stmt the statement to emit
     void EmitContinue(const ast::ContinueStatement* stmt);
@@ -229,7 +246,22 @@ class ASTPrinter : public tint::TextGenerator {
     void EmitAttributes(StringStream& out, VectorRef<const ast::Attribute*> attrs);
 
   private:
+    /// Traverses the AST to build the set of names that cannot be changed.
+    void BuildUnrenameableNames();
+
+    /// @returns the next minified name.
+    std::string NextMinifiedName();
+
+    /// Get the generated name for a symbol, minifying it if required.
+    /// @param sym the symbol to get the name for.
+    /// @return the name for the symbol.
+    std::string_view GetSymbolName(tint::Symbol sym);
+
     const Program& program_;
+    const Options options_;
+    Hashset<std::string_view, 8> unrenameable_;
+    Hashmap<tint::Symbol, std::string, 8> symbol_to_name_;
+    uint64_t next_minified_name_idx_ = 0;
 };
 
 }  // namespace tint::wgsl::writer

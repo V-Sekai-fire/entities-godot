@@ -37,10 +37,6 @@
 #include "src/tint/utils/containers/vector.h"
 
 // Forward declarations
-namespace tint {
-class ProgramBuilder;
-class SymbolTable;
-}  // namespace tint
 namespace tint::core::type {
 class Type;
 }  // namespace tint::core::type
@@ -92,6 +88,9 @@ class Type : public Castable<Type, UniqueNode> {
     /// declared in WGSL.
     virtual std::string FriendlyName() const = 0;
 
+    /// @returns the name for this type in a format that can be used in an identifier
+    virtual std::string IdentifierName() const;
+
     /// @returns the inner most pointee type if this is a pointer, `this`
     /// otherwise
     const Type* UnwrapPtr() const;
@@ -101,6 +100,9 @@ class Type : public Castable<Type, UniqueNode> {
 
     /// @returns the inner type if this is a pointer or a reference, `this` otherwise
     const Type* UnwrapPtrOrRef() const;
+
+    /// @returns the inner type if this is a memory view, `this` otherwise
+    const Type* UnwrapMemoryView() const;
 
     /// @returns the size in bytes of the type. This may include tail padding.
     /// @note opaque types will return a size of 0.
@@ -117,6 +119,9 @@ class Type : public Castable<Type, UniqueNode> {
 
     /// @returns the flags on the type
     core::type::Flags Flags() { return flags_; }
+
+    /// @returns true if the type is part of the core types
+    inline bool IsCore() const { return TypeInfo().IsDialect(tint::Dialect::kCore); }
 
     /// @returns true if type is constructable
     /// https://gpuweb.github.io/gpuweb/wgsl/#constructible-types
@@ -170,8 +175,6 @@ class Type : public Castable<Type, UniqueNode> {
     bool IsBoolScalarOrVector() const;
     /// @returns true if this type is boolean vector
     bool IsBoolVector() const;
-    /// @returns true if this type is a vector of scalar type
-    bool IsScalarVector() const;
     /// @returns true if this type is a numeric scale or vector
     bool IsNumericScalarOrVector() const;
     /// @returns true if this type is a handle type
@@ -206,8 +209,8 @@ class Type : public Castable<Type, UniqueNode> {
     /// Examples:
     ///  * Elements() of `array<vec3<f32>, 5>` returns `[vec3<f32>, 5]`.
     ///  * Elements() of `array<f32>` returns `[f32, count_if_invalid]`.
-    ///  * Elements() of `struct S { a : f32, b : i32 }` returns `[count_if_invalid, 2]`.
-    ///  * Elements() of `struct S { a : i32, b : i32 }` also returns `[count_if_invalid, 2]`.
+    ///  * Elements() of `struct S { a : f32, b : i32 }` returns `[type_if_invalid, 2]`.
+    ///  * Elements() of `struct S { a : i32, b : i32 }` also returns `[type_if_invalid, 2]`.
     virtual TypeAndCount Elements(const Type* type_if_invalid = nullptr,
                                   uint32_t count_if_invalid = 0) const;
 

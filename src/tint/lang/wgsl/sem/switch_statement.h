@@ -44,7 +44,6 @@ class Value;
 namespace tint::sem {
 class CaseStatement;
 class CaseSelector;
-class ValueExpression;
 }  // namespace tint::sem
 
 namespace tint::sem {
@@ -62,9 +61,6 @@ class SwitchStatement final : public Castable<SwitchStatement, CompoundStatement
 
     /// Destructor
     ~SwitchStatement() override;
-
-    /// @return the AST node for this statement
-    const ast::SwitchStatement* Declaration() const;
 
     /// @returns the case statements for this switch
     std::vector<const CaseStatement*>& Cases() { return cases_; }
@@ -91,6 +87,7 @@ class CaseStatement final : public Castable<CaseStatement, CompoundStatement> {
     ~CaseStatement() override;
 
     /// @return the AST node for this statement
+    // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
     const ast::CaseStatement* Declaration() const;
 
     /// @param body the case body block statement

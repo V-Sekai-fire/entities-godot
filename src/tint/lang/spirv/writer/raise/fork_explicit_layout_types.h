@@ -28,11 +28,16 @@
 #ifndef SRC_TINT_LANG_SPIRV_WRITER_RAISE_FORK_EXPLICIT_LAYOUT_TYPES_H_
 #define SRC_TINT_LANG_SPIRV_WRITER_RAISE_FORK_EXPLICIT_LAYOUT_TYPES_H_
 
+#include <cstdint>
+
 #include "src/tint/utils/result.h"
 
 // Forward declarations.
 namespace tint::core::ir {
 class Module;
+}
+namespace tint::spirv::writer {
+enum class SpvVersion : uint32_t;
 }
 
 namespace tint::spirv::writer::raise {
@@ -42,7 +47,7 @@ namespace tint::spirv::writer::raise {
 ///
 /// @param module the module to transform
 /// @returns success or failure
-Result<SuccessType> ForkExplicitLayoutTypes(core::ir::Module& module);
+Result<SuccessType> ForkExplicitLayoutTypes(core::ir::Module& module, SpvVersion version);
 
 }  // namespace tint::spirv::writer::raise
 

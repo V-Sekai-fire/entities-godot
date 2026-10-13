@@ -26,12 +26,13 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "src/tint/lang/wgsl/writer/raise/ptr_to_ref.h"
+
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/function.h"
 #include "src/tint/lang/core/ir/let.h"
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/phony.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 #include "src/tint/lang/core/ir/var.h"
 #include "src/tint/lang/core/type/pointer.h"
 #include "src/tint/lang/core/type/reference.h"
@@ -100,7 +101,7 @@ struct Impl {
 
     void OperandRefToPtr(const core::ir::Usage& use) {
         auto* operand = use.instruction->Operand(use.operand_index);
-        TINT_ASSERT(operand);
+        TINT_IR_ASSERT(mod, operand);
         if (auto* ref_ty = As<core::type::Reference>(operand->Type())) {
             auto* as_ptr = b.InstructionResult(RefToPtr(ref_ty));
             mod.CreateInstruction<wgsl::ir::Unary>(as_ptr, core::UnaryOp::kAddressOf, operand)
@@ -138,19 +139,11 @@ struct Impl {
 }  // namespace
 
 Result<SuccessType> PtrToRef(core::ir::Module& mod) {
-    auto result =
-        core::ir::ValidateAndDumpIfNeeded(mod, "wgsl.PtrToRef",
-                                          core::ir::Capabilities{
-                                              core::ir::Capability::kAllowOverrides,
-                                              core::ir::Capability::kAllowPhonyInstructions,
-                                          }
-
-        );
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(mod, "before wgsl.PtrToRef");
 
     Impl{mod}.Run();
+
+    mod.properties.Add(core::ir::Property::kAllowRefTypes);
 
     return Success;
 }

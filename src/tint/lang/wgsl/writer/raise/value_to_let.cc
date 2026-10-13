@@ -32,7 +32,7 @@
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/phony.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 #include "src/tint/utils/containers/reverse.h"
 
 namespace tint::wgsl::writer::raise {
@@ -165,6 +165,10 @@ struct State {
         if (inst->IsAnyOf<core::ir::Var, core::ir::Let, core::ir::Phony>()) {
             return;
         }
+        // Never put handle types in lets or phonys
+        if (inst->Result()->Type()->IsHandle()) {
+            return;
+        }
         if (inst->Is<core::ir::Call>() && !value->IsUsed()) {
             bool must_use =
                 inst->Is<core::ir::BuiltinCall>() && !value->Type()->Is<core::type::Void>();
@@ -174,6 +178,7 @@ struct State {
         }
 
         if (!value->IsUsed() && !ir.NameOf(value).IsValid()) {
+            ir.properties.Add(core::ir::Property::kAllowPhonyInstructions);
             auto* phony = b.Phony(value);
             phony->InsertAfter(inst);
             return;
@@ -193,15 +198,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> ValueToLet(core::ir::Module& ir) {
-    auto result = core::ir::ValidateAndDumpIfNeeded(ir, "wgsl.ValueToLet",
-                                                    core::ir::Capabilities{
-                                                        core::ir::Capability::kAllowOverrides,
-                                                    }
-
-    );
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(ir, "before wgsl.ValueToLet");
 
     State{ir}.Process();
 

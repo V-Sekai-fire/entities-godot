@@ -28,10 +28,13 @@
 #include "src/tint/utils/symbol/symbol_table.h"
 
 #include "src/tint/utils/ice/ice.h"
+#include "src/utils/compiler.h"
 
 namespace tint {
 
-SymbolTable::SymbolTable(tint::GenerationID generation_id) : generation_id_(generation_id) {}
+SymbolTable::SymbolTable() : generation_id_(GenerationID::New()) {}
+
+SymbolTable::SymbolTable(GenerationID gen_id) : generation_id_(gen_id) {}
 
 SymbolTable::SymbolTable(SymbolTable&&) = default;
 
@@ -92,12 +95,14 @@ Symbol SymbolTable::New(std::string_view prefix_view /* = "" */) {
 std::string_view SymbolTable::Allocate(std::string_view name) {
     static_assert(sizeof(char) == 1);
     char* name_mem = Bitcast<char*>(name_allocator_.Allocate(name.length() + 1));
-    if (name_mem == nullptr) {
-        TINT_ICE() << "failed to allocate memory for symbol's string";
-    }
+    TINT_ASSERT(name_mem != nullptr) << "failed to allocate memory for symbol's string";
 
-    memcpy(name_mem, name.data(), name.length() + 1);
-    return {name_mem, name.length()};
+    // SAFETY: name_mem has size of name.length() + 1. Copying name.length() characters and writing
+    // a null-terminator at name.length() fits within this limit. The returned view is referencing
+    // the name.length() characters of this buffer, which is in boungs.
+    DAWN_UNSAFE_BUFFERS(memcpy(name_mem, name.data(), name.length()));
+    DAWN_UNSAFE_BUFFERS(name_mem[name.length()] = '\0');
+    return DAWN_UNSAFE_BUFFERS(std::string_view(name_mem, name.length()));
 }
 
 }  // namespace tint

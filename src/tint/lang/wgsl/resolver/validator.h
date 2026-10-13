@@ -29,9 +29,7 @@
 #define SRC_TINT_LANG_WGSL_RESOLVER_VALIDATOR_H_
 
 #include <cstdint>
-#include <set>
 #include <string>
-#include <utility>
 
 #include "src/tint/lang/core/evaluation_stage.h"
 #include "src/tint/lang/core/type/input_attachment.h"
@@ -40,45 +38,30 @@
 #include "src/tint/lang/wgsl/ast/pipeline_stage.h"
 #include "src/tint/lang/wgsl/program/program_builder.h"
 #include "src/tint/lang/wgsl/resolver/sem_helper.h"
+#include "src/tint/lang/wgsl/sem/member_accessor_expression.h"
 #include "src/tint/utils/containers/hashmap.h"
 #include "src/tint/utils/containers/scope_stack.h"
 #include "src/tint/utils/containers/vector.h"
 #include "src/tint/utils/diagnostic/source.h"
 #include "src/tint/utils/math/hash.h"
-#include "src/tint/utils/text/styled_text.h"
 
 // Forward declarations
 namespace tint::ast {
-class IndexAccessorExpression;
-class BinaryExpression;
-class BitcastExpression;
 class CallExpression;
-class CallStatement;
-class CaseStatement;
-class ForLoopStatement;
 class Function;
-class IdentifierExpression;
-class LoopStatement;
-class MemberAccessorExpression;
 class ReturnStatement;
 class SwitchStatement;
-class UnaryOpExpression;
 class Variable;
-class WhileStatement;
 }  // namespace tint::ast
 namespace tint::sem {
 class Array;
-class BlockStatement;
 class BreakIfStatement;
 class BuiltinFn;
 class Call;
-class CaseStatement;
 class ForLoopStatement;
 class IfStatement;
 class LoopStatement;
-class Materialize;
 class Statement;
-class SwitchStatement;
 class WhileStatement;
 }  // namespace tint::sem
 namespace tint::core::type {
@@ -86,24 +69,6 @@ class Atomic;
 }  // namespace tint::core::type
 
 namespace tint::resolver {
-
-/// TypeAndAddressSpace is a pair of type and address space
-struct TypeAndAddressSpace {
-    /// The type
-    const core::type::Type* type;
-    /// The address space
-    core::AddressSpace address_space;
-
-    /// Equality operator
-    /// @param other the other TypeAndAddressSpace to compare this TypeAndAddressSpace to
-    /// @returns true if the type and address space of this TypeAndAddressSpace is equal to @p other
-    bool operator==(const TypeAndAddressSpace& other) const {
-        return type == other.type && address_space == other.address_space;
-    }
-
-    /// @returns the hash value of this object
-    tint::HashCode HashCode() const { return Hash(type, address_space); }
-};
 
 /// DiagnosticFilterStack is a scoped stack of diagnostic filters.
 using DiagnosticFilterStack = ScopeStack<wgsl::DiagnosticRule, wgsl::DiagnosticSeverity>;
@@ -128,13 +93,11 @@ class Validator {
     /// @param enabled_extensions all the extensions declared in current module
     /// @param allowed_features the allowed extensions and features
     /// @param atomic_composite_info atomic composite info of the module
-    /// @param valid_type_storage_layouts a set of validated type layouts by address space
     Validator(ProgramBuilder* builder,
               SemHelper& helper,
               const wgsl::Extensions& enabled_extensions,
               const wgsl::AllowedFeatures& allowed_features,
-              const Hashmap<const core::type::Type*, const Source*, 8>& atomic_composite_info,
-              Hashset<TypeAndAddressSpace, 8>& valid_type_storage_layouts);
+              const Hashmap<const core::type::Type*, const Source*, 8>& atomic_composite_info);
     ~Validator();
 
     /// @returns an error diagnostic
@@ -161,10 +124,6 @@ class Validator {
     /// @param type the given type
     /// @returns true if the given type is a plain type
     bool IsPlain(const core::type::Type* type) const;
-
-    /// @param type the given type
-    /// @returns true if the given type is a fixed-footprint type
-    bool IsFixedFootprint(const core::type::Type* type) const;
 
     /// @param type the given type
     /// @returns true if the given type is storable
@@ -197,15 +156,6 @@ class Validator {
     ///        locally-declared element AST node.
     /// @returns true on success, false otherwise.
     bool Array(const sem::Array* arr, const Source& el_source) const;
-
-    /// Validates an array stride attribute
-    /// @param attr the stride attribute to validate
-    /// @param el_size the element size
-    /// @param el_align the element alignment
-    /// @returns true on success, false otherwise
-    bool ArrayStrideAttribute(const ast::StrideAttribute* attr,
-                              uint32_t el_size,
-                              uint32_t el_align) const;
 
     /// Validates an atomic type
     /// @param a the atomic ast node
@@ -247,13 +197,11 @@ class Validator {
     /// @param storage_type the attribute storage type
     /// @param stage the current pipeline stage
     /// @param is_input true if this is an input attribute
-    /// @param ignore_clip_distances_type_validation true if ignore type check on clip_distances
     /// @returns true on success, false otherwise.
     bool BuiltinAttribute(const ast::BuiltinAttribute* attr,
                           const core::type::Type* storage_type,
                           ast::PipelineStage stage,
-                          const bool is_input,
-                          const bool ignore_clip_distances_type_validation = false) const;
+                          const bool is_input) const;
 
     /// Validates a continue statement
     /// @param stmt the continue statement to validate
@@ -436,6 +384,12 @@ class Validator {
     /// @returns true on success, false otherwise
     bool StorageTexture(const core::type::StorageTexture* t, const Source& source) const;
 
+    /// Validates a texel buffer
+    /// @param t the texel buffer to validate
+    /// @param source the source of the texel buffer
+    /// @returns true on success, false otherwise
+    bool TexelBuffer(const core::type::TexelBuffer* t, const Source& source) const;
+
     /// Validates a sampled texture
     /// @param t the texture to validate
     /// @param source the source of the texture
@@ -474,6 +428,12 @@ class Validator {
     /// @param source the source of the subgroup matrix type
     /// @returns true on success, false otherwise
     bool SubgroupMatrix(const core::type::SubgroupMatrix* t, const Source& source) const;
+
+    /// Validates buffer type
+    /// @param t the buffer type to validate
+    /// @param source the source of the buffer type
+    /// @returns true on success, false otherwise
+    bool Buffer(const core::type::Buffer* t, const Source& source) const;
 
     /// Validates a structure
     /// @param str the structure to validate
@@ -539,9 +499,11 @@ class Validator {
     /// Validates a subgroup matrix constructor
     /// @param ctor the call expression to validate
     /// @param subgroup_matrix_type the type of the subgroup matrix
+    /// @param signature the construct signature to validate against
     /// @returns true on success, false otherwise
     bool SubgroupMatrixConstructor(const ast::CallExpression* ctor,
-                                   const core::type::SubgroupMatrix* subgroup_matrix_type) const;
+                                   const core::type::SubgroupMatrix* subgroup_matrix_type,
+                                   const sem::CallTarget* signature) const;
 
     /// Validates a subgroupShuffle builtin functions including Up,Down, and Xor.
     /// @param fn the builtin call type
@@ -564,6 +526,16 @@ class Validator {
     /// @returns true on success, false otherwise
     bool QuadBroadcast(const sem::Call* call) const;
 
+    /// Validates a bufferView or bufferArrayView builtin function
+    /// @param call the builtin call to validate
+    /// @returns true on success, false otherwise
+    bool BufferView(const sem::Call* call) const;
+
+    /// Validate subgroupMatrixLoad and subgroupMatrixStore builtin functions
+    /// @param call the builtin call to validate
+    /// @returns true on success, false otherwise
+    bool SubgroupMatrixLoadStore(const sem::Call* call) const;
+
     /// Validates an optional builtin function and its required extensions and language features.
     /// @param call the builtin call to validate
     /// @returns true on success, false otherwise
@@ -573,6 +545,28 @@ class Validator {
     /// @param source the source of the f16 usage
     /// @returns true on success, false otherwise
     bool CheckF16Enabled(const Source& source) const;
+
+    /// Validates that 'chromium_experimental_subgroup_matrix' extension is enabled for i8 usage at
+    /// @p source
+    /// @param source the source of the i8 usage
+    /// @returns true on success, false otherwise
+    bool CheckI8Enabled(const Source& source) const;
+
+    /// Validates that 'chromium_experimental_subgroup_matrix' extension is enabled for u8 usage at
+    /// @p source
+    /// @param source the source of the u8 usage
+    /// @returns true on success, false otherwise
+    bool CheckU8Enabled(const Source& source) const;
+
+    /// Validates that 'chromium_print' language feature is enabled at @p source
+    /// @param source the source of the usage
+    /// @returns true if enabled, false otherwise
+    bool CheckChromiumPrintEnabled(const Source& source) const;
+
+    /// Validates an expression used inside an interpolated string.
+    /// @param expr the expression to validate
+    /// @returns true on success, false otherwise
+    bool InterpolatedStringElement(const sem::ValueExpression* expr) const;
 
     /// Validates there are no duplicate attributes
     /// @param attributes the list of attributes to validate
@@ -588,30 +582,11 @@ class Validator {
                             const char* use,
                             DiagnosticDuplicates allow_duplicates) const;
 
-    /// Validates a address space layout
-    /// @param type the type to validate
-    /// @param sc the address space
-    /// @param source the source of the type
-    /// @returns true on success, false otherwise
-    bool AddressSpaceLayout(const core::type::Type* type,
-                            core::AddressSpace sc,
-                            Source source) const;
-
-    /// @returns true if the attribute list contains a
-    /// ast::DisableValidationAttribute with the validation mode equal to
-    /// `validation`
-    /// @param attributes the attribute list to check
-    /// @param validation the validation mode to check
-    bool IsValidationDisabled(VectorRef<const ast::Attribute*> attributes,
-                              ast::DisabledValidation validation) const;
-
-    /// @returns true if the attribute list does not contains a
-    /// ast::DisableValidationAttribute with the validation mode equal to
-    /// `validation`
-    /// @param attributes the attribute list to check
-    /// @param validation the validation mode to check
-    bool IsValidationEnabled(VectorRef<const ast::Attribute*> attributes,
-                             ast::DisabledValidation validation) const;
+    /// Validates a swizzle assignment
+    /// @param lhs the lhs swizzle to validate
+    /// @param source the source of the swizzle
+    /// @returns true on success, false otherwise.
+    bool SwizzleAssignment(const sem::Swizzle* lhs, const Source& source) const;
 
   private:
     /// @param ty the type to check
@@ -654,7 +629,6 @@ class Validator {
     bool CheckTypeAccessAddressSpace(const core::type::Type* store_ty,
                                      core::Access access,
                                      core::AddressSpace address_space,
-                                     VectorRef<const tint::ast::Attribute*> attributes,
                                      const Source& source) const;
 
     /// Raises an error if the entry_point @p entry_point uses two or more module-scope 'var's with
@@ -665,6 +639,18 @@ class Validator {
     bool CheckNoMultipleModuleScopeVarsOfAddressSpace(sem::Function* entry_point,
                                                       core::AddressSpace space) const;
 
+    /// Validates the offset argument of a subgroupMatrixLoad or subgroupMatrixStore call.
+    /// @param fn the builtin function symbol
+    /// @param p_arg the pointer argument
+    /// @param offset_arg the offset argument
+    /// @param majorness_template indicates which variant of the builtin is used
+    /// @returns true on success, false if an error was raised.
+    /// TODO(b/529415904): remove this when deprecated load/store variants are removed.
+    bool CheckSubgroupMatrixOpOffset(const sem::BuiltinFn* fn,
+                                     const sem::ValueExpression* p_arg,
+                                     const sem::ValueExpression* offset_arg,
+                                     bool majorness_template) const;
+
     SymbolTable& symbols_;
     diag::List& diagnostics_;
     SemHelper& sem_;
@@ -672,7 +658,6 @@ class Validator {
     const wgsl::Extensions& enabled_extensions_;
     const wgsl::AllowedFeatures& allowed_features_;
     const Hashmap<const core::type::Type*, const Source*, 8>& atomic_composite_info_;
-    Hashset<TypeAndAddressSpace, 8>& valid_type_storage_layouts_;
 };
 
 }  // namespace tint::resolver

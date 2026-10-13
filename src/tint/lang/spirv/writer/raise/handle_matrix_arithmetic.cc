@@ -32,7 +32,7 @@
 #include "src/tint/lang/core/fluent_types.h"
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 #include "src/tint/lang/core/type/matrix.h"
 #include "src/tint/lang/spirv/ir/builtin_call.h"
 #include "src/tint/utils/ice/ice.h"
@@ -86,9 +86,9 @@ struct State {
                     auto* lhs_col = b.Access(mat->ColumnType(), lhs, u32(col));
                     auto* rhs_col = b.Access(mat->ColumnType(), rhs, u32(col));
                     auto* add = b.Binary(op, mat->ColumnType(), lhs_col, rhs_col);
-                    args.Push(add->Result());
+                    args.Push(add);
                 }
-                b.ConstructWithResult(binary->DetachResult(), std::move(args));
+                b.ConstructReplaceResult(binary->DetachResult(), std::move(args));
             };
 
             switch (binary->Op()) {
@@ -129,7 +129,7 @@ struct State {
                     break;
 
                 default:
-                    TINT_UNREACHABLE() << "unhandled matrix arithmetic instruction";
+                    TINT_IR_UNREACHABLE(ir) << "unhandled matrix arithmetic instruction";
             }
         });
 
@@ -149,11 +149,11 @@ struct State {
             for (uint32_t c = 0; c < out_mat->Columns(); c++) {
                 auto* col = b.Access(in_mat->ColumnType(), arg, u32(c));
                 auto* new_col = b.Convert(out_mat->ColumnType(), col);
-                args.Push(new_col->Result());
+                args.Push(new_col);
             }
 
             // Reconstruct the result matrix from the converted columns.
-            b.ConstructWithResult(convert->DetachResult(), std::move(args));
+            b.ConstructReplaceResult(convert->DetachResult(), std::move(args));
         });
 
         convert->Destroy();
@@ -163,10 +163,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> HandleMatrixArithmetic(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "spirv.HandleMatrixArithmetic");
-    if (result != Success) {
-        return result.Failure();
-    }
+    AssertValid(ir, "before spirv.HandleMatrixArithmetic");
 
     State{ir}.Process();
 

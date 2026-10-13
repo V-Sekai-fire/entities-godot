@@ -31,7 +31,7 @@
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 #include "src/tint/lang/spirv/builtin_fn.h"
 #include "src/tint/lang/spirv/ir/builtin_call.h"
 
@@ -58,7 +58,7 @@ struct State {
                 // replicate the argument N times.
                 auto* vec = construct->Result()->Type()->As<core::type::Vector>();
                 if ((vec != nullptr) &&  //
-                    construct->Args().Length() == 1 &&
+                    construct->Args().size() == 1 &&
                     construct->Args()[0]->Type()->Is<core::type::Scalar>()) {
                     for (uint32_t i = 1; i < vec->Width(); i++) {
                         construct->AppendArg(construct->Args()[0]);
@@ -96,9 +96,9 @@ struct State {
         Vector<core::ir::Value*, 4> args;
         args.Resize(vec->Width(), inst->Operands()[operand_idx]);
 
-        auto* construct = b.Construct(vec, std::move(args));
-        construct->InsertBefore(inst);
-        inst->SetOperand(operand_idx, construct->Result());
+        core::ir::Value* construct = nullptr;
+        b.InsertBefore(inst, [&] { construct = b.Construct(vec, std::move(args)); });
+        inst->SetOperand(operand_idx, construct);
     }
 
     /// Replace scalar operands to binary instructions that produce vectors.
@@ -135,10 +135,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> ExpandImplicitSplats(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "spirv.ExpandImplicitSplats");
-    if (result != Success) {
-        return result.Failure();
-    }
+    AssertValid(ir, "before spirv.ExpandImplicitSplats");
 
     State{ir}.Process();
 

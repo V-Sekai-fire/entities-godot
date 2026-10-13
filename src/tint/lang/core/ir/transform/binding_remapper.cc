@@ -30,7 +30,7 @@
 #include <utility>
 
 #include "src/tint/lang/core/ir/module.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 #include "src/tint/lang/core/ir/var.h"
 
 using namespace tint::core::number_suffixes;  // NOLINT
@@ -72,12 +72,11 @@ void Run(ir::Module& ir, const std::unordered_map<BindingPoint, BindingPoint>& b
 Result<SuccessType> BindingRemapper(
     Module& ir,
     const std::unordered_map<BindingPoint, BindingPoint>& binding_points) {
-    auto result = ValidateAndDumpIfNeeded(ir, "core.BindingRemapper");
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(ir, "before core.BindingRemapper");
 
     Run(ir, binding_points);
+
+    ir.properties.Add(Property::kAllowDuplicateBindings);
 
     return Success;
 }
