@@ -46,6 +46,8 @@ FSR::FSR() {
 		variant = FSR_SHADER_VARIANT_NORMAL;
 	} else {
 		variant = FSR_SHADER_VARIANT_FALLBACK;
+		// Only compile the variant in use: the half-float one needs 16-bit types the device lacks.
+		fsr_shader.set_variant_enabled(FSR_SHADER_VARIANT_NORMAL, false);
 	}
 
 	shader_version = fsr_shader.version_create();
