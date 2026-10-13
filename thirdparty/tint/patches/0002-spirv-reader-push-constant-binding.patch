@@ -1,0 +1,84 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h b/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
+index 2d176e3b80..16909f3c47 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
+@@ -28,6 +28,8 @@
+ #ifndef SRC_TINT_LANG_SPIRV_READER_COMMON_OPTIONS_H_
+ #define SRC_TINT_LANG_SPIRV_READER_COMMON_OPTIONS_H_
+ 
++#include <cstdint>
++#include <optional>
+ #include <unordered_map>
+ 
+ #include "src/tint/api/common/binding_point.h"
+@@ -48,6 +50,14 @@ struct Options {
+ 
+     /// If true, enable validation assertions.
+     bool enable_validation_asserts = false;
++
++    /// Godot: the binding point of the `var<uniform>` that a `PushConstant` block is emitted as.
++    /// WGSL has no push constants; the embedder binds the push constant data at this point, like
++    /// the D3D12 and Metal translators are told where the push constant block goes. A module with
++    /// a push constant block fails to read when this is not set.
++    std::optional<BindingPoint> push_constant_binding;
++    /// Godot: the largest push constant block accepted, in bytes. 0 means no limit.
++    uint32_t push_constant_max_size = 0;
+ };
+ 
+ }  // namespace tint::spirv::reader
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+index 5a32715332..5f56c344cf 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+@@ -208,6 +208,28 @@ class Parser {
+ 
+         RegisterNames();
+ 
++        // Godot: a push constant block becomes a `var<uniform>` at a binding point chosen by the
++        // embedder.
++        for (const auto& inst : spirv_context_->types_values()) {
++            if (inst.opcode() == spv::Op::OpVariable &&
++                spv::StorageClass(inst.GetSingleWordInOperand(0)) ==
++                    spv::StorageClass::PushConstant) {
++                if (!options_.push_constant_binding) {
++                    return Failure(
++                        "SPIR-V push constant block found but no push constant binding point was "
++                        "given in the reader options");
++                }
++                auto* ptr = Type(inst.type_id())->As<core::type::Pointer>();
++                if (options_.push_constant_max_size && ptr &&
++                    ptr->StoreType()->Size() > options_.push_constant_max_size) {
++                    return Failure("SPIR-V push constant block is " +
++                                   std::to_string(ptr->StoreType()->Size()) +
++                                   " bytes, the limit is " +
++                                   std::to_string(options_.push_constant_max_size));
++                }
++            }
++        }
++
+         id_stack_.emplace_back();
+         {
+             TINT_SCOPED_ASSIGNMENT(current_block_, ir_.root_block);
+@@ -659,7 +681,8 @@ class Parser {
+             case spv::StorageClass::Workgroup:
+                 return core::AddressSpace::kWorkgroup;
+             case spv::StorageClass::PushConstant:
+-                return core::AddressSpace::kImmediate;
++                // Godot: WGSL has no push constants, emit the block as a uniform buffer.
++                return core::AddressSpace::kUniform;
+             default:
+                 TINT_UNREACHABLE()
+                     << "unhandled SPIR-V storage class: " << spv::StorageClassToString(sc);
+@@ -4864,6 +4887,12 @@ class Parser {
+             var->SetInitializer(Value(inst.GetSingleWordOperand(3)));
+         }
+ 
++        if (spv::StorageClass(inst.GetSingleWordInOperand(0)) == spv::StorageClass::PushConstant) {
++            // Godot: checked in Run().
++            TINT_ASSERT(options_.push_constant_binding);
++            group = options_.push_constant_binding->group;
++            binding = options_.push_constant_binding->binding;
++        }
+         if (group || binding) {
+             TINT_ASSERT(group && binding);
+             // Remap any samplers which match an entry in the sampler mappings

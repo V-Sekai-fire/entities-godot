@@ -1,0 +1,235 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/depth_sample.cc b/thirdparty/tint/src/tint/lang/spirv/reader/lower/depth_sample.cc
+new file mode 100644
+index 0000000000..7595e38968
+--- /dev/null
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/depth_sample.cc
+@@ -0,0 +1,151 @@
++// Copyright 2026 The Dawn & Tint Authors
++//
++// Redistribution and use in source and binary forms, with or without
++// modification, are permitted provided that the following conditions are met:
++//
++// 1. Redistributions of source code must retain the above copyright notice, this
++//    list of conditions and the following disclaimer.
++//
++// 2. Redistributions in binary form must reproduce the above copyright notice,
++//    this list of conditions and the following disclaimer in the documentation
++//    and/or other materials provided with the distribution.
++//
++// 3. Neither the name of the copyright holder nor the names of its
++//    contributors may be used to endorse or promote products derived from
++//    this software without specific prior written permission.
++//
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
++// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
++// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
++// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++
++#include "src/tint/lang/spirv/reader/lower/depth_sample.h"
++
++#include <vector>
++
++#include "src/tint/lang/core/ir/builder.h"
++#include "src/tint/lang/core/ir/core_builtin_call.h"
++#include "src/tint/lang/core/ir/module.h"
++#include "src/tint/lang/core/type/depth_texture.h"
++
++using namespace tint::core::number_suffixes;  // NOLINT
++
++namespace tint::spirv::reader::lower {
++namespace {
++
++struct State {
++    core::ir::Module& ir;
++    core::ir::Builder b{ir};
++    core::type::Manager& ty{ir.Types()};
++
++    bool IsSample(core::BuiltinFn fn) {
++        return fn == core::BuiltinFn::kTextureSample || fn == core::BuiltinFn::kTextureSampleBias ||
++               fn == core::BuiltinFn::kTextureSampleLevel ||
++               fn == core::BuiltinFn::kTextureSampleGrad;
++    }
++
++    void Replace(core::ir::CoreBuiltinCall* call, const core::type::DepthTexture* tex_ty) {
++        auto args = call->Args();
++        core::ir::Value* tex = args[0];
++        core::ir::Value* coords = args[2];
++        size_t idx = 3;
++        core::ir::Value* layer = nullptr;
++        if (tex_ty->Dim() == core::type::TextureDimension::k2dArray) {
++            layer = args[idx++];
++        }
++        core::ir::Value* level = nullptr;
++        switch (call->Func()) {
++            case core::BuiltinFn::kTextureSampleLevel:
++                level = args[idx++];
++                break;
++            case core::BuiltinFn::kTextureSampleBias:
++                idx += 1;
++                break;
++            case core::BuiltinFn::kTextureSampleGrad:
++                idx += 2;
++                break;
++            default:
++                break;
++        }
++        core::ir::Value* offset = idx < args.size() ? args[idx] : nullptr;
++
++        b.InsertBefore(call, [&] {
++            auto* vec2f = ty.vec2f();
++            auto* vec2i = ty.vec2i();
++            if (!level) {
++                level = b.Constant(0_i);
++            } else if (!level->Type()->Is<core::type::I32>()) {
++                level = b.Convert(ty.i32(), level);
++            }
++            // Texel space, with texel centers at integers.
++            auto* dims = b.Call(ty.vec2u(), core::BuiltinFn::kTextureDimensions, tex, level);
++            auto* p = b.Subtract(b.Multiply(coords, b.Convert(vec2f, dims)),
++                                 b.Splat(vec2f, 0.5_f));
++            auto* p0 = b.Call(vec2f, core::BuiltinFn::kFloor, p);
++            auto* f = b.Subtract(p, p0);
++            core::ir::Value* i0 = b.Convert(vec2i, p0);
++            if (offset) {
++                i0 = b.Add(i0, offset);
++            }
++            auto* max_i = b.Subtract(b.Convert(vec2i, dims), b.Splat(vec2i, 1_i));
++            auto* zero = b.Splat(vec2i, 0_i);
++            auto* lo = b.Call(vec2i, core::BuiltinFn::kClamp, i0, zero, max_i);
++            auto* hi = b.Call(vec2i, core::BuiltinFn::kClamp, b.Add(i0, b.Splat(vec2i, 1_i)),
++                              zero, max_i);
++            auto* lo_x = b.Swizzle(ty.i32(), lo, {0u});
++            auto* lo_y = b.Swizzle(ty.i32(), lo, {1u});
++            auto* hi_x = b.Swizzle(ty.i32(), hi, {0u});
++            auto* hi_y = b.Swizzle(ty.i32(), hi, {1u});
++            auto load = [&](core::ir::Value* x, core::ir::Value* y) -> core::ir::Value* {
++                auto* c = b.Construct(vec2i, x, y);
++                if (layer) {
++                    return b.Call(ty.f32(), core::BuiltinFn::kTextureLoad, tex, c, layer, level);
++                }
++                return b.Call(ty.f32(), core::BuiltinFn::kTextureLoad, tex, c, level);
++            };
++            auto* fx = b.Swizzle(ty.f32(), f, {0u});
++            auto* fy = b.Swizzle(ty.f32(), f, {1u});
++            auto* top = b.Call(ty.f32(), core::BuiltinFn::kMix, load(lo_x, lo_y),
++                               load(hi_x, lo_y), fx);
++            auto* bottom = b.Call(ty.f32(), core::BuiltinFn::kMix, load(lo_x, hi_y),
++                                  load(hi_x, hi_y), fx);
++            auto* res = b.Call(ty.f32(), core::BuiltinFn::kMix, top, bottom, fy);
++            call->Result()->ReplaceAllUsesWith(res);
++        });
++        call->Destroy();
++    }
++
++    Result<SuccessType> Process() {
++        std::vector<std::pair<core::ir::CoreBuiltinCall*, const core::type::DepthTexture*>> calls;
++        for (auto* inst : ir.Instructions()) {
++            auto* call = inst->As<core::ir::CoreBuiltinCall>();
++            if (!call || !IsSample(call->Func()) || call->Args().size() < 3) {
++                continue;
++            }
++            auto* tex_ty = call->Args()[0]->Type()->As<core::type::DepthTexture>();
++            if (!tex_ty || (tex_ty->Dim() != core::type::TextureDimension::k2d &&
++                            tex_ty->Dim() != core::type::TextureDimension::k2dArray)) {
++                continue;
++            }
++            calls.push_back({call, tex_ty});
++        }
++        for (auto& [call, tex_ty] : calls) {
++            Replace(call, tex_ty);
++        }
++        return Success;
++    }
++};
++
++}  // namespace
++
++Result<SuccessType> DepthSample(core::ir::Module& ir) {
++    return State{ir}.Process();
++}
++
++}  // namespace tint::spirv::reader::lower
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/depth_sample.h b/thirdparty/tint/src/tint/lang/spirv/reader/lower/depth_sample.h
+new file mode 100644
+index 0000000000..7bd4e56278
+--- /dev/null
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/depth_sample.h
+@@ -0,0 +1,51 @@
++// Copyright 2026 The Dawn & Tint Authors
++//
++// Redistribution and use in source and binary forms, with or without
++// modification, are permitted provided that the following conditions are met:
++//
++// 1. Redistributions of source code must retain the above copyright notice, this
++//    list of conditions and the following disclaimer.
++//
++// 2. Redistributions in binary form must reproduce the above copyright notice,
++//    this list of conditions and the following disclaimer in the documentation
++//    and/or other materials provided with the distribution.
++//
++// 3. Neither the name of the copyright holder nor the names of its
++//    contributors may be used to endorse or promote products derived from
++//    this software without specific prior written permission.
++//
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
++// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
++// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
++// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++
++#ifndef SRC_TINT_LANG_SPIRV_READER_LOWER_DEPTH_SAMPLE_H_
++#define SRC_TINT_LANG_SPIRV_READER_LOWER_DEPTH_SAMPLE_H_
++
++#include "src/tint/utils/result.h"
++
++namespace tint::core::ir {
++class Module;
++}
++
++namespace tint::spirv::reader::lower {
++
++/// Godot: WebGPU cannot pair a depth texture with a filtering sampler, but Vulkan GLSL samples
++/// depth textures with linear samplers (Godot reads its shadow atlases with SAMPLER_LINEAR_CLAMP
++/// next to comparison sampling). Replaces each non-comparison sample of a 2D or 2D array depth
++/// texture with four textureLoads blended bilinearly, as a linear, clamp-to-edge sampler does,
++/// so the depth texture is no longer used with a sampler. Reads mip level 0 unless the sample
++/// gives an explicit level (bias and gradients are dropped).
++/// @param module the module to transform
++/// @returns success or failure
++Result<SuccessType> DepthSample(core::ir::Module& module);
++
++}  // namespace tint::spirv::reader::lower
++
++#endif  // SRC_TINT_LANG_SPIRV_READER_LOWER_DEPTH_SAMPLE_H_
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
+index c392c3a253..9cca684a1c 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
+@@ -34,6 +34,7 @@
+ #include "src/tint/lang/spirv/reader/lower/builtins.h"
+ #include "src/tint/lang/spirv/reader/lower/decompose_strided_array.h"
+ #include "src/tint/lang/spirv/reader/lower/decompose_strided_matrix.h"
++#include "src/tint/lang/spirv/reader/lower/depth_sample.h"
+ #include "src/tint/lang/spirv/reader/lower/handle_params.h"
+ #include "src/tint/lang/spirv/reader/lower/shader_io.h"
+ #include "src/tint/lang/spirv/reader/lower/texture.h"
+@@ -59,6 +60,8 @@ Result<SuccessType> Lower(core::ir::Module& mod) {
+     TINT_CHECK_RESULT(lower::DecomposeStridedArray(mod));
+     TINT_CHECK_RESULT(lower::Atomics(mod));
+     TINT_CHECK_RESULT(lower::Texture(mod));
++    // Godot: depth textures read with a non-comparison sampler are read with loads instead.
++    TINT_CHECK_RESULT(lower::DepthSample(mod));
+ 
+     // Remove the terminator args at this point. There are no logical short-circuiting operators in
+     // SPIR-V that we will lose track of, all the terminators are for hoisted values. We don't do

@@ -135,6 +135,7 @@ module.exports = [
 				'Godot': true,
 				'InternalConfig': true,
 				'Preloader': true,
+				'___GODOT_WEBGPU_ENABLED': true,
 			},
 		},
 	},

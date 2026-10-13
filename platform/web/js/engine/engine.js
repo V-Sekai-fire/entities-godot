@@ -61,6 +61,46 @@ const Engine = (function () {
 	};
 
 	/**
+	 * Auto-detect the rendering driver from the browser's capabilities when
+	 * the template was built with `webgpu=yes`. Prepends `--rendering-driver`
+	 * and `--rendering-method` to `args` when they are absent, so an explicit
+	 * choice from `EngineConfig.args` always wins.
+	 *
+	 * @param {Array<string>} args The engine arguments.
+	 * @returns {Promise<Array<string>>} The same args, possibly with a driver
+	 *   pair prepended.
+	 * @ignore
+	 */
+	Engine.selectRenderingDriver = async function (args) {
+		if (!___GODOT_WEBGPU_ENABLED) {
+			return args;
+		}
+		if (args.includes('--rendering-driver')) {
+			return args;
+		}
+		if (typeof navigator === 'undefined' || !navigator.gpu) {
+			return args;
+		}
+		try {
+			const adapter = await navigator.gpu.requestAdapter();
+			if (!adapter) {
+				return args;
+			}
+		} catch (e) {
+			return args;
+		}
+		const prefix = ['--rendering-driver', 'webgpu'];
+		if (!args.includes('--rendering-method')) {
+			// Mobile uses a smaller texture-format surface than forward_plus
+			// and fits inside browsers whose WebGPU is limited to the
+			// standard formats (Firefox in this window). Explicit
+			// --rendering-method in EngineConfig.args overrides this.
+			prefix.push('--rendering-method', 'mobile');
+		}
+		return prefix.concat(args);
+	};
+
+	/**
 	 * Safe Engine constructor, creates a new prototype for every new instance to avoid prototype pollution.
 	 * @ignore
 	 * @constructor
@@ -167,7 +207,8 @@ const Engine = (function () {
 						return Promise.reject(new Error('GDExtension libraries are not supported by this engine version. '
 							+ 'Enable "Extensions Support" for your export preset and/or build your custom template with "dlink_enabled=yes".'));
 					}
-					return new Promise(function (resolve, reject) {
+					return Engine.selectRenderingDriver(me.config.args).then(function (args) {
+						me.config.args = args;
 						for (const file of preloader.preloadedFiles) {
 							me.rtenv['copyToFS'](file.path, file.buffer);
 						}
@@ -175,7 +216,6 @@ const Engine = (function () {
 						me.rtenv['callMain'](me.config.args);
 						initPromise = null;
 						me.installServiceWorker();
-						resolve();
 					});
 				});
 			},
@@ -300,6 +340,7 @@ const Engine = (function () {
 
 	// Feature-detection utilities.
 	SafeEngine['isWebGLAvailable'] = Features.isWebGLAvailable;
+	SafeEngine['isWebGPUAvailable'] = Features.isWebGPUAvailable;
 	SafeEngine['isFetchAvailable'] = Features.isFetchAvailable;
 	SafeEngine['isSecureContext'] = Features.isSecureContext;
 	SafeEngine['isCrossOriginIsolated'] = Features.isCrossOriginIsolated;

@@ -690,7 +690,9 @@ void vertex_shader(in vec3 vertex,
 		point_coord_interp = point_coord;
 #endif
 	} else {
+#ifndef WEBGPU_USED
 		gl_PointSize = point_size;
+#endif
 	}
 #endif
 }

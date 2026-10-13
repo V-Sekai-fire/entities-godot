@@ -1121,6 +1121,63 @@ Patches:
 - `0001-let-delete-be-delete.patch` ([GH-116024](https://github.com/godotengine/godot/pull/116024))
 
 
+## tint
+
+- Upstream: https://dawn.googlesource.com/dawn (`src/tint`), extracted with
+  https://github.com/floooh/tint-extract `release.sh`
+- Version: Dawn git (901f57556780077ebd194a8ea9041d377cdf17ab, 2026), see `dawn.ref`
+- License: BSD-3-Clause
+
+Files extracted from upstream source:
+
+- `include/`, `src/`, `LICENSE`, `README.md`, `dawn.ref`, `release.sh`: the output of
+  tint-extract's `release.sh` run against Dawn 901f5755 (local branch `dawn-901f5755` of an
+  extract repository), imported as a squashed git subtree
+- Removed, as it needs SPIRV-Tools, which Godot does not ship: `src/tint/lang/spirv/validate/`
+- Not built (still needs SPIRV-Tools): `src/tint/lang/spirv/writer/`
+
+The SPIR-V reader reads modules with SPIRV-Cross (`thirdparty/spirv-cross`: `spirv_parser.cpp`,
+`spirv_cross_parsed_ir.cpp`) instead of SPIRV-Tools. With `disable_exceptions`, build it with
+`SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS`, so SPIRV-Cross aborts on a malformed module (patch 0007). `src/utils` needs the
+global define `DAWN_HAVE_UTILS_BUILD_CONFIG` (and `NDEBUG` or `DAWN_ENABLE_ASSERTS`).
+
+Patches:
+
+- `0001-spirv-reader-read-with-spirv-cross.patch` (read SPIR-V with SPIRV-Cross through
+  `parser/spirv_cross_module.{h,cc}`, which mirrors the `spvtools::opt` API the reader uses and
+  does the reader's two SPIRV-Tools passes, split combined image samplers and resolve binding
+  conflicts; also split constant-indexed arrays of images or samplers into one binding per
+  element, as WGSL has no binding arrays)
+- `0002-spirv-reader-push-constant-binding.patch` (reader option that puts the `PushConstant`
+  block at a `var<uniform>` binding point chosen by the embedder, with a size limit; the driver
+  uses the same `webgpu_immediates_set()` rule from `drivers/webgpu/webgpu_common.h`)
+- `0003-spirv-reader-godot-glsl-fixes.patch` (read `writeonly` storage buffers as `read_write`;
+  fold a workgroup `OpMemoryBarrier` into the `OpControlBarrier` right after it, as GLSL
+  `memoryBarrier*(); barrier();` compiles to; refuse depth comparison sampling of a texture
+  passed as a function parameter with an error instead of an internal compiler error; 0005
+  removes that error)
+- `0004-spirv-reader-run-time-indexed-handle-arrays.patch` (read an array of images or samplers
+  indexed with a run-time value through an `OpSwitch` over the elements, each case reading its
+  own binding; an index past the end reads the last element)
+- `0005-spirv-reader-handle-params.patch` (replace texture and sampler function parameters with
+  the module-scope variables passed to them, one function copy per set of variables; replaces the
+  depth-texture-parameter error from 0003)
+- `0006-spirv-reader-isnan-isinf.patch` (read `OpIsNan` and `OpIsInf` as tests on the float's
+  bits, as WGSL has no NaN or infinity tests; f16 is widened to f32 first)
+- `0007-spirv-reader-no-exceptions.patch` (parse without `try` when SPIRV-Cross is built with
+  `SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS`, as Godot builds with exceptions disabled)
+- `0008-spirv-reader-binding-plan.patch` (reader option that takes every texture, sampler and
+  buffer binding from the embedder, so all stages of a shader number split arrays and combined
+  image samplers the same way; the driver builds the plan from the whole shader's uniforms)
+- `0009-spirv-reader-depth-sample.patch` (read a 2D or 2D array depth texture sampled without
+  comparison with four `textureLoad`s blended bilinearly, as WebGPU cannot pair depth textures
+  with filtering samplers; Godot reads its shadow atlases with a linear sampler)
+- `0010-spirv-reader-point-coord.patch` (read `gl_PointCoord` as `vec2(0.5)`: WebGPU draws only
+  1-pixel points, whose one fragment is at the point's center, and WGSL has no such builtin)
+- `0011-spirv-reader-flip-vertex-y.patch` (`flip_vertex_y` option: negate the y of the vertex
+  position output, as Vulkan clip space has y down and WebGPU has it up; without it every
+  triangle faces the other way and is culled. Godot's Metal and D3D12 drivers flip the same way)
+
 ## tinyexr
 
 - Upstream: https://github.com/syoyo/tinyexr

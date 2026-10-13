@@ -11,7 +11,7 @@ struct CellData {
 	uint normal; //RGB normal encoded
 };
 
-layout(set = 0, binding = 1, std140) buffer CellDataBuffer {
+layout(set = 0, binding = 1, std140) readonly buffer CellDataBuffer {
 	CellData data[];
 }
 cell_data;

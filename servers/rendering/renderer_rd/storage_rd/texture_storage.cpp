@@ -593,10 +593,12 @@ TextureStorage::TextureStorage() {
 	}
 
 	{
-		// Create default VRS texture.
+		// Create default VRS texture. R8_UINT is not a WebGPU 1.0 storage
+		// format; fall back to R32_UINT for the no-VRS default so the texture
+		// creation with STORAGE_BIT stays legal there.
 		bool vrs_supported = RD::get_singleton()->has_feature(RD::SUPPORTS_ATTACHMENT_VRS);
 		RD::TextureFormat tformat;
-		tformat.format = vrs_supported ? RD::get_singleton()->vrs_get_format() : RD::DATA_FORMAT_R8_UINT;
+		tformat.format = vrs_supported ? RD::get_singleton()->vrs_get_format() : RD::DATA_FORMAT_R32_UINT;
 		tformat.width = 4;
 		tformat.height = 4;
 		tformat.usage_bits = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT | (vrs_supported ? RD::TEXTURE_USAGE_VRS_ATTACHMENT_BIT : 0);
@@ -5136,7 +5138,10 @@ void TextureStorage::_render_target_allocate_sdf(RenderTarget *rt) {
 	rt->sdf_buffer_process[0] = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 	rt->sdf_buffer_process[1] = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 
-	tformat.format = RD::DATA_FORMAT_R16_SNORM;
+	// R16 storage bindings (both r16snorm and r16f) aren't in WebGPU 1.0's
+	// core storage format list; r32float is the smallest single-channel one
+	// the WebGPU base spec accepts for read+write storage-image bindings.
+	tformat.format = RD::DATA_FORMAT_R32_SFLOAT;
 	tformat.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT;
 
 	rt->sdf_buffer_read = RD::get_singleton()->texture_create(tformat, RD::TextureView());
