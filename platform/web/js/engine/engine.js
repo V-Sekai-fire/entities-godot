@@ -61,43 +61,31 @@ const Engine = (function () {
 	};
 
 	/**
-	 * Auto-detect the rendering driver from the browser's capabilities when
-	 * the template was built with `webgpu=yes`. Prepends `--rendering-driver`
-	 * and `--rendering-method` to `args` when they are absent, so an explicit
-	 * choice from `EngineConfig.args` always wins.
+	 * When the template was built with `webgpu=yes` and the browser has no
+	 * WebGPU adapter, prepend the WebGL 2 driver and renderer to `args`, the
+	 * way `rendering/rendering_device/fallback_to_opengl3` works on desktop.
+	 * Otherwise the project's settings choose the driver and the renderer.
+	 * An explicit `--rendering-driver` in `EngineConfig.args` always wins.
 	 *
 	 * @param {Array<string>} args The engine arguments.
-	 * @returns {Promise<Array<string>>} The same args, possibly with a driver
-	 *   pair prepended.
+	 * @returns {Promise<Array<string>>} The same args, possibly with the
+	 *   fallback prepended.
 	 * @ignore
 	 */
 	Engine.selectRenderingDriver = async function (args) {
-		if (!___GODOT_WEBGPU_ENABLED) {
+		if (!___GODOT_WEBGPU_ENABLED || args.includes('--rendering-driver')) {
 			return args;
 		}
-		if (args.includes('--rendering-driver')) {
-			return args;
-		}
-		if (typeof navigator === 'undefined' || !navigator.gpu) {
-			return args;
-		}
+		let adapter = null;
 		try {
-			const adapter = await navigator.gpu.requestAdapter();
-			if (!adapter) {
-				return args;
-			}
+			adapter = typeof navigator !== 'undefined' && navigator.gpu ? await navigator.gpu.requestAdapter() : null;
 		} catch (e) {
+			adapter = null;
+		}
+		if (adapter) {
 			return args;
 		}
-		const prefix = ['--rendering-driver', 'webgpu'];
-		if (!args.includes('--rendering-method')) {
-			// Mobile uses a smaller texture-format surface than forward_plus
-			// and fits inside browsers whose WebGPU is limited to the
-			// standard formats (Firefox in this window). Explicit
-			// --rendering-method in EngineConfig.args overrides this.
-			prefix.push('--rendering-method', 'mobile');
-		}
-		return prefix.concat(args);
+		return ['--rendering-driver', 'opengl3', '--rendering-method', 'gl_compatibility'].concat(args);
 	};
 
 	/**
