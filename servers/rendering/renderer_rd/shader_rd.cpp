@@ -1166,7 +1166,7 @@ void ShaderRD::set_shader_cache_save_debug(bool p_enable) {
 	shader_cache_save_debug = p_enable;
 }
 
-Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &p_stage_sources, const Vector<uint64_t> &p_dynamic_buffers) {
+Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &p_stage_sources, const Vector<uint64_t> &p_dynamic_buffers, const RenderingShaderContainerFormat *p_format) {
 	RD::ShaderStageSPIRVData stage;
 	Vector<RD::ShaderStageSPIRVData> stages;
 	String error;
@@ -1177,7 +1177,11 @@ Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &
 			continue;
 		}
 
-		stage.spirv = RD::get_singleton()->shader_compile_spirv_from_source(RD::ShaderStage(i), p_stage_sources[i], RD::SHADER_LANGUAGE_GLSL, &error);
+		if (p_format != nullptr) {
+			stage.spirv = RD::get_singleton()->shader_compile_spirv_from_source_for_format(RD::ShaderStage(i), p_stage_sources[i], *p_format, &error);
+		} else {
+			stage.spirv = RD::get_singleton()->shader_compile_spirv_from_source(RD::ShaderStage(i), p_stage_sources[i], RD::SHADER_LANGUAGE_GLSL, &error);
+		}
 		stage.dynamic_buffers = p_dynamic_buffers;
 		stage.shader_stage = RD::ShaderStage(i);
 		if (!stage.spirv.is_empty()) {

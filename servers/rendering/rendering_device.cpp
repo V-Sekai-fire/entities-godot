@@ -289,6 +289,14 @@ Vector<uint8_t> RenderingDevice::shader_compile_spirv_from_source(ShaderStage p_
 	}
 }
 
+Vector<uint8_t> RenderingDevice::shader_compile_spirv_from_source_for_format(ShaderStage p_stage, const String &p_source_code, const RenderingShaderContainerFormat &p_format, String *r_error) {
+#ifdef MODULE_GLSLANG_ENABLED
+	return compile_glslang_shader(p_stage, ShaderIncludeDB::parse_include_files(p_source_code), p_format.get_shader_language_version(), p_format.get_shader_spirv_version(), r_error);
+#else
+	ERR_FAIL_V_MSG(Vector<uint8_t>(), "Shader language is not supported.");
+#endif
+}
+
 RID RenderingDevice::shader_create_from_spirv(const Vector<ShaderStageSPIRVData> &p_spirv, const String &p_shader_name) {
 	Vector<uint8_t> bytecode = shader_compile_binary_from_spirv(p_spirv, p_shader_name);
 	ERR_FAIL_COND_V(bytecode.is_empty(), RID());
