@@ -1177,6 +1177,8 @@ Patches:
 - `0011-spirv-reader-flip-vertex-y.patch` (`flip_vertex_y` option: negate the y of the vertex
   position output, as Vulkan clip space has y down and WebGPU has it up; without it every
   triangle faces the other way and is culled. Godot's Metal and D3D12 drivers flip the same way)
+- `0012-spirv-reader-volatile.patch` (read the `Volatile` decoration as a no-op, like `Coherent`:
+  WGSL has no way to say it, and Godot's volumetric fog marks a storage buffer with it)
 
 ## tinyexr
 
