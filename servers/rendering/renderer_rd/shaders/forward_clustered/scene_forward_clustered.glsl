@@ -1393,12 +1393,7 @@ void fragment_shader(in SceneData scene_data) {
 	if (sc_emulate_point_size) {
 		point_coord = point_coord_interp;
 	} else {
-#ifdef WEBGPU_USED
-		// HACK: stubby stubby (no gl_PointCoord in webGPU)
-		point_coord = vec2(0.5);
-#else
 		point_coord = gl_PointCoord;
-#endif
 	}
 #else // !POINT_SIZE_USED
 	vec2 point_coord = vec2(0.5);
@@ -2566,9 +2561,7 @@ void fragment_shader(in SceneData scene_data) {
 							float range_begin = directional_lights.data[i].shadow_range_begin.x;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale1 * test_radius;
-							// HACK: AHAHAHAHAHA
-							// shadow = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
-							shadow = 0.5;
+							shadow = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
 							blend_count++;
 						}
 
@@ -2584,9 +2577,7 @@ void fragment_shader(in SceneData scene_data) {
 							float range_begin = directional_lights.data[i].shadow_range_begin.y;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale2 * test_radius;
-							// HACK: AHAHAHAHAHA
-							// float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
-							float s = 0.5;
+							float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
 
 							if (blend_count == 0) {
 								shadow = s;
@@ -2611,9 +2602,7 @@ void fragment_shader(in SceneData scene_data) {
 							float range_begin = directional_lights.data[i].shadow_range_begin.z;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale3 * test_radius;
-							// HACK: AHAHAHAHAHA
-							// float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
-							float s = 0.5;
+							float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
 
 							if (blend_count == 0) {
 								shadow = s;
@@ -2638,9 +2627,7 @@ void fragment_shader(in SceneData scene_data) {
 							float range_begin = directional_lights.data[i].shadow_range_begin.w;
 							float test_radius = (range_pos - range_begin) * directional_lights.data[i].softshadow_angle;
 							vec2 tex_scale = directional_lights.data[i].uv_scale4 * test_radius;
-							// HACK: AHAHAHAHAHA
-							// float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
-							float s = 0.5;
+							float s = sample_directional_soft_shadow(directional_shadow_atlas, pssm_coord.xyz, tex_scale * directional_lights.data[i].soft_shadow_scale, scene_data.taa_frame_count);
 
 							if (blend_count == 0) {
 								shadow = s;

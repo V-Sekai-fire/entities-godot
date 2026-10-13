@@ -1236,12 +1236,7 @@ void main() {
 	if (sc_emulate_point_size) {
 		point_coord = point_coord_interp;
 	} else {
-#ifdef WEBGPU_USED
-		// HACK: stubby stubby (no gl_PointCoord in webGPU)
-		point_coord = vec2(0.5);
-#else
 		point_coord = gl_PointCoord;
-#endif
 	}
 #else // !POINT_SIZE_USED
 	vec2 point_coord = vec2(0.5);

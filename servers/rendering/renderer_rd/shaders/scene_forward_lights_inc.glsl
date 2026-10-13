@@ -565,9 +565,7 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 				pos.xy = pos.xy * 0.5 + 0.5;
 				pos.xy = uv_rect.xy + pos.xy * uv_rect.zw;
 
-				// HACK: AHAHAHAHAH
-				// float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos.xy, 0.0).r;
-				float d = 0.5;
+				float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos.xy, 0.0).r;
 				if (d > z_norm) {
 					blocker_average += d;
 					blocker_count += 1.0;
@@ -666,9 +664,7 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 
 		pos = pos * 0.5 + 0.5;
 		pos = uv_rect.xy + pos * uv_rect.zw;
-		// HACK: AHAHAHAHAH
-		// float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos, 0.0).r;
-		float shadow_z = 0.5;
+		float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos, 0.0).r;
 		transmittance_z = half((depth - shadow_z) / omni_lights.data[idx].inv_radius);
 	}
 #endif // !SHADOWS_DISABLED
@@ -852,9 +848,7 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 			for (uint i = 0; i < sc_penumbra_shadow_samples(); i++) {
 				vec2 suv = shadow_uv + (disk_rotation * scene_data_block.data.penumbra_shadow_kernel[i].xy) * uv_size;
 				suv = clamp(suv, spot_lights.data[idx].atlas_rect.xy, clamp_max);
-				// HACK: AHAHAHAHAH
-				// float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), suv, 0.0).r;
-				float d = 0.5;
+				float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), suv, 0.0).r;
 				if (d > splane.z) {
 					blocker_average += d;
 					blocker_count += 1.0;
@@ -902,9 +896,7 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		splane /= splane.w;
 
 		vec3 shadow_uv = vec3(splane.xy * spot_lights.data[idx].atlas_rect.zw + spot_lights.data[idx].atlas_rect.xy, splane.z);
-		// HACK: AHAHAHAHAH
-		// float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), shadow_uv.xy, 0.0).r;
-		float shadow_z = 0.5;
+		float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), shadow_uv.xy, 0.0).r;
 
 		shadow_z = shadow_z * 2.0 - 1.0;
 		float z_far = 1.0 / spot_lights.data[idx].inv_radius;
@@ -1076,14 +1068,7 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 				pos.xy = pos.xy * 0.5 + 0.5;
 				pos.xy = uv_rect.xy + pos.xy * uv_rect.zw;
 
-#ifndef WEBGPU_USED
 				float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos.xy, 0.0).r;
-#else
-				// float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos.xy, 0.0).r;
-				// float d = texelFetch(sampler2D(shadow_atlas, SAMPLER_NEAREST_CLAMP), ivec2(pos.xy / scene_data_block.data.shadow_atlas_pixel_size), 0).r;
-				// HACK: stubby stubby
-				float d = 0.5;
-#endif
 				if (d > z_norm) {
 					blocker_average += d;
 					blocker_count += 1.0;
@@ -1116,14 +1101,7 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 
 					pos.xy = pos.xy * 0.5 + 0.5;
 					pos.xy = uv_rect.xy + pos.xy * uv_rect.zw;
-#ifndef WEBGPU_USED
 					shadow += half(textureProj(sampler2DShadow(shadow_atlas, shadow_sampler), vec4(pos.xy, z_norm, 1.0)));
-#else
-					// shadow += half(textureProj(sampler2DShadow(shadow_atlas, shadow_sampler), vec4(pos.xy, z_norm, 1.0)));
-					// shadow += half(float(texelFetch(sampler2D(shadow_atlas, SAMPLER_NEAREST_CLAMP), ivec2(pos.xy / scene_data_block.data.shadow_atlas_pixel_size), 0).r >= z_norm));
-					// HACK: stubby stubby
-					shadow += 0.5;
-#endif
 				}
 
 				shadow /= half(sc_penumbra_shadow_samples());
@@ -1268,14 +1246,7 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 
 			pos = pos * 0.5 + 0.5;
 			pos = uv_rect.xy + pos * uv_rect.zw;
-#ifndef WEBGPU_USED
 			float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos, 0.0).r;
-#else
-			// float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos, 0.0).r;
-			// float shadow_z = texelFetch(sampler2D(shadow_atlas, SAMPLER_NEAREST_CLAMP), ivec2(pos / scene_data_block.data.shadow_atlas_pixel_size), 0).r;
-			// HACK: stubby stubby
-			float shadow_z = 0.5;
-#endif
 			transmittance_z = half((depth - shadow_z) / inv_center_range);
 		}
 #endif
