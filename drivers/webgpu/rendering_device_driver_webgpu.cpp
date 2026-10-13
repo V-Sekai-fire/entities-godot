@@ -1592,12 +1592,38 @@ RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_cr
 	for (uint32_t i = 0; i < p_attachments.size(); i++) {
 		attachments.push_back(p_attachments[i]);
 	}
+	const RenderPassInfo *render_pass_info = (const RenderPassInfo *)p_render_pass.id;
+	if (render_pass_info && render_pass_info->empty_attachment && attachments.is_empty()) {
+		const RenderPassAttachmentInfo &attachment = render_pass_info->attachments[0];
+		TextureFormat format = {};
+		format.format = rd_texture_format_from_webgpu(attachment.format);
+		format.width = MAX(_p_width, 1u);
+		format.height = MAX(_p_height, 1u);
+		format.usage_bits = TextureUsageBits::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		format.samples = TEXTURE_SAMPLES_4; // Matches _empty_render_pass_attachment_create().
+		TextureView view = {};
+		view.format = format.format;
+		attachments.push_back(texture_create(format, view));
+		framebuffer_info->owned_attachment = attachments[0];
+	}
 	framebuffer_info->attachments = attachments;
+	// The render area is the attachments' size, which can be smaller than the size asked for.
+	if (!attachments.is_empty()) {
+		const TextureInfo *texture_info = (const TextureInfo *)attachments[0].id;
+		const uint32_t mip = texture_info->texture_view_desc.baseMipLevel;
+		framebuffer_info->size = Size2i(MAX(texture_info->texture_desc.size.width >> mip, 1u), MAX(texture_info->texture_desc.size.height >> mip, 1u));
+	}
 
 	return FramebufferID(framebuffer_info);
 }
 
-void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) {}
+void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) {
+	FramebufferInfo *framebuffer_info = (FramebufferInfo *)p_framebuffer.id;
+	if (framebuffer_info->owned_attachment) {
+		texture_free(framebuffer_info->owned_attachment);
+	}
+	memdelete(framebuffer_info);
+}
 
 /****************/
 /**** SHADER ****/
@@ -3048,17 +3074,7 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 		RenderPassAttachmentInfo attachment = _empty_render_pass_attachment_create();
 		render_pass_info->attachments.push_back(attachment);
 
-		TextureFormat format = {};
-		format.format = rd_texture_format_from_webgpu(attachment.format);
-		format.width = 1;
-		format.height = 1;
-		format.usage_bits = TextureUsageBits::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-		// TODO: HELLO WHY IS THIS FOUR???
-		format.samples = TEXTURE_SAMPLES_4;
-		TextureView view = {};
-		view.format = format.format;
-		render_pass_info->emtpy_depth_texture = texture_create(format, view);
-		render_pass_info->empty_framebuffer = framebuffer_create(RenderPassID(render_pass_info), { render_pass_info->emtpy_depth_texture }, 1, 1);
+		render_pass_info->empty_attachment = true;
 		render_pass_info->depth_attachment_index = 0;
 	}
 
@@ -3081,7 +3097,8 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 	Vector<WGPURenderPassColorAttachment> color_attachments;
 
 	RenderPassInfo *render_pass_info = (RenderPassInfo *)p_render_pass.id;
-	FramebufferInfo *framebuffer_info = render_pass_info->empty_framebuffer != FramebufferID() ? (FramebufferInfo *)render_pass_info->empty_framebuffer.id : (FramebufferInfo *)p_framebuffer.id;
+	FramebufferInfo *framebuffer_info = (FramebufferInfo *)p_framebuffer.id;
+	command_buffer_info->render_area = framebuffer_info->size;
 
 	// DEV_ASSERT(render_pass_info->attachments.size() == framebuffer_info->attachments.size());
 
@@ -3194,13 +3211,18 @@ void RenderingDeviceDriverWebGpu::command_render_set_scissor(CommandBufferID p_c
 	ERR_FAIL_COND_MSG(p_scissors.size() != 1, "WebGpu cannot set multiple scissors.");
 
 	for (uint32_t i = 0; i < p_scissors.size(); i++) {
+		// Vulkan clips a scissor to the render area; WebGPU rejects one that reaches outside it.
+		Rect2i scissor = p_scissors[i];
+		if (command_buffer_info->render_area != Size2i()) {
+			scissor = scissor.intersection(Rect2i(Point2i(), command_buffer_info->render_area));
+		}
 		command_buffer_info->commands.push_back(((PassEncoderCommand){
 				.type = PassEncoderCommand::CommandType::RENDER_SET_SCISSOR_RECT,
 				.render_set_scissor_rect = (PassEncoderCommand::RenderSetScissorRect){
-						.x = (uint32_t)p_scissors[i].position.x,
-						.y = (uint32_t)p_scissors[i].position.y,
-						.width = (uint32_t)p_scissors[i].size.width,
-						.height = (uint32_t)p_scissors[i].size.height,
+						.x = (uint32_t)scissor.position.x,
+						.y = (uint32_t)scissor.position.y,
+						.width = (uint32_t)scissor.size.width,
+						.height = (uint32_t)scissor.size.height,
 				},
 		}));
 	}

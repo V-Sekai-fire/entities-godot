@@ -433,6 +433,7 @@ private:
 		Vector<PassEncoderCommand> commands;
 		bool has_compute_commands = false;
 		bool is_render_pass_active = false;
+		Size2i render_area; // Scissors are clamped to it; WebGPU rejects ones outside the attachments.
 		RenderPassEncoderInfo active_render_pass_info = RenderPassEncoderInfo();
 	};
 
@@ -474,6 +475,8 @@ private:
 		SwapChainID maybe_swapchain;
 
 		Vector<TextureID> attachments;
+		TextureID owned_attachment; // The placeholder for a pass without attachments.
+		Size2i size; // 0 when unknown (swap chain).
 	};
 
 public:
@@ -710,10 +713,9 @@ private:
 		uint32_t depth_attachment_index = UINT32_MAX;
 		uint32_t view_count;
 
-		// This data corresponds with a use of `_empty_render_pass_attachment_create`
-		// TODO: Free me!
-		FramebufferID empty_framebuffer;
-		TextureID emtpy_depth_texture;
+		// The pass has no attachments; each framebuffer gets a placeholder depth attachment of its
+		// size (`_empty_render_pass_attachment_create`), as a WebGPU render pass needs one.
+		bool empty_attachment = false;
 
 		const RenderPassAttachmentInfo *get_depth_attachment() const {
 			return depth_attachment_index < attachments.size() ? attachments.ptr() + depth_attachment_index : nullptr;
