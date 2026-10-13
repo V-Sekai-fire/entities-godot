@@ -48,6 +48,7 @@
 #endif
 
 #include <emscripten/emscripten.h>
+#include <emscripten/eventloop.h>
 
 #include <cstdlib>
 
@@ -138,6 +139,13 @@ void print_web_header() {
 /// When calling main, it is assumed FS is setup and synced.
 extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
 	godot_init_profiler();
+#ifdef WEBGPU_ENABLED
+	// WebGPU waits suspend main with JSPI, from setup onwards (a scene's _ready can read back
+	// before the first frame). While main is suspended, a call proxied from a worker returns
+	// through Emscripten's maybeExit, which exits the runtime under the suspended engine unless
+	// something holds it alive. Hold a keepalive reference until main is done.
+	emscripten_runtime_keepalive_push();
+#endif
 
 	os = new OS_Web();
 
@@ -152,6 +160,9 @@ extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
 
 	// Proper shutdown in case of setup failure.
 	if (err != OK) {
+#ifdef WEBGPU_ENABLED
+		emscripten_runtime_keepalive_pop();
+#endif
 		// Will only exit after sync.
 		emscripten_set_main_loop(exit_callback, -1, false);
 		godot_js_os_finish_async(cleanup_after_sync);
@@ -188,6 +199,7 @@ extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
 		}
 		godot_js_os_wait_frame();
 	}
+	emscripten_runtime_keepalive_pop();
 	emscripten_set_main_loop(exit_callback, -1, false);
 	godot_js_os_finish_async(cleanup_after_sync);
 #else
