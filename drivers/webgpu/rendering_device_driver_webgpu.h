@@ -130,6 +130,9 @@ private:
 		};
 
 		Vector<WGPUTextureView> views;
+		// WGSL has no cube storage textures (Godot's imageCube becomes a 2D array), so a cube view
+		// bound as a storage image goes through this 2D array view, made on first use.
+		WGPUTextureView storage_view = nullptr;
 
 		WGPUTextureView get_default_view() const { return views[(long)ViewIndex::DEFAULT]; }
 		WGPUTextureView get_depth_only_view() const { return views[(long)ViewIndex::DEPTH_ONLY]; }

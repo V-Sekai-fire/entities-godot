@@ -573,11 +573,6 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	WGPUTextureViewDimension view_dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type);
 
-	// NOTE: `imageCube` => `image2DArray` after shader transforms.
-	if (view_dimension == WGPUTextureViewDimension_Cube && (p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT)) {
-		view_dimension = WGPUTextureViewDimension_2DArray;
-	}
-
 	WGPUTextureViewDescriptor texture_view_desc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
 	texture_view_desc.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras;
 	texture_view_desc.format = view_format;
@@ -643,7 +638,10 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	WGPUTextureViewDescriptor texture_view_desc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
 	texture_view_desc.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras;
 	texture_view_desc.format = webgpu_texture_format_from_rd(p_view.format);
+	texture_view_desc.dimension = texture_info->texture_view_desc.dimension;
+	texture_view_desc.baseMipLevel = texture_info->texture_view_desc.baseMipLevel;
 	texture_view_desc.mipLevelCount = texture_info->texture_view_desc.mipLevelCount;
+	texture_view_desc.baseArrayLayer = texture_info->texture_view_desc.baseArrayLayer;
 	texture_view_desc.arrayLayerCount = texture_info->texture_view_desc.arrayLayerCount;
 	texture_view_desc.aspect = texture_info->texture_view_desc.aspect;
 	texture_view_desc.usage = texture_view_usage;
@@ -653,6 +651,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	TextureInfo *new_texture_info = memnew(TextureInfo);
 	*new_texture_info = *texture_info;
 	new_texture_info->views = views;
+	new_texture_info->storage_view = nullptr;
 	new_texture_info->is_original_texture = false;
 	new_texture_info->texture_view_desc = texture_view_desc;
 
@@ -719,6 +718,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	TextureInfo *new_texture_info = memnew(TextureInfo);
 	*new_texture_info = *texture_info;
 	new_texture_info->views = views;
+	new_texture_info->storage_view = nullptr;
 	new_texture_info->is_original_texture = false;
 	new_texture_info->texture_view_desc = texture_view_desc;
 
@@ -732,6 +732,9 @@ void RenderingDeviceDriverWebGpu::texture_free(TextureID p_texture) {
 	}
 	for (int i = 0; i < texture_info->views.size(); i++) {
 		wgpuTextureViewRelease(texture_info->views[i]);
+	}
+	if (texture_info->storage_view) {
+		wgpuTextureViewRelease(texture_info->storage_view);
 	}
 	memdelete(texture_info);
 }
@@ -2261,6 +2264,17 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 
 				TextureInfo *texture_info = (TextureInfo *)uniform.ids[corrected_binding.binding_id_idx].id;
 				entry.textureView = texture_info->get_view_with_format();
+				const WGPUTextureViewDimension dimension = texture_info->texture_view_desc.dimension;
+				if (corrected_binding.original_type == RenderingDeviceCommons::UNIFORM_TYPE_IMAGE &&
+						(dimension == WGPUTextureViewDimension_Cube || dimension == WGPUTextureViewDimension_CubeArray)) {
+					if (!texture_info->storage_view) {
+						WGPUTextureViewDescriptor desc = texture_info->texture_view_desc;
+						desc.nextInChain = nullptr;
+						desc.dimension = WGPUTextureViewDimension_2DArray;
+						texture_info->storage_view = wgpuTextureCreateView(texture_info->texture, &desc);
+					}
+					entry.textureView = texture_info->storage_view;
+				}
 				entries.push_back(entry);
 			} break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE_BUFFER:
