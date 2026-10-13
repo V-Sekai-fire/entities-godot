@@ -96,7 +96,7 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 
 		// HACK: WebGPU cannot compile subpasses
 #ifdef WEBGPU_ENABLED
-		for (String& mode: tonemap_modes) {
+		for (String &mode : tonemap_modes) {
 			mode = mode.replace("\n#define SUBPASS", "");
 		}
 #endif

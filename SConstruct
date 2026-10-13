@@ -209,13 +209,7 @@ opts.Add(BoolVariable("d3d12", "Enable the Direct3D 12 rendering driver on suppo
 opts.Add(BoolVariable("metal", "Enable the Metal rendering driver on supported platforms (Apple arm64 only)", False))
 opts.Add(BoolVariable("webgpu", "Enable the WebGPU rendering driver", True))
 opts.Add(
-    EnumVariable(
-        "webgpu_backend",
-        "WebGPU backend library / platform",
-        "auto",
-        ["auto", "emdawnwebgpu"],
-        ignorecase=2
-    )
+    EnumVariable("webgpu_backend", "WebGPU backend library / platform", "auto", ["auto", "emdawnwebgpu"], ignorecase=2)
 )
 opts.Add(BoolVariable("use_volk", "Use the volk library to load the Vulkan loader dynamically", True))
 opts.Add(BoolVariable("accesskit", "Enable the AccessKit driver for screen reader support", True))

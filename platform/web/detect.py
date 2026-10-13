@@ -270,7 +270,7 @@ def configure(env: "SConsEnvironment"):
         if backend == "emdawnwebgpu":
             env.Append(CPPDEFINES=["WEBGPU_BACKEND_EMDAWN"])
         else:
-            print_error('Unsupported "webgpu_backend=%s" for platform "web"' % env["webgpu_backend"])
+            print_error('Unsupported "webgpu_backend={}" for platform "web"'.format(env["webgpu_backend"]))
             sys.exit(255)
 
     if env["javascript_eval"]:

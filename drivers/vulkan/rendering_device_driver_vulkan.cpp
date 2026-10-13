@@ -7597,4 +7597,3 @@ RenderingDeviceDriverVulkan::~RenderingDeviceDriverVulkan() {
 }
 
 #endif //  VULKAN_ENABLED
-

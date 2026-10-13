@@ -41,7 +41,7 @@ vec4 voxel_cone_trace(texture3D probe, vec3 cell_size, vec3 pos, vec3 direction,
 		float a = (1.0 - voxel_cone_trace_out.a); \
 		voxel_cone_trace_out += a * scolor; \
 		dist += half_diameter; \
-	} \
+	}
 
 #endif
 
@@ -93,8 +93,7 @@ vec4 voxel_cone_trace_45_degrees(texture3D probe, vec3 cell_size, vec3 pos, vec3
 		voxel_cone_trace_45_degrees_out += scolor; \
 		dist += radius; \
 		radius = max(0.5, tan_half_angle * dist); \
-	} \
-
+	}
 
 #endif
 

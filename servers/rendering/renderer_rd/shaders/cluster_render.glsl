@@ -120,8 +120,7 @@ void main() {
 	uint cluster_thread_group_index;
 // WGSL does not support `gl_HelperInvocation` nor `subgroupBallotExclusiveBitCount`
 #if !defined(WEBGPU_USED)
-	if (!sc_use_helper_check || !gl_HelperInvocation)
-	{
+	if (!sc_use_helper_check || !gl_HelperInvocation) {
 		//https://advances.realtimerendering.com/s2017/2017_Sig_Improved_Culling_final.pdf
 
 		uvec4 mask;
@@ -159,8 +158,7 @@ void main() {
 
 // WGSL does not support gl_HelperInvocation nor subgroup ops
 #if !defined(WEBGPU_USED)
-	if (!sc_use_helper_check || !gl_HelperInvocation)
-	{
+	if (!sc_use_helper_check || !gl_HelperInvocation) {
 		z_write_bit = subgroupOr(z_write_bit); //merge all Zs
 		if (cluster_thread_group_index == 0) {
 			aux = atomicOr(cluster_render.data[z_write_offset], z_write_bit);

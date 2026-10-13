@@ -366,7 +366,6 @@ void main() {
 	group_offset.y %= params.step_size;
 	group_offset.z %= params.step_size;
 
-
 	ivec3 group_pos = group_offset + (ivec3(gl_WorkGroupID.xyz) / params.step_size) * ivec3(GROUP_SIZE * params.step_size);
 
 	//load data into local group memory

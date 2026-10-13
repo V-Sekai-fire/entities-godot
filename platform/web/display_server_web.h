@@ -33,9 +33,10 @@
 #include "godot_js.h"
 
 #ifdef WEBGPU_ENABLED
-#include "servers/rendering/rendering_device.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 #include "drivers/webgpu/rendering_device_driver_webgpu.h"
+#include "servers/rendering/rendering_device.h"
+
 #include "platform/web/rendering_context_driver_webgpu_web.h"
 #endif
 

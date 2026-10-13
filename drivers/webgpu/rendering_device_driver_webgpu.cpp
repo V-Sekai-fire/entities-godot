@@ -1,14 +1,43 @@
-#include "rendering_device_driver_webgpu.h"
+/**************************************************************************/
+/*  rendering_device_driver_webgpu.cpp                                    */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
-#include "rendering_context_driver_webgpu.h"
-#include "rendering_shader_container_webgpu.h"
-#include "webgpu_conv.h"
-#include "webgpu_platform.h"
+#include "rendering_device_driver_webgpu.h"
 
 #include "core/error/error_macros.h"
 #include "core/os/memory.h"
 #include "core/string/print_string.h"
 #include "core/templates/local_vector.h"
+#include "drivers/webgpu/rendering_context_driver_webgpu.h"
+#include "drivers/webgpu/rendering_shader_container_webgpu.h"
+#include "drivers/webgpu/webgpu_conv.h"
+#include "drivers/webgpu/webgpu_platform.h"
 
 #include <cstdint>
 #include <cstring>
@@ -34,13 +63,13 @@ static void handle_request_device(WGPURequestDeviceStatus p_status,
 	*(WGPUDevice *)userdata = p_device;
 }
 
-static void handle_uncaptured_error(WGPUDevice const *_device, WGPUErrorType p_type,
+static void handle_uncaptured_error(const WGPUDevice *_device, WGPUErrorType p_type,
 		WGPUStringView p_message, void *_userdata1, void *_userdata2) {
 	String message = String::utf8(p_message.data, p_message.length);
 	ERR_PRINT(vformat("[WEBGPU] error: %s", message));
 }
 
-static void handle_device_lost(WGPUDevice const *_device, WGPUDeviceLostReason p_reason,
+static void handle_device_lost(const WGPUDevice *_device, WGPUDeviceLostReason p_reason,
 		WGPUStringView p_message, void *_userdata1, void *_userdata2) {
 	if (p_reason == WGPUDeviceLostReason_Destroyed) {
 		return;
@@ -169,7 +198,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	queue = wgpuDeviceGetQueue(device);
 	ERR_FAIL_COND_V(!this->queue, FAILED);
 
-	capabilties = (Capabilities){
+	capabilities = (Capabilities){
 		// TODO: This information is not accurate, see modules/glslang/register_types.cpp:78.
 		.device_family = DEVICE_WEBGPU,
 		.version_major = 28,
@@ -2005,7 +2034,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		shader_info->standalone_push_constant_group = push_constant_group;
 	}
 
-	// Superceded by immediates patching.
+	// Superseded by immediates patching.
 	// Though maybe this will come back in the future.
 	//
 	// WGPUPipelineLayoutExtras wgpu_pipeline_extras = (WGPUPipelineLayoutExtras){
@@ -3995,7 +4024,7 @@ String RenderingDeviceDriverWebGpu::get_pipeline_cache_uuid() const {
 }
 
 const RenderingDeviceDriver::Capabilities &RenderingDeviceDriverWebGpu::get_capabilities() const {
-	return capabilties;
+	return capabilities;
 }
 
 const RenderingShaderContainerFormat &RenderingDeviceDriverWebGpu::get_shader_container_format() const {
