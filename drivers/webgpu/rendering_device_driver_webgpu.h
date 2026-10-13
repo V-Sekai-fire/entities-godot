@@ -400,9 +400,9 @@ private:
 			SetPipeline set_pipeline;
 		};
 
-		Vector<uint8_t> render_push_constants;
-		Vector<uint8_t> compute_push_constants;
-		Vector<uint32_t> dynamic_offsets;
+		Vector<uint8_t> render_push_constants = {};
+		Vector<uint8_t> compute_push_constants = {};
+		Vector<uint32_t> dynamic_offsets = {};
 
 		bool is_draw_call() const {
 			return this->type == CommandType::RENDER_DRAW ||
@@ -698,8 +698,8 @@ private:
 		WGPUStoreOp store_op;
 		WGPULoadOp stencil_load_op;
 		WGPUStoreOp stencil_store_op;
-		bool is_depth_stencil;
-		bool is_depth_stencil_read_only;
+		bool is_depth_stencil = false;
+		bool is_depth_stencil_read_only = false;
 	};
 
 	struct RenderPassInfo {

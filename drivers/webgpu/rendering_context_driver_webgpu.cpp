@@ -82,8 +82,7 @@ Error RenderingContextDriverWebGpu::initialize() {
 #ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 	// HACK: Forcing Vulkan works nicely if you need to use lavapipe (CPU vulkan implementation) for debugging
 	WGPUInstanceExtras instance_extras = (WGPUInstanceExtras){
-		.chain = (WGPUChainedStruct){
-				.sType = (WGPUSType)WGPUSType_InstanceExtras },
+		.chain = (WGPUChainedStruct){ .sType = (WGPUSType)WGPUSType_InstanceExtras },
 		.backends = WGPUInstanceBackend_Vulkan
 	};
 #endif
@@ -100,14 +99,13 @@ Error RenderingContextDriverWebGpu::initialize() {
 	instance = wgpuCreateInstance(&instance_descriptor);
 	ERR_FAIL_NULL_V_MSG(instance, ERR_CANT_CREATE, "Failed to create wgpu instance.");
 
-	WGPURequestAdapterOptions adapter_options = {};
-	WGPURequestAdapterCallbackInfo adapter_callback_info = {
-		// WaitAnyOnly so the callback fires under wgpuInstanceWaitAny below;
-		// see the equivalent switch in RenderingDeviceDriverWebGpu::initialize.
-		.mode = WGPUCallbackMode_WaitAnyOnly,
-		.callback = handle_request_adapter,
-		.userdata1 = this,
-	};
+	WGPURequestAdapterOptions adapter_options = WGPU_REQUEST_ADAPTER_OPTIONS_INIT;
+	WGPURequestAdapterCallbackInfo adapter_callback_info = WGPU_REQUEST_ADAPTER_CALLBACK_INFO_INIT;
+	// WaitAnyOnly so the callback fires under wgpuInstanceWaitAny below;
+	// see the equivalent switch in RenderingDeviceDriverWebGpu::initialize.
+	adapter_callback_info.mode = WGPUCallbackMode_WaitAnyOnly;
+	adapter_callback_info.callback = handle_request_adapter;
+	adapter_callback_info.userdata1 = this;
 
 	// There is no way to request all adapters, so we just get the high and low power ones.
 
@@ -117,7 +115,9 @@ Error RenderingContextDriverWebGpu::initialize() {
 		requesting_power = power;
 		WGPUFuture future = wgpuInstanceRequestAdapter(instance, &adapter_options, adapter_callback_info);
 #if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
-		WGPUFutureWaitInfo wait_info = { .future = future, .completed = false };
+		WGPUFutureWaitInfo wait_info = WGPU_FUTURE_WAIT_INFO_INIT;
+		wait_info.future = future;
+		wait_info.completed = false;
 		WGPUWaitStatus wait_status = wgpuInstanceWaitAny(instance, 1, &wait_info, UINT64_MAX);
 		ERR_FAIL_COND_V_MSG(wait_status != WGPUWaitStatus_Success, ERR_CANT_CREATE,
 				"Failed to wait on WebGPU adapter request.");
@@ -293,16 +293,17 @@ WGPUAdapter RenderingContextDriverWebGpu::adapter_acquire(uint32_t p_adapter_ind
 	}
 	// The cached adapter already made a device (a local RenderingDevice): request another.
 	WGPUAdapter fresh = nullptr;
-	WGPURequestAdapterOptions adapter_options = {};
+	WGPURequestAdapterOptions adapter_options = WGPU_REQUEST_ADAPTER_OPTIONS_INIT;
 	adapter_options.powerPreference = adapter_power[p_adapter_index];
-	WGPURequestAdapterCallbackInfo callback_info = {
-		.mode = WGPUCallbackMode_WaitAnyOnly,
-		.callback = handle_request_fresh_adapter,
-		.userdata1 = &fresh,
-	};
+	WGPURequestAdapterCallbackInfo callback_info = WGPU_REQUEST_ADAPTER_CALLBACK_INFO_INIT;
+	callback_info.mode = WGPUCallbackMode_WaitAnyOnly;
+	callback_info.callback = handle_request_fresh_adapter;
+	callback_info.userdata1 = &fresh;
 	WGPUFuture future = wgpuInstanceRequestAdapter(instance, &adapter_options, callback_info);
 #if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
-	WGPUFutureWaitInfo wait_info = { .future = future, .completed = false };
+	WGPUFutureWaitInfo wait_info = WGPU_FUTURE_WAIT_INFO_INIT;
+	wait_info.future = future;
+	wait_info.completed = false;
 	ERR_FAIL_COND_V_MSG(wgpuInstanceWaitAny(instance, 1, &wait_info, UINT64_MAX) != WGPUWaitStatus_Success, nullptr,
 			"Failed to wait on WebGPU adapter request.");
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
@@ -334,13 +335,12 @@ void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGP
 	}
 
 	// TODO: Complete full surface config.
-	WGPUSurfaceConfiguration surface_config = (WGPUSurfaceConfiguration){
-		.device = p_device,
-		.format = this->format,
-		.usage = WGPUTextureUsage_RenderAttachment,
-		.width = this->width,
-		.height = this->height,
-	};
+	WGPUSurfaceConfiguration surface_config = WGPU_SURFACE_CONFIGURATION_INIT;
+	surface_config.device = p_device;
+	surface_config.format = this->format;
+	surface_config.usage = WGPUTextureUsage_RenderAttachment;
+	surface_config.width = this->width;
+	surface_config.height = this->height;
 
 	wgpuSurfaceConfigure(this->surface, &surface_config);
 }
