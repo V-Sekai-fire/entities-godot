@@ -28,7 +28,6 @@
 #ifndef SRC_TINT_LANG_WGSL_RESOLVER_RESOLVER_HELPER_TEST_H_
 #define SRC_TINT_LANG_WGSL_RESOLVER_RESOLVER_HELPER_TEST_H_
 
-#include <functional>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -39,6 +38,8 @@
 #include "gtest/gtest.h"
 #include "src/tint/lang/core/type/abstract_float.h"
 #include "src/tint/lang/core/type/abstract_int.h"
+#include "src/tint/lang/core/type/i8.h"
+#include "src/tint/lang/core/type/u8.h"
 #include "src/tint/lang/wgsl/program/program_builder.h"
 #include "src/tint/lang/wgsl/resolver/resolver.h"
 #include "src/tint/lang/wgsl/sem/array.h"
@@ -47,6 +48,14 @@
 #include "src/tint/lang/wgsl/sem/variable.h"
 #include "src/tint/utils/containers/vector.h"
 #include "src/tint/utils/rtti/traits.h"
+
+#define EXPECT_ERROR(in, err)         \
+    SCOPED_TRACE("called from here"); \
+    ExpectError((in), (err))
+
+#define EXPECT_SUCCESS(in)            \
+    SCOPED_TRACE("called from here"); \
+    ExpectSuccess((in))
 
 namespace tint::resolver {
 
@@ -57,7 +66,7 @@ class TestHelper : public ProgramBuilder {
     TestHelper();
 
     /// Destructor
-    ~TestHelper();
+    ~TestHelper() override;
 
     /// @return a pointer to the Resolver
     Resolver* r() const { return resolver_.get(); }
@@ -132,6 +141,14 @@ class TestHelper : public ProgramBuilder {
     /// declared in WGSL.
     std::string FriendlyName(const core::type::Type* type) { return type->FriendlyName(); }
 
+    /// Run @p wgsl through the whole WGSL frontend, and check that it fails with @p error.
+    void ExpectError(std::string_view wgsl,
+                     std::string_view error,
+                     wgsl::AllowedFeatures allowed_features = wgsl::AllowedFeatures::Everything());
+
+    /// Run @p wgsl through the whole WGSL frontend, and check that does not produce an error.
+    void ExpectSuccess(std::string_view wgsl);
+
   protected:
     std::unique_ptr<Resolver> resolver_;
 };
@@ -165,10 +182,10 @@ struct Scalar {
     /// Constructor
     /// @param val the value used to construct this Scalar
     template <typename T>
-    Scalar(T&& val) : value(std::forward<T>(val)) {}  // NOLINT
+    explicit(false) Scalar(T&& val) : value(std::forward<T>(val)) {}
 
     /// @returns the Value
-    operator Value&() { return value; }
+    explicit operator Value&() { return value; }
 
     /// Equality operator
     /// @param other the other Scalar
@@ -187,7 +204,8 @@ struct Scalar {
 /// @param out the stream to write to
 /// @param s the Scalar
 /// @returns @p out so calls can be chained
-template <typename STREAM, typename = traits::EnableIfIsOStream<STREAM>>
+template <typename STREAM>
+    requires(traits::IsOStream<STREAM>)
 STREAM& operator<<(STREAM& out, const Scalar& s) {
     std::visit([&](auto&& v) { out << v; }, s.value);
     return out;
@@ -200,9 +218,9 @@ T As(const Scalar& s) {
 }
 
 using ast_type_func_ptr = ast::Type (*)(ProgramBuilder& b);
-using ast_expr_func_ptr = const ast::Expression* (*)(ProgramBuilder& b, VectorRef<Scalar> args);
-using ast_expr_from_double_func_ptr = const ast::Expression* (*)(ProgramBuilder& b, double v);
-using sem_type_func_ptr = const core::type::Type* (*)(ProgramBuilder& b);
+using ast_expr_func_ptr = const ast::Expression* (*)(ProgramBuilder & b, VectorRef<Scalar> args);
+using ast_expr_from_double_func_ptr = const ast::Expression* (*)(ProgramBuilder & b, double v);
+using sem_type_func_ptr = const core::type::Type* (*)(ProgramBuilder & b);
 using type_name_func_ptr = std::string (*)();
 
 struct UnspecializedElementType {};
@@ -323,6 +341,50 @@ struct DataType<core::u32> {
     }
     /// @returns the WGSL name for the type
     static inline std::string Name() { return "u32"; }
+};
+
+/// Helper for building i8 types and expressions
+template <>
+struct DataType<core::i8> {
+    /// The element type
+    using ElementType = core::i8;
+
+    /// false as i8 is not a composite type
+    static constexpr bool is_composite = false;
+
+    /// @param b the ProgramBuilder
+    /// @return a new AST i8 type
+    static inline ast::Type AST(ProgramBuilder& b) { return b.ty.i8(); }
+    /// @param b the ProgramBuilder
+    /// @return the semantic i8 type
+    static inline const core::type::Type* Sem(ProgramBuilder& b) {
+        return b.create<core::type::I8>();
+    }
+
+    /// @returns the WGSL name for the type
+    static inline std::string Name() { return "i8"; }
+};
+
+/// Helper for building u8 types and expressions
+template <>
+struct DataType<core::u8> {
+    /// The element type
+    using ElementType = core::u8;
+
+    /// false as u8 is not a composite type
+    static constexpr bool is_composite = false;
+
+    /// @param b the ProgramBuilder
+    /// @return a new AST u8 type
+    static inline ast::Type AST(ProgramBuilder& b) { return b.ty.u8(); }
+    /// @param b the ProgramBuilder
+    /// @return the semantic u8 type
+    static inline const core::type::Type* Sem(ProgramBuilder& b) {
+        return b.create<core::type::U8>();
+    }
+
+    /// @returns the WGSL name for the type
+    static inline std::string Name() { return "u8"; }
 };
 
 /// Helper for building f32 types and expressions
@@ -588,7 +650,7 @@ struct DataType<alias<T, ID>> {
             auto type = DataType<T>::AST(b);
             b.AST().AddTypeDecl(b.ty.alias(name, type));
         }
-        return b.ty(name);
+        return b.ty.AsType(name);
     }
 
     /// @param b the ProgramBuilder
@@ -599,9 +661,9 @@ struct DataType<alias<T, ID>> {
     /// @param args the value nested elements will be initialized with
     /// @return a new AST expression of the alias type
     template <bool IS_COMPOSITE = is_composite>
-    static inline tint::traits::EnableIf<!IS_COMPOSITE, const ast::Expression*> Expr(
-        ProgramBuilder& b,
-        VectorRef<Scalar> args) {
+    static inline const ast::Expression* Expr(ProgramBuilder& b, VectorRef<Scalar> args)
+        requires(!IS_COMPOSITE)
+    {
         // Cast
         return b.Call(AST(b), DataType<T>::Expr(b, std::move(args)));
     }
@@ -610,9 +672,9 @@ struct DataType<alias<T, ID>> {
     /// @param args the value nested elements will be initialized with
     /// @return a new AST expression of the alias type
     template <bool IS_COMPOSITE = is_composite>
-    static inline tint::traits::EnableIf<IS_COMPOSITE, const ast::Expression*> Expr(
-        ProgramBuilder& b,
-        VectorRef<Scalar> args) {
+    static inline const ast::Expression* Expr(ProgramBuilder& b, VectorRef<Scalar> args)
+        requires(IS_COMPOSITE)
+    {
         // Construct
         return b.Call(AST(b), DataType<T>::ExprArgs(b, std::move(args)));
     }
@@ -700,10 +762,7 @@ struct DataType<core::fluent_types::array<T, N>> {
         return b.create<sem::Array>(
             /* element */ el,
             /* count */ count,
-            /* align */ el->Align(),
-            /* size */ N * el->Size(),
-            /* stride */ el->Align(),
-            /* implicit_stride */ el->Align());
+            /* size */ N * el->Size());
     }
     /// @param b the ProgramBuilder
     /// @param args args of size 1 or N with values of type T to initialize with

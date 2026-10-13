@@ -36,6 +36,9 @@
 #include "src/tint/lang/core/constant/composite.h"
 #include "src/tint/lang/core/constant/scalar.h"
 #include "src/tint/lang/core/constant/splat.h"
+#include "src/tint/lang/core/constant/string.h"
+#include "src/tint/lang/core/intrinsic/table.h"
+#include "src/tint/lang/core/ir/array_count.h"
 #include "src/tint/lang/core/ir/binary.h"
 #include "src/tint/lang/core/ir/block.h"
 #include "src/tint/lang/core/ir/block_param.h"
@@ -61,7 +64,6 @@
 #include "src/tint/lang/core/ir/switch.h"
 #include "src/tint/lang/core/ir/swizzle.h"
 #include "src/tint/lang/core/ir/terminate_invocation.h"
-#include "src/tint/lang/core/ir/type/array_count.h"
 #include "src/tint/lang/core/ir/unary.h"
 #include "src/tint/lang/core/ir/unreachable.h"
 #include "src/tint/lang/core/ir/unused.h"
@@ -108,6 +110,19 @@ class ScopedIndent {
 };
 
 }  // namespace
+
+// Static
+std::string Disassembler::Disassemble(const Module& mod, const Instruction* inst) {
+    if (!inst) {
+        return "undef";
+    }
+    Disassembler d(mod);
+    d.out_.Clear();
+    d.current_output_line_ = 1;
+    d.current_output_start_pos_ = 0;
+    d.EmitInstruction(inst);
+    return std::string(TrimSuffix(d.Plain(), "\n"));
+}
 
 Disassembler::Disassembler(Disassembler&&) = default;
 
@@ -342,6 +357,12 @@ void Disassembler::EmitFunction(const Function* func) {
         EmitValue(arr[2]);
         out_ << ")";
     }
+    if (func->SubgroupSize()) {
+        auto subgroup_size = func->SubgroupSize().value();
+        out_ << " " << StyleAttribute("@subgroup_size") << "(";
+        EmitValue(subgroup_size);
+        out_ << ")";
+    }
 
     out_ << " " << StyleKeyword("func") << "(";
 
@@ -442,6 +463,9 @@ StyledText Disassembler::ValueToStyledText(const Value* val) {
                         [&](const core::constant::Scalar<u8>* scalar) {
                             text << StyleLiteral(u32(scalar->ValueAs<u8>().value), "u8");
                         },
+                        [&](const core::constant::Scalar<u16>* scalar) {
+                            text << StyleLiteral(u32(scalar->ValueAs<u16>().value), "u16");
+                        },
                         [&](const core::constant::Scalar<f32>* scalar) {
                             text << StyleLiteral(scalar->ValueAs<f32>().value, "f");
                         },
@@ -467,6 +491,9 @@ StyledText Disassembler::ValueToStyledText(const Value* val) {
                                 need_comma = true;
                             }
                             text << ")";
+                        },
+                        [&](const core::constant::String* str) {
+                            text << "\"" << str->Value() << "\"";
                         },
                         TINT_ICE_ON_NO_MATCH);
                 };
@@ -522,19 +549,7 @@ void Disassembler::EmitInstruction(const Instruction* inst) {
             EmitValueWithType(c);
             out_ << " = ";
             EmitInstructionName(c);
-
-            auto ep = c->ExplicitTemplateParams();
-            if (!ep.IsEmpty()) {
-                out_ << "<";
-                for (size_t i = 0; i < ep.Length(); ++i) {
-                    if (i > 0) {
-                        out_ << ", ";
-                    }
-                    out_ << ep[i]->FriendlyName();
-                }
-                out_ << ">";
-            }
-
+            EmitTemplateList(c->ExplicitTemplateParams());
             EmitOperandList(c, BuiltinCall::kArgsOperandOffset);
         },
         [&](const MemberBuiltinCall* c) {
@@ -543,6 +558,7 @@ void Disassembler::EmitInstruction(const Instruction* inst) {
             EmitOperand(c, MemberBuiltinCall::kObjectOperandOffset);
             out_ << ".";
             EmitInstructionName(c);
+            EmitTemplateList(c->ExplicitTemplateParams());
             EmitOperandList(c, UserCall::kArgsOperandOffset);
         },
         [&](const Override* o) {
@@ -630,6 +646,10 @@ void Disassembler::EmitInstruction(const Instruction* inst) {
             EmitOperandList(inst);
         });
 
+    if (inst->Alignment().has_value()) {
+        out_ << " @align(" << inst->Alignment().value() << ")";
+    }
+
     {  // Add a comment if the result IDs don't match their names
         Vector<std::string, 4> names;
         for (auto* result : inst->Results()) {
@@ -675,6 +695,20 @@ void Disassembler::EmitOperandList(const Instruction* inst, size_t start_index, 
         }
         EmitOperand(inst, i);
     }
+}
+
+void Disassembler::EmitTemplateList(VectorRef<TemplateParameter> args) {
+    if (args.IsEmpty()) {
+        return;
+    }
+    out_ << "<";
+    for (size_t i = 0; i < args.Length(); ++i) {
+        if (i > 0) {
+            out_ << ", ";
+        }
+        out_ << args[i];
+    }
+    out_ << ">";
 }
 
 void Disassembler::EmitIf(const If* if_) {
@@ -745,14 +779,26 @@ void Disassembler::EmitLoop(const Loop* l) {
     }
     out_ << StyleInstruction("loop") << " [";
 
-    if (l->Initializer() != nullptr && !l->Initializer()->IsEmpty()) {
+    auto is_printable = [](const Block* b) {
+        if (b == nullptr) {
+            return false;
+        }
+        if (!b->IsEmpty()) {
+            return true;
+        }
+
+        auto* mb = b->As<MultiInBlock>();
+        return (mb && !mb->Params().IsEmpty());
+    };
+
+    if (is_printable(l->Initializer())) {
         out_ << StyleKeyword("i") << ": " << NameOf(l->Initializer());
         out_ << ", ";
     }
 
     out_ << StyleKeyword("b") << ": " << NameOf(l->Body());
 
-    if (l->Continuing() != nullptr && !l->Continuing()->IsEmpty()) {
+    if (is_printable(l->Continuing())) {
         out_ << ", ";
         out_ << StyleKeyword("c") << ": " << NameOf(l->Continuing());
     }
@@ -763,7 +809,7 @@ void Disassembler::EmitLoop(const Loop* l) {
     out_ << " {  " << StyleComment("# ", NameOf(l));
     EmitLine();
 
-    if (l->Initializer() != nullptr && !l->Initializer()->IsEmpty()) {
+    if (is_printable(l->Initializer())) {
         ScopedIndent si(indent_size_);
         EmitBlock(l->Initializer(), "initializer");
     }
@@ -773,7 +819,7 @@ void Disassembler::EmitLoop(const Loop* l) {
         EmitBlock(l->Body(), "body");
     }
 
-    if (l->Continuing() != nullptr && !l->Continuing()->IsEmpty()) {
+    if (is_printable(l->Continuing())) {
         ScopedIndent si(indent_size_);
         EmitBlock(l->Continuing(), "continuing");
     }
@@ -881,14 +927,14 @@ void Disassembler::EmitTerminator(const Terminator* term) {
             EmitValue(bi->Condition());
             auto next_iter_values = bi->NextIterValues();
             auto exit_values = bi->ExitValues();
-            if (!next_iter_values.IsEmpty()) {
+            if (!next_iter_values.empty()) {
                 out_ << " " << StyleLabel("next_iteration") << ": [";
-                EmitOperandList(bi, ir::BreakIf::kArgsOperandOffset, next_iter_values.Length());
+                EmitOperandList(bi, ir::BreakIf::kArgsOperandOffset, next_iter_values.size());
                 out_ << " ]";
             }
-            if (!exit_values.IsEmpty()) {
+            if (!exit_values.empty()) {
                 out_ << " " << StyleLabel("exit_loop") << ": [";
-                EmitOperandList(bi, ir::BreakIf::kArgsOperandOffset + next_iter_values.Length());
+                EmitOperandList(bi, ir::BreakIf::kArgsOperandOffset + next_iter_values.size());
                 out_ << " ]";
             }
             return std::nullopt;
@@ -956,8 +1002,8 @@ void Disassembler::EmitStructDecl(const core::type::Struct* str) {
             case core::type::kBlock:
                 out_ << ", " << StyleAttribute("@block");
                 break;
-            case core::type::kSpirvExplicitLayout:
-                out_ << ", " << StyleAttribute("@spirv.explicit_layout");
+            case core::type::kExplicitLayout:
+                out_ << ", " << StyleAttribute("@core.explicit_layout");
                 break;
         }
     }
@@ -966,6 +1012,9 @@ void Disassembler::EmitStructDecl(const core::type::Struct* str) {
     for (auto* member : str->Members()) {
         out_ << "  " << StyleVariable(member->Name().Name()) << ":" << NameOf(member->Type());
         out_ << " " << StyleAttribute("@offset") << "(" << StyleLiteral(member->Offset()) << ")";
+        if (member->Size() != member->Type()->Size()) {
+            out_ << " " << StyleAttribute("@size") << "(" << StyleLiteral(member->Size()) << ")";
+        }
         if (member->Attributes().invariant) {
             out_ << ", " << StyleAttribute("@invariant");
         }
@@ -993,6 +1042,17 @@ void Disassembler::EmitStructDecl(const core::type::Struct* str) {
             out_ << ", " << StyleAttribute("@builtin") << "("
                  << StyleLiteral(member->Attributes().builtin.value()) << ")";
         }
+        if (member->Attributes().binding_point.has_value()) {
+            out_ << ", ";
+            EmitBindingPoint(member->Attributes().binding_point.value());
+        }
+        if (member->RowMajor()) {
+            out_ << ", " << StyleAttribute("@row_major");
+        }
+        if (member->HasMatrixStride()) {
+            out_ << ", " << StyleAttribute("@matrix_stride") << "("
+                 << StyleLiteral(member->MatrixStride()) << ")";
+        }
         EmitLine();
     }
     out_ << "}";
@@ -1009,6 +1069,9 @@ StyledText Disassembler::NameOf(const core::type::Type* ty) {
                         const core::ir::type::ValueArrayCount* cnt) -> void {
         out << "array<" << ary->ElemType()->FriendlyName() << ", " << NameOf(cnt->value) << ">";
     };
+    auto buf_emit = [&](StyledText& out, const core::ir::type::ValueArrayCount* cnt) -> void {
+        out << "buffer<" << NameOf(cnt->value) << ">";
+    };
 
     if (auto* ptr = ty->As<core::type::Pointer>()) {
         if (auto* ary = ty->UnwrapPtr()->As<core::type::Array>()) {
@@ -1023,10 +1086,28 @@ StyledText Disassembler::NameOf(const core::type::Type* ty) {
                 return out;
             }
         }
+        if (auto* buf = ty->UnwrapPtr()->As<core::type::Buffer>()) {
+            if (auto* cnt = buf->Count()->As<core::ir::type::ValueArrayCount>()) {
+                auto out = StyledText{} << "ptr<";
+                if (ptr->AddressSpace() != core::AddressSpace::kUndefined) {
+                    out << ptr->AddressSpace() << ", ";
+                }
+                buf_emit(out, cnt);
+                out << ", " << ptr->Access() << ">";
+
+                return out;
+            }
+        }
     } else if (auto* ary = ty->UnwrapPtr()->As<core::type::Array>()) {
         if (auto* cnt = ary->Count()->As<core::ir::type::ValueArrayCount>()) {
             auto out = StyledText{};
             ary_emit(out, ary, cnt);
+            return out;
+        }
+    } else if (auto* buf = ty->UnwrapPtr()->As<core::type::Buffer>()) {
+        if (auto* cnt = buf->Count()->As<core::ir::type::ValueArrayCount>()) {
+            auto out = StyledText{};
+            buf_emit(out, cnt);
             return out;
         }
     }

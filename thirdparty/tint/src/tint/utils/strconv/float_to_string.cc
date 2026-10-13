@@ -32,7 +32,9 @@
 #include <iomanip>
 
 #include "src/tint/utils/ice/ice.h"
+#include "src/tint/utils/memory/bitcast.h"
 #include "src/tint/utils/text/string_stream.h"
+#include "src/utils/compiler.h"
 
 namespace tint::strconv {
 
@@ -80,7 +82,7 @@ std::string ToBitPreservingString(F f) {
 
     typename T::uint_t float_bits = 0u;
     static_assert(sizeof(float_bits) == sizeof(f));
-    std::memcpy(&float_bits, &f, sizeof(float_bits));
+    float_bits = tint::Bitcast<typename T::uint_t>(f);
 
     // Handle the sign.
     if (float_bits & T::kSignMask) {
@@ -93,7 +95,7 @@ std::string ToBitPreservingString(F f) {
     switch (std::fpclassify(f)) {
         case FP_ZERO:
         case FP_NORMAL:
-            std::memcpy(&f, &float_bits, sizeof(float_bits));
+            f = tint::Bitcast<F>(float_bits);
             ss << ToString(f);
             break;
 

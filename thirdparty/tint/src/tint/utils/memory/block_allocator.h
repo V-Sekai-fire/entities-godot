@@ -35,6 +35,7 @@
 #include "src/tint/utils/macros/compiler.h"
 #include "src/tint/utils/math/math.h"
 #include "src/tint/utils/memory/bitcast.h"
+#include "src/utils/compiler.h"
 
 // This file implements a custom allocator & iterator using C-style data access. It is not
 // unexpected that -Wunsafe-buffer-usage triggers in this code, since the type of dynamic access
@@ -42,8 +43,6 @@
 // simple ways to quiet these errors either a) negatively affects the performance by introducing
 // unneeded copes, or b) uses typing shenanigans to work around the warning that other
 // linters/analyses are unhappy with.
-TINT_BEGIN_DISABLE_WARNING(UNSAFE_BUFFER_USAGE);
-
 namespace tint {
 
 /// A container and allocator of objects of (or deriving from) the template type `T`.
@@ -59,17 +58,18 @@ class BlockAllocator {
     /// Pointers are allocated out of the block memory.
     struct Pointers {
         static constexpr size_t kMax = 32;
-        std::array<T*, kMax> ptrs;
-        Pointers* next;
-        Pointers* prev;
-        size_t count;
+        std::array<T*, kMax> ptrs = {};
+        Pointers* next = nullptr;
+        Pointers* prev = nullptr;
+        size_t count = 0;
     };
 
     /// Block is linked list of memory blocks.
     /// Blocks are allocated out of heap memory.
     ///
     /// Note: We're not using std::aligned_storage here as this warns / errors on MSVC.
-    struct alignas(BLOCK_ALIGNMENT) Block {
+    // SAFETY: allocated elements are immediately constructed via placement-new before reads occur.
+    struct alignas(BLOCK_ALIGNMENT) Block {  // NOLINT(cppcoreguidelines-pro-type-member-init)
         uint8_t data[BLOCK_SIZE];
         Block* next = nullptr;
     };
@@ -268,7 +268,8 @@ class BlockAllocator {
         }
 
         auto* base = &block.current->data[0];
-        auto* ptr = tint::Bitcast<TYPE*>(base + block.current_offset);
+        // SAFETY: current_offset is guaranteed to be within the allocated Block data bounds.
+        auto* ptr = tint::Bitcast<TYPE*>(DAWN_UNSAFE_BUFFERS(base + block.current_offset));
         block.current_offset += sizeof(TYPE);
         return ptr;
     }
@@ -324,7 +325,5 @@ class BlockAllocator {
 };
 
 }  // namespace tint
-
-TINT_END_DISABLE_WARNING(UNSAFE_BUFFER_USAGE);
 
 #endif  // SRC_TINT_UTILS_MEMORY_BLOCK_ALLOCATOR_H_

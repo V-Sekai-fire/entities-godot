@@ -27,12 +27,13 @@
 
 #include "src/tint/lang/wgsl/resolver/uniformity.h"
 
-#include <limits>
 #include <string>
 #include <utility>
-#include <vector>
 
-#include "src/tint/lang/core/builtin_value.h"
+#include "src/tint/lang/core/enums.h"
+#include "src/tint/lang/core/type/reference.h"
+#include "src/tint/lang/core/type/vector.h"
+#include "src/tint/lang/wgsl/ast/interpolated_string_expression.h"
 #include "src/tint/lang/wgsl/program/program_builder.h"
 #include "src/tint/lang/wgsl/resolver/dependency_graph.h"
 #include "src/tint/lang/wgsl/sem/block_statement.h"
@@ -43,13 +44,13 @@
 #include "src/tint/lang/wgsl/sem/info.h"
 #include "src/tint/lang/wgsl/sem/load.h"
 #include "src/tint/lang/wgsl/sem/loop_statement.h"
+#include "src/tint/lang/wgsl/sem/member_accessor_expression.h"
 #include "src/tint/lang/wgsl/sem/statement.h"
 #include "src/tint/lang/wgsl/sem/switch_statement.h"
 #include "src/tint/lang/wgsl/sem/value_constructor.h"
 #include "src/tint/lang/wgsl/sem/value_conversion.h"
 #include "src/tint/lang/wgsl/sem/variable.h"
 #include "src/tint/lang/wgsl/sem/while_statement.h"
-#include "src/tint/utils/containers/map.h"
 #include "src/tint/utils/containers/scope_stack.h"
 #include "src/tint/utils/containers/unique_vector.h"
 #include "src/tint/utils/macros/defer.h"
@@ -68,29 +69,19 @@ namespace tint::resolver {
 
 namespace {
 
-/// Unwraps `u->expr`'s chain of indirect (*) and address-of (&) expressions, returning the first
-/// expression that is neither of these.
-/// E.g. If `u` is `*(&(*(&p)))`, returns `p`.
-const ast::Expression* UnwrapIndirectAndAddressOfChain(const ast::UnaryOpExpression* u) {
-    auto* e = u->expr;
-    while (true) {
-        auto* unary = e->As<ast::UnaryOpExpression>();
-        if (unary &&
-            (unary->op == core::UnaryOp::kIndirection || unary->op == core::UnaryOp::kAddressOf)) {
-            e = unary->expr;
-        } else {
-            break;
-        }
-    }
-    return e;
-}
+/// Scope of uniformity analysis.
+enum class UniformityScope : uint8_t {
+    kAll,        // workgroup/draw/subgroup
+    kWorkgroup,  // workgroup/draw
+    kSubgroup,   // subgroup
+};
 
 /// CallSiteTag describes the uniformity requirements on the call sites of a function.
 struct CallSiteTag {
     enum {
         CallSiteRequiredToBeUniform,
         CallSiteNoRestriction,
-    } tag;
+    } tag{};
     wgsl::DiagnosticSeverity severity = wgsl::DiagnosticSeverity::kUndefined;
 };
 
@@ -357,8 +348,8 @@ class UniformityGraph {
   public:
     /// Constructor.
     /// @param builder the program to analyze
-    explicit UniformityGraph(ProgramBuilder& builder)
-        : b(builder), sem_(b.Sem()), diagnostics_(builder.Diagnostics()) {}
+    explicit UniformityGraph(ProgramBuilder& builder, UniformityScope scope = UniformityScope::kAll)
+        : b(builder), sem_(b.Sem()), diagnostics_(builder.Diagnostics()), scope_(scope) {}
 
     /// Destructor.
     ~UniformityGraph() {}
@@ -369,7 +360,19 @@ class UniformityGraph {
     /// @returns true if all uniformity constraints are satisfied, otherise false
     bool Build(const DependencyGraph& dependency_graph) {
 #if TINT_DUMP_UNIFORMITY_GRAPH
-        std::cout << "digraph G {\n";
+        std::string graphName = "G_";
+        switch (scope_) {
+            case UniformityScope::kAll:
+                graphName += "all";
+                break;
+            case UniformityScope::kWorkgroup:
+                graphName += "workgroup";
+                break;
+            case UniformityScope::kSubgroup:
+                graphName += "subgroup";
+                break;
+        }
+        std::cout << "digraph " << graphName << " {\n";
         std::cout << "rankdir=BT\n";
 #endif
 
@@ -395,12 +398,13 @@ class UniformityGraph {
     const ProgramBuilder& b;
     const sem::Info& sem_;
     diag::List& diagnostics_;
+    const UniformityScope scope_;
 
     /// Map of analyzed function results.
     Hashmap<const ast::Function*, FunctionInfo, 8> functions_;
 
     /// The function currently being analyzed.
-    FunctionInfo* current_function_;
+    FunctionInfo* current_function_ = nullptr;
 
     /// A map from composite type to true/false to indicate whether it contains a subgroup matrix.
     Hashmap<const core::type::Type*, bool, 16> composite_subgroup_matrix_info_;
@@ -573,17 +577,17 @@ class UniformityGraph {
 
             [&](const ast::AssignmentStatement* a) {
                 if (a->lhs->Is<ast::PhonyExpression>()) {
-                    auto [cf_r, _] = ProcessExpression(cf, a->rhs);
-                    return cf_r;
+                    ProcessExpression(cf, a->rhs);
+                    return cf;
                 }
-                auto [cf_l, v_l, ident] = ProcessLValueExpression(cf, a->lhs);
-                auto [cf_r, v_r] = ProcessExpression(cf_l, a->rhs);
+                auto [v_l, ident] = ProcessLValueExpression(cf, a->lhs);
+                auto* v_r = ProcessExpression(cf, a->rhs);
                 v_l->AddEdge(v_r);
 
                 // Update the variable node for the LHS variable.
                 current_function_->variables.Set(ident, v_l);
 
-                return cf_r;
+                return cf;
             },
 
             [&](const ast::BlockStatement* block) {
@@ -716,7 +720,7 @@ class UniformityGraph {
                 // above.
                 auto* sem = sem_.Get(brk);
 
-                auto [_, v_cond] = ProcessExpression(cf, brk->condition);
+                auto* v_cond = ProcessExpression(cf, brk->condition);
 
                 // Add a diagnostic node to capture the control flow change.
                 auto* v = CreateNode({"break_if_stmt"}, brk);
@@ -755,8 +759,8 @@ class UniformityGraph {
             },
 
             [&](const ast::CallStatement* c) {
-                auto [cf1, _] = ProcessCall(cf, c->expr);
-                return cf1;
+                ProcessCall(cf, c->expr);
+                return cf;
             },
 
             [&](const ast::CompoundAssignmentStatement* c) {
@@ -765,13 +769,13 @@ class UniformityGraph {
                 //   *p = *p + b;
 
                 // Evaluate the LHS.
-                auto [cf1, l1, ident] = ProcessLValueExpression(cf, c->lhs);
+                auto [l1, ident] = ProcessLValueExpression(cf, c->lhs);
 
                 // Get the current value loaded from the LHS reference before evaluating the RHS.
                 auto* lhs_load = current_function_->variables.Get(ident);
 
                 // Evaluate the RHS.
-                auto [cf2, v2] = ProcessExpression(cf1, c->rhs);
+                auto* v2 = ProcessExpression(cf, c->rhs);
 
                 // Create a node for the resulting value.
                 auto* result = CreateNode({"binary_expr_result"});
@@ -784,7 +788,7 @@ class UniformityGraph {
                 l1->AddEdge(result);
                 current_function_->variables.Set(ident, l1);
 
-                return cf2;
+                return cf;
             },
 
             [&](const ast::ContinueStatement* c) {
@@ -835,14 +839,14 @@ class UniformityGraph {
 
             [&](const ast::ForLoopStatement* f) {
                 auto* sem_loop = sem_.Get(f);
-                auto* cfx = CreateNode({"loop_start"});
+                auto* cf_iter_start = CreateNode({"loop_start"});
 
                 // Insert the initializer before the loop.
-                auto* cf_init = cf;
+                auto* cf_init_end = cf;
                 if (f->initializer) {
-                    cf_init = ProcessStatement(cf, f->initializer);
+                    cf_init_end = ProcessStatement(cf, f->initializer);
                 }
-                auto* cf_start = cf_init;
+                auto* cf_body_start = cf_iter_start;
 
                 auto& info = current_function_->LoopSwitchInfoFor(sem_loop);
                 info.type = "forloop";
@@ -857,11 +861,11 @@ class UniformityGraph {
 
                 // Insert the condition at the start of the loop body.
                 if (f->condition) {
-                    auto [cf_cond, v] = ProcessExpression(cfx, f->condition);
+                    auto* v = ProcessExpression(cf_iter_start, f->condition);
                     auto* cf_condition_end = CreateNode({"for_condition_CFend"}, f);
                     cf_condition_end->affects_control_flow = true;
                     cf_condition_end->AddEdge(v);
-                    cf_start = cf_condition_end;
+                    cf_body_start = cf_condition_end;
 
                     // Propagate assignments to the loop exit nodes.
                     for (auto& var : current_function_->local_var_decls) {
@@ -872,13 +876,17 @@ class UniformityGraph {
                         exit_node->AddEdge(current_function_->variables.Get(var));
                     }
                 }
-                auto* cf1 = ProcessStatement(cf_start, f->body);
+                auto* cf1 = ProcessStatement(cf_body_start, f->body);
 
                 auto& loop_body_behavior = sem_.Get(f->body)->Behaviors();
+                const bool body_has_next_or_continue =
+                    loop_body_behavior.Contains(sem::Behavior::kNext) ||
+                    loop_body_behavior.Contains(sem::Behavior::kContinue);
+                const bool body_has_return = loop_body_behavior.Contains(sem::Behavior::kReturn);
 
+                auto* cf_end_of_iter = cf1;
                 // Insert the continuing statement at the end of the loop body, if it is reachable.
-                if (f->continuing && (loop_body_behavior.Contains(sem::Behavior::kNext) ||
-                                      loop_body_behavior.Contains(sem::Behavior::kContinue))) {
+                if (f->continuing && body_has_next_or_continue) {
                     // Set up input nodes for the continuing block, to merge data flow paths from
                     // all blocks that branch to the continuing block.
                     for (auto v : info.var_continuing_nodes) {
@@ -897,11 +905,18 @@ class UniformityGraph {
                     }
 
                     auto* cf2 = ProcessStatement(cf1, f->continuing);
-                    cfx->AddEdge(cf2);
-                } else {
-                    cfx->AddEdge(cf1);
+                    cf_end_of_iter = cf2;
                 }
-                cfx->AddEdge(cf);
+                if (body_has_next_or_continue) {
+                    // The backedge of the loop is reachable in a static sense.
+                    // This edge allows non-uniformity present at the end of the
+                    // iteration to affect the next iteration.
+                    cf_iter_start->AddEdge(cf_end_of_iter);
+                }
+                // Desugaring the for-loop to a loop-loop moves the initializer
+                // to just before the loop construct. So 'CF' in the spec rules for
+                // loop{} is represented by cf_init_end.
+                cf_iter_start->AddEdge(cf_init_end);
 
                 // Add edges from variable loop input nodes to their values at the end of the loop
                 // (including the loop continuing statement).
@@ -927,11 +942,23 @@ class UniformityGraph {
 
                 current_function_->RemoveLoopSwitchInfoFor(sem_loop);
 
-                if (sem_loop->Behaviors() == sem::Behaviors{sem::Behavior::kNext}) {
-                    return cf;
-                } else {
-                    return cfx;
+                // Return the resulting control flow node.
+                // This structures the case analysis differently from the spec
+                // text in https://github.com/gpuweb/gpuweb/pull/5419
+                if (body_has_return) {
+                    if (body_has_next_or_continue) {
+                        // Control (statically) reaches the end of the iteration,
+                        // and then back to the top of the next iteration.
+                        return cf_iter_start;
+                    } else {
+                        // Control does not statically reach the end of the
+                        // iteration, nor the continuing block (update clause).
+                        return cf1;
+                    }
                 }
+                // When the loop does not include a return, divergence introduced
+                // by the loop resolves at the end of the loop.
+                return cf;
             },
 
             [&](const ast::WhileStatement* w) {
@@ -953,7 +980,7 @@ class UniformityGraph {
 
                 // Insert the condition at the start of the loop body.
                 {
-                    auto [cf_cond, v] = ProcessExpression(cfx, w->condition);
+                    auto* v = ProcessExpression(cfx, w->condition);
                     auto* cf_condition_end = CreateNode({"while_condition_CFend"}, w);
                     cf_condition_end->affects_control_flow = true;
                     cf_condition_end->AddEdge(v);
@@ -997,7 +1024,7 @@ class UniformityGraph {
 
             [&](const ast::IfStatement* i) {
                 auto* sem_if = sem_.Get(i);
-                auto [_, v_cond] = ProcessExpression(cf, i->condition);
+                auto* v_cond = ProcessExpression(cf, i->condition);
 
                 // Add a diagnostic node to capture the control flow change.
                 auto* v = CreateNode({"if_stmt"}, i);
@@ -1084,14 +1111,14 @@ class UniformityGraph {
                 // The increment/decrement statement `i++` is equivalent to `i = i + 1`.
 
                 // Evaluate the LHS.
-                auto [cf1, l1, ident] = ProcessLValueExpression(cf, i->lhs);
+                auto [l1, ident] = ProcessLValueExpression(cf, i->lhs);
 
                 // Get the current value loaded from the LHS reference.
                 auto* lhs_load = current_function_->variables.Get(ident);
 
                 // Create a node for the resulting value.
                 auto* result = CreateNode({"incdec_result"});
-                result->AddEdge(cf1);
+                result->AddEdge(cf);
                 if (lhs_load) {
                     result->AddEdge(lhs_load);
                 }
@@ -1100,7 +1127,7 @@ class UniformityGraph {
                 l1->AddEdge(result);
                 current_function_->variables.Set(ident, l1);
 
-                return cf1;
+                return cf;
             },
 
             [&](const ast::LoopStatement* l) {
@@ -1123,7 +1150,13 @@ class UniformityGraph {
                 // processing the loop body BlockStatement. This is so that variable declarations
                 // inside the loop body are visible to the continuing statement.
                 auto* cf1 = ProcessStatement(cfx, l->body);
-                cfx->AddEdge(cf1);
+                const auto& body_behaviors = sem_.Get(l->body)->Behaviors();
+                if (body_behaviors.Contains(sem::Behavior::kNext) ||
+                    body_behaviors.Contains(sem::Behavior::kContinue)) {
+                    // Control reaches the backedge, so add an edge from the top
+                    // of the loop to the latch block.
+                    cfx->AddEdge(cf1);
+                }
                 cfx->AddEdge(cf);
 
                 // Set each variable's exit node as its value in the outer scope.
@@ -1133,19 +1166,19 @@ class UniformityGraph {
 
                 current_function_->RemoveLoopSwitchInfoFor(sem_loop);
 
-                if (sem_loop->Behaviors() == sem::Behaviors{sem::Behavior::kNext}) {
-                    return cf;
+                if (sem_loop->Behaviors().Contains(sem::Behavior::kReturn)) {
+                    return cf1;
                 } else {
-                    return cfx;
+                    return cf;
                 }
             },
 
             [&](const ast::ReturnStatement* r) {
                 Node* cf_ret;
                 if (r->value) {
-                    auto [cf1, v] = ProcessExpression(cf, r->value);
+                    auto* v = ProcessExpression(cf, r->value);
                     current_function_->value_return->AddEdge(v);
-                    cf_ret = cf1;
+                    cf_ret = cf;
                 } else {
                     TINT_ASSERT(cf != nullptr);
                     cf_ret = cf;
@@ -1164,7 +1197,7 @@ class UniformityGraph {
 
             [&](const ast::SwitchStatement* s) {
                 auto* sem_switch = sem_.Get(s);
-                auto [cfx, v_cond] = ProcessExpression(cf, s->condition);
+                auto* v_cond = ProcessExpression(cf, s->condition);
 
                 // Add a diagnostic node to capture the control flow change.
                 auto* v = CreateNode({"switch_stmt"}, s);
@@ -1223,18 +1256,13 @@ class UniformityGraph {
                 Node* node;
                 auto* sem_var = sem_.Get(decl->variable);
                 if (decl->variable->initializer) {
-                    auto [cf1, v] = ProcessExpression(cf, decl->variable->initializer);
-                    cf = cf1;
+                    auto* v = ProcessExpression(cf, decl->variable->initializer);
                     node = v;
 
                     // Store if lhs is a partial pointer
                     if (sem_var->Type()->Is<core::type::Pointer>()) {
-                        auto* init = sem_.Get(decl->variable->initializer);
-                        if (auto* unary_init = init->Declaration()->As<ast::UnaryOpExpression>()) {
-                            auto* e = UnwrapIndirectAndAddressOfChain(unary_init);
-                            if (e->Is<ast::AccessorExpression>()) {
-                                current_function_->partial_ptrs.Add(sem_var);
-                            }
+                        if (IsPartialPointer(decl->variable->initializer)) {
+                            current_function_->partial_ptrs.Add(sem_var);
                         }
                     }
                 } else {
@@ -1244,7 +1272,8 @@ class UniformityGraph {
                     if (ContainsSubgroupMatrix(sem_var->Type()->UnwrapRef())) {
                         auto severity = sem_.DiagnosticSeverity(
                             decl, wgsl::ChromiumDiagnosticRule::kSubgroupMatrixUniformity);
-                        if (severity != wgsl::DiagnosticSeverity::kOff) {
+                        if (severity != wgsl::DiagnosticSeverity::kOff &&
+                            scope_ != UniformityScope::kWorkgroup) {
                             // Create an extra node so that we can produce good diagnostics.
                             node = CreateNode({NameFor(sem_var), "_decl"}, decl);
                             node->type = Node::kSubgroupMatrixVariableDeclaration;
@@ -1270,34 +1299,39 @@ class UniformityGraph {
             TINT_ICE_ON_NO_MATCH);
     }
 
+    /// @returns true if @p builtin is workgroup-uniform
+    bool IsWorkgroupUniform(core::BuiltinValue builtin) {
+        switch (builtin) {
+            case core::BuiltinValue::kNumSubgroups:
+            case core::BuiltinValue::kNumWorkgroups:
+            case core::BuiltinValue::kSubgroupSize:
+            case core::BuiltinValue::kWorkgroupId:
+                return true;
+            case core::BuiltinValue::kSubgroupId:
+                return scope_ == UniformityScope::kSubgroup;
+            default:
+                return false;
+        }
+    }
+
     /// Process an identifier expression.
     /// @param cf the input control flow node
     /// @param ident the identifier expression to process
     /// @param load_rule true if the load rule is being invoked on this identifier
-    /// @returns a pair of (control flow node, value node)
-    std::pair<Node*, Node*> ProcessIdentExpression(Node* cf,
-                                                   const ast::IdentifierExpression* ident,
-                                                   bool load_rule = false) {
+    /// @returns the resulting value node
+    Node* ProcessIdentExpression(Node* cf,
+                                 const ast::IdentifierExpression* ident,
+                                 bool load_rule = false) {
         // Helper to check if the entry point attribute of `obj` indicates non-uniformity.
         auto has_nonuniform_entry_point_attribute = [&](auto* obj, auto* entry_point) {
-            // Only the num_workgroups and workgroup_id builtins, and subgroup_size builtin used in
-            // compute stage are uniform.
+            // Only the num_subgroups, num_workgroups and workgroup_id builtins, and subgroup_size
+            // builtin used in compute stage are uniform.
             if (auto* builtin_attr = ast::GetAttribute<ast::BuiltinAttribute>(obj->attributes)) {
-                auto builtin = builtin_attr->builtin;
-                if (builtin == core::BuiltinValue::kNumWorkgroups ||
-                    builtin == core::BuiltinValue::kWorkgroupId) {
-                    return false;
-                }
-                if (builtin == core::BuiltinValue::kSubgroupSize) {
-                    if (entry_point->PipelineStage() == ast::PipelineStage::kCompute) {
-                        // Subgroup size is uniform in compute.
-                        return false;
-                    } else {
-                        // Currently the only other allowed usage for subgroup_size is in fragment.
-                        TINT_ASSERT(entry_point->PipelineStage() == ast::PipelineStage::kFragment);
-                        // Subgroup size is considered to be varying for fragment.
-                        return true;
-                    }
+                // Some builtins are workgroup-uniform in compute stages.
+                // All builtins are non-uniform in non-compute stages.
+                // Notably, we consider `subgroup_size` to be non-uniform in fragment shaders.
+                if (entry_point->PipelineStage() == ast::PipelineStage::kCompute) {
+                    return !IsWorkgroupUniform(builtin_attr->builtin);
                 }
             }
             return true;
@@ -1325,7 +1359,7 @@ class UniformityGraph {
                             }
                         }
                         node->AddEdge(uniform ? cf : current_function_->may_be_non_uniform);
-                        return std::make_pair(cf, node);
+                        return node;
                     } else {
                         if (has_nonuniform_entry_point_attribute(param->Declaration(),
                                                                  user_func->Declaration())) {
@@ -1333,7 +1367,7 @@ class UniformityGraph {
                         } else {
                             node->AddEdge(cf);
                         }
-                        return std::make_pair(cf, node);
+                        return node;
                     }
                 } else {
                     node->AddEdge(cf);
@@ -1361,7 +1395,7 @@ class UniformityGraph {
                         node->AddEdge(current_value);
                     }
 
-                    return std::make_pair(cf, node);
+                    return node;
                 }
             },
 
@@ -1373,7 +1407,7 @@ class UniformityGraph {
                 } else {
                     node->AddEdge(cf);
                 }
-                return std::make_pair(cf, node);
+                return node;
             },
 
             [&](const sem::LocalVariable* local) {
@@ -1415,7 +1449,7 @@ class UniformityGraph {
                     node->AddEdge(local_value);
                 }
 
-                return std::make_pair(cf, node);
+                return node;
             },
 
             TINT_ICE_ON_NO_MATCH);
@@ -1425,10 +1459,8 @@ class UniformityGraph {
     /// @param cf the input control flow node
     /// @param expr the expression to process
     /// @param load_rule true if the load rule is being invoked on this expression
-    /// @returns a pair of (control flow node, value node)
-    std::pair<Node*, Node*> ProcessExpression(Node* cf,
-                                              const ast::Expression* expr,
-                                              bool load_rule = false) {
+    /// @returns the resulting value node
+    Node* ProcessExpression(Node* cf, const ast::Expression* expr, bool load_rule = false) {
         if (sem_.Get<sem::Load>(expr)) {
             // Set the load-rule flag to indicate that identifier expressions in this sub-tree
             // should add edges to the contents of the variables that they refer to.
@@ -1441,22 +1473,45 @@ class UniformityGraph {
             [&](const ast::BinaryExpression* e) {
                 if (e->IsLogical()) {
                     // Short-circuiting binary operators are a special case.
-                    auto [cf1, v1] = ProcessExpression(cf, e->lhs);
+                    auto* v1 = ProcessExpression(cf, e->lhs);
 
                     // Add a diagnostic node to capture the control flow change.
                     auto* v1_cf = CreateNode({"short_circuit_op"}, e);
                     v1_cf->affects_control_flow = true;
                     v1_cf->AddEdge(v1);
 
-                    auto [cf2, v2] = ProcessExpression(v1_cf, e->rhs);
-                    return std::pair<Node*, Node*>(cf, v2);
+                    // Push a new variable scope for the RHS.
+                    current_function_->variables.Push();
+
+                    // Process the RHS expression.
+                    auto* v2 = ProcessExpression(v1_cf, e->rhs);
+
+                    auto rhs_vars = current_function_->variables.Top();
+                    current_function_->variables.Pop();
+
+                    // Create output nodes for any variable that is written to from the RHS
+                    // expression (e.g. via a function call that takes pointer parameters).
+                    for (auto& var : current_function_->local_var_decls) {
+                        // Skip variables that were not modified on the RHS.
+                        auto rhs_val = rhs_vars.Get(var);
+                        if (!rhs_val) {
+                            continue;
+                        }
+                        // Merge the original value and the new value.
+                        auto* out_node = CreateNode({NameFor(var), "_value_short_circuit_exit"});
+                        out_node->AddEdge(*rhs_val);
+                        out_node->AddEdge(current_function_->variables.Get(var));
+                        current_function_->variables.Set(var, out_node);
+                    }
+
+                    return v2;
                 } else {
-                    auto [cf1, v1] = ProcessExpression(cf, e->lhs);
-                    auto [cf2, v2] = ProcessExpression(cf1, e->rhs);
+                    auto* v1 = ProcessExpression(cf, e->lhs);
+                    auto* v2 = ProcessExpression(cf, e->rhs);
                     auto* result = CreateNode({"binary_expr_result"}, e);
                     result->AddEdge(v1);
                     result->AddEdge(v2);
-                    return std::pair<Node*, Node*>(cf2, result);
+                    return result;
                 }
             },
 
@@ -1467,18 +1522,30 @@ class UniformityGraph {
             },
 
             [&](const ast::IndexAccessorExpression* i) {
-                auto [cf1, v1] = ProcessExpression(cf, i->object, load_rule);
-                auto [cf2, v2] = ProcessExpression(cf1, i->index);
+                auto* v1 = ProcessExpression(cf, i->index);
+                auto* v2 = ProcessExpression(cf, i->object, load_rule);
                 auto* result = CreateNode({"index_accessor_result"});
                 result->AddEdge(v1);
                 result->AddEdge(v2);
-                return std::pair<Node*, Node*>(cf2, result);
+                return result;
             },
 
-            [&](const ast::LiteralExpression*) { return std::make_pair(cf, cf); },
+            [&](const ast::LiteralExpression*) { return cf; },
 
             [&](const ast::MemberAccessorExpression* m) {
                 return ProcessExpression(cf, m->object, load_rule);
+            },
+
+            [&](const ast::InterpolatedStringExpression* t) {
+                auto* result = CreateNode({"interpolated_string_result"});
+                if (t->elements.IsEmpty()) {
+                    result->AddEdge(cf);
+                } else {
+                    for (auto* el : t->elements) {
+                        result->AddEdge(ProcessExpression(cf, el, load_rule));
+                    }
+                }
+                return result;
             },
 
             [&](const ast::UnaryOpExpression* u) {
@@ -1488,33 +1555,33 @@ class UniformityGraph {
             TINT_ICE_ON_NO_MATCH);
     }
 
-    /// @param u unary expression with op == kIndirection
-    /// @returns true if `u` is an indirection unary expression that ultimately dereferences a
-    /// partial pointer, false otherwise.
-    bool IsDerefOfPartialPointer(const ast::UnaryOpExpression* u) {
-        TINT_ASSERT(u->op == core::UnaryOp::kIndirection);
-
-        // To determine if we're dereferencing a partial pointer, unwrap *&
-        // chains; if the final expression is an identifier, see if it's a
-        // partial pointer. If it's not an identifier, then it must be an
-        // index/member accessor expression, and thus a partial pointer.
-        auto* e = UnwrapIndirectAndAddressOfChain(u);
-        if (auto* var_user = sem_.Get<sem::VariableUser>(e)) {
-            if (current_function_->partial_ptrs.Contains(var_user->Variable())) {
-                return true;
+    /// @param expr expression
+    /// @returns true if `expr` is derived from a partial pointer, false otherwise.
+    bool IsPartialPointer(const ast::Expression* expr) {
+        // First unwraps the chain of indirect (*) and address-of (&) expressions, returning the
+        // first expression that is neither of these.
+        // e.g. If `expr` is `*(&(*(&p)))`, returns `p`.
+        while (true) {
+            auto* unary = expr->As<ast::UnaryOpExpression>();
+            if (unary && (unary->op == core::UnaryOp::kIndirection ||
+                          unary->op == core::UnaryOp::kAddressOf)) {
+                expr = unary->expr;
+            } else {
+                break;
             }
-        } else {
-            TINT_ASSERT(e->Is<ast::AccessorExpression>());
-            return true;
         }
-        return false;
+
+        // The final expression is a partial pointer iff either of the following are true:
+        //   * It is an identifier that has been marked as a partial pointer.
+        //   * It is an index/member accessor expression.
+        if (auto* var_user = sem_.Get<sem::VariableUser>(expr)) {
+            return current_function_->partial_ptrs.Contains(var_user->Variable());
+        }
+        return expr->Is<ast::AccessorExpression>();
     }
 
     /// LValue holds the Nodes returned by ProcessLValueExpression()
     struct LValue {
-        /// The control-flow node for an LValue expression
-        Node* cf = nullptr;
-
         /// The new value node for an LValue expression
         Node* new_val = nullptr;
 
@@ -1527,7 +1594,7 @@ class UniformityGraph {
     /// @param expr the expression to process
     /// @param is_dereferencing `true` if we are dereferencing a pointer
     /// @param is_partial_reference `true` if we are referencing a subset of a variable
-    /// @returns a tuple of (control flow node, variable node, root identifier)
+    /// @returns a tuple of (variable node, root identifier)
     LValue ProcessLValueExpression(Node* cf,
                                    const ast::Expression* expr,
                                    bool is_dereferencing = false,
@@ -1544,7 +1611,7 @@ class UniformityGraph {
                         // be dereferencing here.
                         TINT_ASSERT(!is_dereferencing);
 
-                        return LValue{cf, current_function_->may_be_non_uniform, nullptr};
+                        return LValue{current_function_->may_be_non_uniform, nullptr};
                     },
                     [&](const sem::LocalVariable* local) {
                         Node* value = nullptr;
@@ -1568,7 +1635,7 @@ class UniformityGraph {
                             value = CreateNode({NameFor(i), "_lvalue"});
                         }
 
-                        return LValue{cf, value, root_ident};
+                        return LValue{value, root_ident};
                     },
                     [&](const sem::Parameter* param) {
                         // Parameters can only be LValues when we are dereferencing a pointer.
@@ -1580,7 +1647,7 @@ class UniformityGraph {
                         // The uniformity of the value depends on the pointer itself.
                         value->AddEdge(current_function_->parameters[param->Index()].value);
 
-                        return LValue{cf, value, param};
+                        return LValue{value, param};
                     },
                     [&](Default) -> LValue {
                         TINT_ICE() << "unknown lvalue identifier expression type: "
@@ -1605,12 +1672,11 @@ class UniformityGraph {
                 is_dereferencing =
                     is_dereferencing || sem_.GetVal(i->object)->Type()->Is<core::type::Pointer>();
 
-                auto [cf1, l1, root_ident] =
-                    ProcessLValueExpression(cf, i->object, is_dereferencing,
-                                            /*is_partial_reference*/ true);
-                auto [cf2, v2] = ProcessExpression(cf1, i->index);
-                l1->AddEdge(v2);
-                return LValue{cf2, l1, root_ident};
+                auto* v1 = ProcessExpression(cf, i->index);
+                auto [l2, root_ident] = ProcessLValueExpression(cf, i->object, is_dereferencing,
+                                                                /*is_partial_reference*/ true);
+                l2->AddEdge(v1);
+                return LValue{l2, root_ident};
             },
 
             [&](const ast::MemberAccessorExpression* m) {
@@ -1619,8 +1685,28 @@ class UniformityGraph {
                 is_dereferencing =
                     is_dereferencing || sem_.GetVal(m->object)->Type()->Is<core::type::Pointer>();
 
+                // An assignment to a full swizzle view (which updates all components of the object
+                // vector) is a full assignment.
+                bool is_full_swizzle = false;
+                if (auto* swizzle = sem_.Get<sem::Swizzle>(m)) {
+                    // Collapse chained swizzles if necessary.
+                    sem::CollapsedSwizzle collapsed = sem::CollapseLhsSwizzle(swizzle);
+                    auto* vec_type =
+                        collapsed.vector->Type()->UnwrapPtrOrRef()->As<core::type::Vector>();
+                    TINT_ASSERT(vec_type);
+
+                    // Duplicated elements are not permitted on the LHS of a swizzle assignment, so
+                    // comparing lengths is sufficient to determine whether it is a full/partial
+                    // swizzle.
+                    if (collapsed.indices.Length() == vec_type->Width()) {
+                        is_full_swizzle = true;
+                    }
+                }
+
+                is_partial_reference = is_partial_reference || !is_full_swizzle;
+
                 return ProcessLValueExpression(cf, m->object, is_dereferencing,
-                                               /*is_partial_reference*/ true);
+                                               is_partial_reference);
             },
 
             [&](const ast::UnaryOpExpression* u) {
@@ -1628,12 +1714,19 @@ class UniformityGraph {
                     return ProcessLValueExpression(
                         cf, u->expr,
                         /* is_dereferencing */ true,
-                        /* is_partial_reference */ is_partial_reference ||
-                            IsDerefOfPartialPointer(u));
+                        /* is_partial_reference */ is_partial_reference || IsPartialPointer(u));
                 }
                 return ProcessLValueExpression(cf, u->expr,
                                                /* is_dereferencing */ false,
                                                /* is_partial_reference */ is_partial_reference);
+            },
+
+            [&](const ast::CallExpression* c) {
+                // This must be a bufferView/bufferArrayView call.
+                auto* sem = sem_.GetVal(c->args[0]);
+                auto* root_ident = sem->RootIdentifier();
+                auto v1 = ProcessCall(cf, c);
+                return LValue{v1, root_ident};
             },
 
             TINT_ICE_ON_NO_MATCH);
@@ -1642,17 +1735,16 @@ class UniformityGraph {
     /// Process a function call expression.
     /// @param cf the input control flow node
     /// @param call the function call to process
-    /// @returns a pair of (control flow node, value node)
-    std::pair<Node*, Node*> ProcessCall(Node* cf, const ast::CallExpression* call) {
+    /// @returns the resulting value node
+    Node* ProcessCall(Node* cf, const ast::CallExpression* call) {
         std::string name = NameFor(call->target);
 
         // Process call arguments
-        Node* cf_last_arg = cf;
         Vector<Node*, 8> args;
         Vector<Node*, 8> ptrarg_contents;
         ptrarg_contents.Resize(call->args.Length());
         for (size_t i = 0; i < call->args.Length(); i++) {
-            auto [cf_i, arg_i] = ProcessExpression(cf_last_arg, call->args[i]);
+            auto* arg_i = ProcessExpression(cf, call->args[i]);
 
             // Capture the index of this argument in a new node.
             // Note: This is an additional node that isn't described in the specification, for the
@@ -1684,18 +1776,16 @@ class UniformityGraph {
                 ptrarg_contents[i] = arg_contents;
             }
 
-            cf_last_arg = cf_i;
             args.Push(arg_node);
         }
 
         // Note: This is an additional node that isn't described in the specification, for the
         // purpose of providing diagnostic information.
         Node* call_node = CreateNode({name, "_call"}, call);
-        call_node->AddEdge(cf_last_arg);
+        call_node->AddEdge(cf);
 
         Node* result = CreateNode({name, "_return_value"}, call);
         result->type = Node::kFunctionCallReturnValue;
-        Node* cf_after = CreateNode({"CF_after_", name}, call);
 
         auto default_severity = kUniformityFailuresAsError ? wgsl::DiagnosticSeverity::kError
                                                            : wgsl::DiagnosticSeverity::kWarning;
@@ -1710,9 +1800,10 @@ class UniformityGraph {
             [&](const sem::BuiltinFn* builtin) {
                 // Most builtins have no restrictions. The exceptions are barriers, derivatives,
                 // some texture sampling builtins, and atomics.
-                if (builtin->IsBarrier()) {
+                if (builtin->IsBarrier() && scope_ != UniformityScope::kSubgroup) {
                     callsite_tag = {CallSiteTag::CallSiteRequiredToBeUniform, default_severity};
-                } else if (builtin->Fn() == wgsl::BuiltinFn::kWorkgroupUniformLoad) {
+                } else if (builtin->Fn() == wgsl::BuiltinFn::kWorkgroupUniformLoad &&
+                           scope_ != UniformityScope::kSubgroup) {
                     callsite_tag = {CallSiteTag::CallSiteRequiredToBeUniform, default_severity};
                 } else if (builtin->IsDerivative() ||
                            builtin->Fn() == wgsl::BuiltinFn::kTextureSample ||
@@ -1721,7 +1812,8 @@ class UniformityGraph {
                     // Get the severity of derivative uniformity violations in this context.
                     auto severity = sem_.DiagnosticSeverity(
                         call, wgsl::CoreDiagnosticRule::kDerivativeUniformity);
-                    if (severity != wgsl::DiagnosticSeverity::kOff) {
+                    if (severity != wgsl::DiagnosticSeverity::kOff &&
+                        scope_ != UniformityScope::kSubgroup) {
                         callsite_tag = {CallSiteTag::CallSiteRequiredToBeUniform, severity};
                     }
                     function_tag = ReturnValueMayBeNonUniform;
@@ -1740,15 +1832,38 @@ class UniformityGraph {
                     // Get the severity of subgroup uniformity violations in this context.
                     auto severity = sem_.DiagnosticSeverity(
                         call, wgsl::CoreDiagnosticRule::kSubgroupUniformity);
-                    if (severity != wgsl::DiagnosticSeverity::kOff) {
+                    if (severity != wgsl::DiagnosticSeverity::kOff &&
+                        scope_ != UniformityScope::kWorkgroup) {
                         callsite_tag = {CallSiteTag::CallSiteRequiredToBeUniform, severity};
                     }
                     function_tag = ReturnValueMayBeNonUniform;
+                    if (scope_ == UniformityScope::kSubgroup) {
+                        // The following builtins are uniform at subgroup scope.
+                        switch (builtin->Fn()) {
+                            case wgsl::BuiltinFn::kSubgroupAdd:
+                            case wgsl::BuiltinFn::kSubgroupAll:
+                            case wgsl::BuiltinFn::kSubgroupAnd:
+                            case wgsl::BuiltinFn::kSubgroupAny:
+                            case wgsl::BuiltinFn::kSubgroupBallot:
+                            case wgsl::BuiltinFn::kSubgroupBroadcast:
+                            case wgsl::BuiltinFn::kSubgroupBroadcastFirst:
+                            case wgsl::BuiltinFn::kSubgroupMax:
+                            case wgsl::BuiltinFn::kSubgroupMin:
+                            case wgsl::BuiltinFn::kSubgroupMul:
+                            case wgsl::BuiltinFn::kSubgroupOr:
+                            case wgsl::BuiltinFn::kSubgroupXor:
+                                function_tag = NoRestriction;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
                 } else if (builtin->IsSubgroupMatrix()) {
                     // Get the severity of subgroup matrix uniformity violations in this context.
                     auto severity = sem_.DiagnosticSeverity(
                         call, wgsl::ChromiumDiagnosticRule::kSubgroupMatrixUniformity);
-                    if (severity != wgsl::DiagnosticSeverity::kOff) {
+                    if (severity != wgsl::DiagnosticSeverity::kOff &&
+                        scope_ != UniformityScope::kWorkgroup) {
                         callsite_tag = {CallSiteTag::CallSiteRequiredToBeUniform, severity};
                     }
                 }
@@ -1767,7 +1882,8 @@ class UniformityGraph {
                     // Get the severity of subgroup matrix uniformity violations in this context.
                     auto severity = sem_.DiagnosticSeverity(
                         call, wgsl::ChromiumDiagnosticRule::kSubgroupMatrixUniformity);
-                    if (severity != wgsl::DiagnosticSeverity::kOff) {
+                    if (severity != wgsl::DiagnosticSeverity::kOff &&
+                        scope_ != UniformityScope::kWorkgroup) {
                         callsite_tag = {CallSiteTag::CallSiteRequiredToBeUniform, severity};
                     }
                 } else {
@@ -1781,13 +1897,11 @@ class UniformityGraph {
             },  //
             TINT_ICE_ON_NO_MATCH);
 
-        cf_after->AddEdge(call_node);
-
         if (function_tag == ReturnValueMayBeNonUniform) {
             result->AddEdge(current_function_->may_be_non_uniform);
         }
 
-        result->AddEdge(cf_after);
+        result->AddEdge(call_node);
 
         // For each argument, add edges based on parameter tags.
         for (size_t i = 0; i < args.Length(); i++) {
@@ -1850,11 +1964,21 @@ class UniformityGraph {
                     // Update the current stored value for this pointer argument.
                     auto* root_ident = sem_arg->RootIdentifier();
                     TINT_ASSERT(root_ident);
+
+                    // Check if the argument is a partial pointer. If the previous contents were
+                    // non-uniform, a partial assignment will not make it uniform.
+                    auto* old_value = current_function_->variables.Get(root_ident);
+                    if (IsPartialPointer(call->args[i]) && old_value) {
+                        ptr_result->AddEdge(old_value);
+                    }
+
                     current_function_->variables.Set(root_ident, ptr_result);
                 }
             } else {
                 auto* builtin = sem->Target()->As<sem::BuiltinFn>();
-                if (builtin && builtin->Fn() == wgsl::BuiltinFn::kWorkgroupUniformLoad) {
+                auto* construct = sem->Target()->As<sem::ValueConstructor>();
+                if (builtin && builtin->Fn() == wgsl::BuiltinFn::kWorkgroupUniformLoad &&
+                    scope_ != UniformityScope::kSubgroup) {
                     // The workgroupUniformLoad builtin requires its parameter to be uniform.
                     current_function_->RequiredToBeUniform(default_severity)->AddEdge(args[i]);
                 } else if (builtin &&
@@ -1867,7 +1991,19 @@ class UniformityGraph {
                     // Get the severity of subgroup uniformity violations in this context.
                     auto severity = sem_.DiagnosticSeverity(
                         call->args[i], wgsl::CoreDiagnosticRule::kSubgroupUniformity);
-                    if (severity != wgsl::DiagnosticSeverity::kOff) {
+                    if (severity != wgsl::DiagnosticSeverity::kOff &&
+                        scope_ != UniformityScope::kWorkgroup) {
+                        current_function_->RequiredToBeUniform(severity)->AddEdge(args[i]);
+                    }
+                } else if (((builtin && builtin->IsSubgroupMatrix()) ||
+                            (construct &&
+                             construct->ReturnType()->Is<core::type::SubgroupMatrix>()))) {
+                    // For all subgroup matrix builtins and constructors, all arguments must be
+                    // uniform.
+                    auto severity = sem_.DiagnosticSeverity(
+                        call->args[i], wgsl::ChromiumDiagnosticRule::kSubgroupMatrixUniformity);
+                    if (severity != wgsl::DiagnosticSeverity::kOff &&
+                        scope_ != UniformityScope::kWorkgroup) {
                         current_function_->RequiredToBeUniform(severity)->AddEdge(args[i]);
                     }
                 } else {
@@ -1885,7 +2021,7 @@ class UniformityGraph {
             current_function_->RequiredToBeUniform(callsite_tag.severity)->AddEdge(call_node);
         }
 
-        return {cf_after, result};
+        return result;
     }
 
     /// Traverse a graph starting at `source`, inserting all visited nodes into `reachable` and
@@ -2137,29 +2273,37 @@ class UniformityGraph {
             cause->type == Node::kFunctionCallArgumentContents) {
             bool is_value = (cause->type == Node::kFunctionCallArgumentValue);
 
-            auto* user_func = target->As<sem::Function>();
-            if (user_func) {
-                // Recurse into the called function to show the reason for the requirement.
-                auto next_function = functions_.Get(user_func->Declaration());
-                auto& param_info = next_function->parameters[cause->arg_index];
-                MakeError(*next_function,
-                          is_value ? param_info.value : param_info.ptr_input_contents, severity);
+            Switch(
+                target,  //
+                [&](const sem::Function* user_func) {
+                    // Recurse into the called function to show the reason for the requirement.
+                    auto next_function = functions_.Get(user_func->Declaration());
+                    auto& param_info = next_function->parameters[cause->arg_index];
+                    MakeError(*next_function,
+                              is_value ? param_info.value : param_info.ptr_input_contents,
+                              severity);
 
-                // Show the place where the non-uniform argument was passed.
-                // If this is a builtin, this will be the trigger location for the failure.
-                StringStream ss;
-                ss << "possibly non-uniform value passed" << (is_value ? "" : " via pointer")
-                   << " here";
-                report(call->args[cause->arg_index]->source, ss.str(), /* note */ true);
-            } else {
-                // The uniformity requirement must come from a builtin function.
-                auto* builtin = target->As<sem::BuiltinFn>();
-                TINT_ASSERT(builtin);
-                StringStream ss;
-                ss << "'" << builtin->Fn() << "' requires argument " << cause->arg_index << " to "
-                   << (is_value ? "be uniform" : "have uniform contents");
-                report(call->args[cause->arg_index]->source, ss.str(), /* note */ false);
-            }
+                    // Show the place where the non-uniform argument was passed.
+                    // If this is a builtin, this will be the trigger location for the failure.
+                    StringStream ss;
+                    ss << "possibly non-uniform value passed" << (is_value ? "" : " via pointer")
+                       << " here";
+                    report(call->args[cause->arg_index]->source, ss.str(), /* note */ true);
+                },
+                [&](const sem::BuiltinFn* builtin) {
+                    StringStream ss;
+                    ss << "'" << builtin->Fn() << "' requires argument " << cause->arg_index
+                       << " to " << (is_value ? "be uniform" : "have uniform contents");
+                    report(call->args[cause->arg_index]->source, ss.str(), /* note */ false);
+                },
+                [&](const sem::ValueConstructor* construct) {
+                    StringStream ss;
+                    ss << construct->ReturnType()->FriendlyName()
+                       << " constructor requires argument " << cause->arg_index << " to "
+                       << (is_value ? "be uniform" : "have uniform contents");
+                    report(call->args[cause->arg_index]->source, ss.str(), /* note */ false);
+                },
+                TINT_ICE_ON_NO_MATCH);
 
             // Show the origin of non-uniformity for the value or data that is being passed.
             ShowSourceOfNonUniformity(source_node->visited_from);
@@ -2169,8 +2313,9 @@ class UniformityGraph {
                 // Show a builtin was reachable from this call (which may be the call itself).
                 // This will be the trigger location for the failure.
                 StringStream ss;
-                ss << "'" << NameFor(builtin_call->target)
-                   << "' must only be called from uniform control flow";
+                ss << "'" << NameFor(builtin_call->target) << "' must only be called from "
+                   << (scope_ == UniformityScope::kSubgroup ? "subgroup " : "")
+                   << "uniform control flow";
                 report(builtin_call->source, ss.str(), /* note */ false);
             }
 
@@ -2220,9 +2365,20 @@ class UniformityGraph {
 
 }  // namespace
 
-bool AnalyzeUniformity(ProgramBuilder& builder, const DependencyGraph& dependency_graph) {
-    UniformityGraph graph(builder);
-    return graph.Build(dependency_graph);
+bool AnalyzeUniformity(ProgramBuilder& builder,
+                       const DependencyGraph& dependency_graph,
+                       bool subgroup_uniformity) {
+    if (subgroup_uniformity) {
+        UniformityGraph workgroupGraph(builder, UniformityScope::kWorkgroup);
+        if (!workgroupGraph.Build(dependency_graph)) {
+            return false;
+        }
+        UniformityGraph subgroupGraph(builder, UniformityScope::kSubgroup);
+        return subgroupGraph.Build(dependency_graph);
+    } else {
+        UniformityGraph graph(builder, UniformityScope::kAll);
+        return graph.Build(dependency_graph);
+    }
 }
 
 }  // namespace tint::resolver

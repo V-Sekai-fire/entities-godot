@@ -28,28 +28,26 @@
 #ifndef SRC_TINT_LANG_SPIRV_READER_COMMON_OPTIONS_H_
 #define SRC_TINT_LANG_SPIRV_READER_COMMON_OPTIONS_H_
 
-#include <cstdint>
-#include <optional>
+#include <unordered_map>
 
 #include "src/tint/api/common/binding_point.h"
-#include "src/tint/lang/wgsl/allowed_features.h"
 
 namespace tint::spirv::reader {
 
 /// Options that control how the SPIR-V parser should behave.
 struct Options {
-    /// Set to `true` to allow calls to derivative builtins in non-uniform control flow.
-    bool allow_non_uniform_derivatives = false;
-    // TODO(jrprice): Remove this when SPIR-V -> IR and IR -> WGSL are separate steps.
-    /// The extensions and language features that are allowed to be used in the generated WGSL.
-    wgsl::AllowedFeatures allowed_features = {};
-    /// Godot: the binding point of the `var<uniform>` that a `PushConstant` block is emitted as.
-    /// WGSL has no push constants; the embedder binds the push constant data at this point, like
-    /// the D3D12 and Metal translators are told where the push constant block goes. A module with
-    /// a push constant block fails to read when this is not set.
-    std::optional<BindingPoint> push_constant_binding;
-    /// Godot: the largest push constant block accepted, in bytes. 0 means no limit.
-    uint32_t push_constant_max_size = 0;
+    /// Mapping from a SPIR-V Sampler binding point to a WGSL sampler binding
+    /// point. This allows remapping samplers which are split out of the
+    /// combined texture/sampler pairs in SPIR-V.
+    /// If this map is empty, any binding conflicts will be automatically resolved by incrementing
+    /// binding numbers until they are unique.
+    std::unordered_map<BindingPoint, BindingPoint> sampler_mappings{};
+
+    /// If true, dump the IR whenever validation is performed.
+    bool dump_ir_when_validating = false;
+
+    /// If true, enable validation assertions.
+    bool enable_validation_asserts = false;
 };
 
 }  // namespace tint::spirv::reader

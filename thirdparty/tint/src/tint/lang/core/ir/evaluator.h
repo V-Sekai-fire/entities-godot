@@ -30,23 +30,27 @@
 
 #include "src/tint/lang/core/constant/eval.h"
 #include "src/tint/lang/core/intrinsic/table.h"
-#include "src/tint/lang/core/ir/builder.h"
+#include "src/tint/lang/core/ir/access.h"
+#include "src/tint/lang/core/ir/constant.h"
 #include "src/tint/lang/core/ir/constexpr_if.h"
+#include "src/tint/lang/core/ir/construct.h"
 #include "src/tint/lang/core/ir/convert.h"
 #include "src/tint/lang/core/ir/core_binary.h"
+#include "src/tint/lang/core/ir/core_builtin_call.h"
 #include "src/tint/lang/core/ir/core_unary.h"
 #include "src/tint/lang/core/ir/override.h"
 #include "src/tint/lang/core/ir/swizzle.h"
 #include "src/tint/lang/core/ir/value.h"
 
 namespace tint::core::ir {
+class Builder;
 
 /// An evaluator to take a given `ir::Value` and return the result of evaluating the expression.
 class Evaluator {
   public:
     /// Constructor
     /// @param builder the ir builder
-    explicit Evaluator(ir::Builder& builder);
+    explicit Evaluator(ir::Builder& builder, bool eval_override = true);
     /// Destructor
     ~Evaluator();
 
@@ -55,13 +59,79 @@ class Evaluator {
     /// @returns the generated constant or a failure result.
     diag::Result<core::ir::Constant*> Evaluate(core::ir::Value* src);
 
-  private:
     using EvalResult = Result<const core::constant::Value*>;
 
+    /// Evaluate the binary operator `op` on `lhs` and `rhs`
+    /// @param op the operation
+    /// @param result_ty the result type
+    /// @param lhs the lhs value
+    /// @param rhs the rhs value
+    /// @param source the source location
+    EvalResult EvalCoreBinary(BinaryOp op,
+                              const core::type::Type* result_ty,
+                              core::ir::Value* lhs,
+                              core::ir::Value* rhs,
+                              const Source& source = {});
+
+    /// Evaluate the unary operator `op` on `input`
+    /// @param op the operation
+    /// @param result_ty the result type
+    /// @param input the input value
+    /// @param source the source location
+    EvalResult EvalCoreUnary(UnaryOp op,
+                             const core::type::Type* result_ty,
+                             core::ir::Value* input,
+                             const Source& source = {});
+
+    /// Evaluate the core builtin call on `args`
+    /// @param fn the core builtin function
+    /// @param result_ty the result type
+    /// @param args the argument values
+    /// @param explicit_params the explicit template parameters
+    /// @param source the source location
+    EvalResult EvalCoreBuiltinCall(
+        core::BuiltinFn fn,
+        const core::type::Type* result_ty,
+        VectorRef<core::ir::Value*> args,
+        VectorRef<core::ir::TemplateParameter> explicit_params = tint::Empty,
+        const Source& source = {});
+
+    /// Evaluate construct of `result_ty` with `args`
+    /// @param result_ty the result type
+    /// @param args the argument values
+    /// @param source the source location
+    EvalResult EvalConstruct(const core::type::Type* result_ty,
+                             VectorRef<core::ir::Value*> args,
+                             const Source& source = {});
+
+    /// Evaluate conversion of `arg` to `result_ty`
+    /// @param result_ty the result type
+    /// @param arg the argument value
+    /// @param source the source location
+    EvalResult EvalConvert(const core::type::Type* result_ty,
+                           core::ir::Value* arg,
+                           const Source& source = {});
+
+    /// Evaluate swizzle of `object` with `indices`
+    /// @param result_ty the result type
+    /// @param object the object
+    /// @param indices the indices
+    EvalResult EvalSwizzle(const core::type::Type* result_ty,
+                           core::ir::Value* object,
+                           VectorRef<uint32_t> indices);
+
+    /// Evaluate access of `object` with `indices`
+    /// @param object the object
+    /// @param indices the indices
+    /// @param source the source location
+    EvalResult EvalAccess(core::ir::Value* object,
+                          VectorRef<core::ir::Value*> indices,
+                          const Source& source = {});
+
+  private:
     diag::Diagnostic& AddError(Source src);
     Source SourceOf(core::ir::Instruction* val);
 
-    EvalResult EvalBitcast(core::ir::Bitcast* bc);
     EvalResult EvalValue(core::ir::Value* val);
     EvalResult EvalAccess(core::ir::Access* a);
     EvalResult EvalConvert(core::ir::Convert* c);
@@ -76,6 +146,7 @@ class Evaluator {
     ir::Builder& b_;
     diag::List diagnostics_;
     core::constant::Eval const_eval_;
+    bool eval_override_ = true;
 };
 
 namespace eval {

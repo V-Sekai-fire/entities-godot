@@ -34,7 +34,7 @@
 #include "gtest/gtest.h"
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/disassembler.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 
 namespace tint::core::ir::transform {
 
@@ -47,6 +47,8 @@ class TransformTestBase : public BASE {
     /// @param args the arguments to the transform function
     template <typename TRANSFORM, typename... ARGS>
     void Run(TRANSFORM&& transform_func, ARGS&&... args) {
+        mod.enable_validation_asserts = true;
+
         // Run the transform.
         auto result = transform_func(mod, std::forward<ARGS>(args)...);
         EXPECT_EQ(result, Success);
@@ -55,7 +57,7 @@ class TransformTestBase : public BASE {
         }
 
         // Validate the output IR.
-        EXPECT_EQ(ir::Validate(mod, capabilities), Success);
+        EXPECT_EQ(ir::Validate(mod, "after transform"), Success);
     }
 
     /// Calls the `transform` but return the result instead of validating.
@@ -76,8 +78,6 @@ class TransformTestBase : public BASE {
     ir::Builder b{mod};
     /// The type manager.
     core::type::Manager& ty{mod.Types()};
-    /// IR validation capabilities
-    Capabilities capabilities;
 };
 
 using TransformTest = TransformTestBase<testing::Test>;

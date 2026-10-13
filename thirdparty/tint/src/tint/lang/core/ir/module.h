@@ -37,21 +37,127 @@
 #include "src/tint/lang/core/ir/instruction.h"
 #include "src/tint/lang/core/ir/value.h"
 #include "src/tint/lang/core/type/manager.h"
-#include "src/tint/utils/containers/const_propagating_ptr.h"
+#include "src/tint/utils/containers/enum_set.h"
 #include "src/tint/utils/containers/filtered_iterator.h"
 #include "src/tint/utils/containers/vector.h"
 #include "src/tint/utils/diagnostic/source.h"
-#include "src/tint/utils/generation_id.h"
 #include "src/tint/utils/memory/block_allocator.h"
 #include "src/tint/utils/symbol/symbol_table.h"
 
 namespace tint::core::ir {
 
+// Wrappers around the base TINT_ICE() macros that use the ice_callback attached to the module.
+#define TINT_IR_ICE(module) TINT_ICE(module.ice_callback)
+#define TINT_IR_UNREACHABLE(module) TINT_UNREACHABLE(module.ice_callback)
+#define TINT_IR_UNIMPLEMENTED(module) TINT_UNIMPLEMENTED(module.ice_callback)
+#define TINT_IR_ASSERT(module, condition) TINT_ASSERT((condition), module.ice_callback)
+
+/// Enumerator of IR properties which can either add or subtract functionality from the core IR.
+/// The IR validator will reject use of any non-core IR functionality when the module does not
+/// contain the corresponding property.
+enum class Property : uint8_t {
+    /// Allows 8-bit integer types to be used.
+    kAllow8BitIntegers,
+    /// Allows 16-bit integer types to be used.
+    kAllow16BitIntegers,
+    /// Allows 64-bit integer types to be used.
+    kAllow64BitIntegers,
+    /// Allows use of 16-bit floats.
+    kAllow16BitFloats,
+    /// Allows input_attachment_index to be associated with any type
+    kAllowAnyInputAttachmentIndexType,
+    /// Allows lets to have any type.
+    kAllowAnyLetType,
+    /// Allows various backend-specific features for ShaderIO, like blend_src on non-struct members.
+    kAllowBackendSpecificShaderIO,
+    /// Allows use of buffer types.
+    kAllowBufferTypes,
+    /// Allows ClipDistances on f32 and vecN<f32> parameters
+    kAllowClipDistancesOnF32ScalarAndVector,
+    /// Allows binding points to be non-unique.
+    kAllowDuplicateBindings,
+    /// Allows @location on structs, matrices, and arrays that have numeric elements
+    kAllowLocationForNumericComposites,
+    /// Allows module scoped lets
+    kAllowModuleScopeLets,
+    /// Allows MSL specific entry point interface variance.
+    kAllowMslEntryPointInterface,
+    /// Allows multiple entry points in the module.
+    kAllowMultipleEntryPoints,
+    /// Allows non-core types to be used.
+    kAllowNonCoreTypes,
+    /// Allow overrides
+    kAllowOverrides,
+    /// Allows phony assignment instructions to be used.
+    kAllowPhonyInstructions,
+    /// Allows the PointSize builtin to be used.
+    kAllowPointSizeBuiltin,
+    /// Allows pointers and handle types inside arrays and structures.
+    kAllowPointerAndHandleInAggregates,
+    /// Allows a pointer to a handle type
+    kAllowPointerToHandle,
+    /// Allows reference types in the IR
+    kAllowRefTypes,
+    /// Allows matrix annotations on structure members.
+    kAllowStructMatrixDecorations,
+    /// Allows module scope `var`s to exist without an IO annotation.
+    kAllowUnannotatedModuleIOVariables,
+    /// Allows access instructions to create pointers to vector elements.
+    kAllowVectorElementPointer,
+    /// Allows SwizzleView loads, stores, and swizzles.
+    kAllowSwizzleView,
+
+    /// Disallow use of the min/max/clamp builtins with vector types.
+    kDisallowVectorMinMaxClamp,
+};
+
+/// Properties is a set of Property values.
+using Properties = EnumSet<Property>;
+
+/// Prints the Property @p p to @p o
+/// @param o the stream to write to
+/// @param p the Property
+/// @return the stream so calls can be chained
+template <typename STREAM>
+    requires(traits::IsOStream<STREAM>)
+auto& operator<<(STREAM& out, Property p) {
+#define CASE(p)          \
+    case Property::k##p: \
+        return out << #p
+    switch (p) {  //
+        CASE(Allow8BitIntegers);
+        CASE(Allow16BitIntegers);
+        CASE(Allow64BitIntegers);
+        CASE(AllowAnyInputAttachmentIndexType);
+        CASE(AllowAnyLetType);
+        CASE(AllowBackendSpecificShaderIO);
+        CASE(AllowClipDistancesOnF32ScalarAndVector);
+        CASE(AllowDuplicateBindings);
+        CASE(AllowLocationForNumericComposites);
+        CASE(AllowModuleScopeLets);
+        CASE(AllowMslEntryPointInterface);
+        CASE(AllowMultipleEntryPoints);
+        CASE(AllowNonCoreTypes);
+        CASE(AllowOverrides);
+        CASE(AllowPhonyInstructions);
+        CASE(AllowPointSizeBuiltin);
+        CASE(AllowPointerAndHandleInAggregates);
+        CASE(AllowPointerToHandle);
+        CASE(AllowRefTypes);
+        CASE(AllowStructMatrixDecorations);
+        CASE(AllowUnannotatedModuleIOVariables);
+        CASE(AllowVectorElementPointer);
+        CASE(AllowBufferTypes);
+        CASE(Allow16BitFloats);
+        CASE(DisallowVectorMinMaxClamp);
+        CASE(AllowSwizzleView);
+    }
+#undef CASE
+    return out << "<unknown>";
+}
+
 /// Main module class for the IR.
 class Module {
-    /// Program Id required to create other components
-    GenerationID prog_id_;
-
     /// Map of value to name
     Hashmap<const Value*, Symbol, 32> value_to_name_;
 
@@ -178,6 +284,13 @@ class Module {
     /// @returns the functions in the module, in dependency order
     Vector<const Function*, 16> DependencyOrderedFunctions() const;
 
+    /// Removes `func` from the module and destroys it.
+    /// @param func the function to destroy
+    void Destroy(Function* func);
+
+    /// The set of properties used by the module.
+    Properties properties;
+
     /// The block allocator
     BlockAllocator<Block> blocks;
 
@@ -185,16 +298,25 @@ class Module {
     core::constant::Manager constant_values;
 
     /// List of functions in the module.
-    Vector<ConstPropagatingPtr<Function>, 8> functions;
+    Vector<Function*, 8> functions;
 
     /// The block containing module level declarations, if any exist.
-    ConstPropagatingPtr<Block> root_block;
+    Block* root_block = nullptr;
 
     /// The symbol table for the module
-    SymbolTable symbols{prog_id_};
+    SymbolTable symbols{};
 
     /// The map of core::constant::Value to their ir::Constant.
     Hashmap<const core::constant::Value*, ir::Constant*, 16> constants;
+
+    /// If true, the AssertValid*() methods will perform validation.
+    bool enable_validation_asserts = false;
+
+    /// If true, dump the IR whenever validation is performed.
+    bool dump_ir_when_validating = false;
+
+    /// An optional callback to receive an ICE generated while processing this module.
+    InternalCompilerErrorCallback ice_callback;
 
   private:
     /// @returns the next instruction id for this module

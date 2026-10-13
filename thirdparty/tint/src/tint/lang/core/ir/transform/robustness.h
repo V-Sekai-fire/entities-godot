@@ -31,7 +31,7 @@
 #include <unordered_set>
 
 #include "src/tint/api/common/binding_point.h"
-#include "src/tint/utils/reflection.h"
+#include "src/tint/utils/reflection/reflection.h"
 #include "src/tint/utils/result.h"
 
 // Forward declarations.
@@ -43,24 +43,21 @@ namespace tint::core::ir::transform {
 
 /// Configuration options that control when to clamp accesses.
 struct RobustnessConfig {
-    /// Should non-pointer accesses be clamped?
-    bool clamp_value = true;
-
     /// Should texture accesses be clamped?
     bool clamp_texture = true;
 
-    /// Should accesses to pointers with the 'function' address space be clamped?
-    bool clamp_function = true;
-    /// Should accesses to pointers with the 'private' address space be clamped?
-    bool clamp_private = true;
-    /// Should accesses to pointers with the 'push_constant' address space be clamped?
-    bool clamp_push_constant = true;
+    /// Should accesses to pointers with the 'immediate' address space be clamped?
+    bool clamp_immediate_data = true;
     /// Should accesses to pointers with the 'storage' address space be clamped?
     bool clamp_storage = true;
     /// Should accesses to pointers with the 'uniform' address space be clamped?
     bool clamp_uniform = true;
-    /// Should accesses to pointers with the 'workgroup' address space be clamped?
-    bool clamp_workgroup = true;
+
+    /// Should subgroup matrix builtins be clamped?
+    /// Note that the stride parameter will still be clamped if clamping is disabled.
+    bool clamp_subgroup_matrix = true;
+    /// Subgroup matrix accesses to bindings in `bindings_ignored` are never clamped.
+    bool clamp_storage_subgroup_matrix = true;
 
     /// Bindings that should always be ignored.
     std::unordered_set<tint::BindingPoint> bindings_ignored;
@@ -68,18 +65,20 @@ struct RobustnessConfig {
     /// Should the transform skip index clamping on runtime-sized arrays?
     bool disable_runtime_sized_array_index_clamping = false;
 
+    /// Should the integer range analysis be used before doing index clamping?
+    bool use_integer_range_analysis = false;
+
     /// Reflection for this class
     TINT_REFLECT(RobustnessConfig,
-                 clamp_value,
                  clamp_texture,
-                 clamp_function,
-                 clamp_private,
-                 clamp_push_constant,
+                 clamp_immediate_data,
                  clamp_storage,
                  clamp_uniform,
-                 clamp_workgroup,
+                 clamp_subgroup_matrix,
+                 clamp_storage_subgroup_matrix,
                  bindings_ignored,
-                 disable_runtime_sized_array_index_clamping);
+                 disable_runtime_sized_array_index_clamping,
+                 use_integer_range_analysis);
 };
 
 /// Robustness is a transform that prevents out-of-bounds memory accesses.

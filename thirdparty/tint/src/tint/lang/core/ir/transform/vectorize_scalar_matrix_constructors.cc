@@ -31,7 +31,7 @@
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 
 using namespace tint::core::fluent_types;     // NOLINT
 using namespace tint::core::number_suffixes;  // NOLINT
@@ -56,9 +56,9 @@ struct State {
         // Find and replace matrix constructors that take scalar operands.
         for (auto inst : ir.Instructions()) {
             if (auto* construct = inst->As<Construct>()) {
-                if (construct->Result()->Type()->As<type::Matrix>()) {
+                if (construct->Result()->Type()->As<core::type::Matrix>()) {
                     if (construct->Operands().Length() > 0 &&
-                        construct->Operands()[0]->Type()->Is<type::Scalar>()) {
+                        construct->Operands()[0]->Type()->Is<core::type::Scalar>()) {
                         b.InsertBefore(construct, [&] {  //
                             ReplaceConstructor(construct);
                         });
@@ -71,7 +71,7 @@ struct State {
     /// Replace a matrix construct instruction.
     /// @param construct the instruction to replace
     void ReplaceConstructor(Construct* construct) {
-        auto* mat = construct->Result()->Type()->As<type::Matrix>();
+        auto* mat = construct->Result()->Type()->As<core::type::Matrix>();
         auto* col = mat->ColumnType();
         const auto& scalars = construct->Operands();
 
@@ -82,11 +82,11 @@ struct State {
             for (uint32_t r = 0; r < col->Width(); r++) {
                 values.Push(scalars[c * col->Width() + r]);
             }
-            columns.Push(b.Construct(col, std::move(values))->Result());
+            columns.Push(b.Construct(col, std::move(values)));
         }
 
         // Construct the matrix from the column vectors and replace the original instruction.
-        b.ConstructWithResult(construct->DetachResult(), std::move(columns));
+        b.ConstructReplaceResult(construct->DetachResult(), std::move(columns));
         construct->Destroy();
     }
 };
@@ -94,11 +94,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> VectorizeScalarMatrixConstructors(Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "core.VectorizeScalarMatrixConstructors",
-                                          kVectorizeScalarMatrixConstructorsCapabilities);
-    if (result != Success) {
-        return result;
-    }
+    AssertValid(ir, "before core.VectorizeScalarMatrixConstructors");
 
     State{ir}.Process();
 

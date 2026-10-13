@@ -28,10 +28,8 @@
 #ifndef SRC_TINT_LANG_WGSL_SEM_CALL_H_
 #define SRC_TINT_LANG_WGSL_SEM_CALL_H_
 
-#include <vector>
-
 #include "src/tint/lang/wgsl/ast/call_expression.h"
-#include "src/tint/lang/wgsl/sem/builtin_fn.h"
+#include "src/tint/lang/wgsl/sem/call_target.h"
 #include "src/tint/lang/wgsl/sem/value_expression.h"
 #include "src/tint/utils/containers/vector.h"
 
@@ -48,14 +46,14 @@ class Call final : public Castable<Call, ValueExpression> {
     /// @param arguments the call arguments
     /// @param statement the statement that owns this expression
     /// @param constant the constant value of this expression
-    /// @param has_side_effects whether this expression may have side effects
+    /// @param root_ident the root identifier of the call (rarely used)
     Call(const ast::CallExpression* declaration,
          const CallTarget* target,
          core::EvaluationStage stage,
          VectorRef<const sem::ValueExpression*> arguments,
          const Statement* statement,
          const core::constant::Value* constant,
-         bool has_side_effects);
+         const Variable* root_ident = nullptr);
 
     /// Destructor
     ~Call() override;
@@ -67,6 +65,7 @@ class Call final : public Castable<Call, ValueExpression> {
     const auto& Arguments() const { return arguments_; }
 
     /// @returns the AST node
+    // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
     const ast::CallExpression* Declaration() const {
         return static_cast<const ast::CallExpression*>(declaration_);
     }

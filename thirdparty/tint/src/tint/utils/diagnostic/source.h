@@ -58,8 +58,21 @@ class Source {
 
         /// The original un-split file content
         const std::string data;
-        /// #data split by lines
-        const std::vector<std::string_view> lines;
+
+        // The range of bytes in #data for a single line
+        struct LineRange {
+            size_t start;
+            size_t length;
+        };
+        /// The range of character for each line in #data
+        const std::vector<LineRange> line_ranges;
+
+        /// Returns a view of a specific line.
+        /// @param n the number of the line to return.
+        std::string_view GetLine(size_t n) const;
+
+        /// Returns the total number of lines.
+        size_t GetLineCount() const;
     };
 
     /// File describes a source file, including path and content.
@@ -242,7 +255,8 @@ std::string ToString(const Source& source);
 /// @param out the stream to write to
 /// @param loc the location to write
 /// @returns out so calls can be chained
-template <typename STREAM, typename = traits::EnableIfIsOStream<STREAM>>
+template <typename STREAM>
+    requires(traits::IsOStream<STREAM>)
 auto& operator<<(STREAM& out, const Source::Location& loc) {
     return out << loc.line << ":" << loc.column;
 }
@@ -251,7 +265,8 @@ auto& operator<<(STREAM& out, const Source::Location& loc) {
 /// @param out the stream to write to
 /// @param range the range to write
 /// @returns out so calls can be chained
-template <typename STREAM, typename = traits::EnableIfIsOStream<STREAM>>
+template <typename STREAM>
+    requires(traits::IsOStream<STREAM>)
 auto& operator<<(STREAM& out, const Source::Range& range) {
     return out << "[" << range.begin << ", " << range.end << "]";
 }
@@ -260,7 +275,8 @@ auto& operator<<(STREAM& out, const Source::Range& range) {
 /// @param out the stream to write to
 /// @param source the source to write
 /// @returns out so calls can be chained
-template <typename STREAM, typename = traits::EnableIfIsOStream<STREAM>>
+template <typename STREAM>
+    requires(traits::IsOStream<STREAM>)
 auto& operator<<(STREAM& out, const Source& source) {
     return out << ToString(source);
 }
@@ -269,7 +285,8 @@ auto& operator<<(STREAM& out, const Source& source) {
 /// @param out the stream to write to
 /// @param content the file content to write
 /// @returns out so calls can be chained
-template <typename STREAM, typename = traits::EnableIfIsOStream<STREAM>>
+template <typename STREAM>
+    requires(traits::IsOStream<STREAM>)
 auto& operator<<(STREAM& out, const Source::FileContent& content) {
     return out << content.data;
 }

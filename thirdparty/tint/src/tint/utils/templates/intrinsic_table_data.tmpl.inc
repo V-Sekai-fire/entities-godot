@@ -20,32 +20,29 @@ See:
 
 namespace {
 
-using ConstEvalFunctionIndex = tint::core::intrinsic::ConstEvalFunctionIndex;
-using IntrinsicInfo = tint::core::intrinsic::IntrinsicInfo;
-using MatcherIndicesIndex = tint::core::intrinsic::MatcherIndicesIndex;
-using MatchState = tint::core::intrinsic::MatchState;
-using Number = tint::core::intrinsic::Number;
-using NumberMatcher = tint::core::intrinsic::NumberMatcher;
-using NumberMatcherIndex = tint::core::intrinsic::NumberMatcherIndex;
-using OverloadFlag = tint::core::intrinsic::OverloadFlag;
-using OverloadFlags = tint::core::intrinsic::OverloadFlags;
-using OverloadIndex = tint::core::intrinsic::OverloadIndex;
-using OverloadInfo = tint::core::intrinsic::OverloadInfo;
-using ParameterIndex = tint::core::intrinsic::ParameterIndex;
-using ParameterInfo = tint::core::intrinsic::ParameterInfo;
-using StringStream = tint::StringStream;
-using TemplateIndex = tint::core::intrinsic::TemplateIndex;
-using Type = tint::core::type::Type;
-using TypeMatcher = tint::core::intrinsic::TypeMatcher;
-using TypeMatcherIndex = tint::core::intrinsic::TypeMatcherIndex;
+using tint::core::intrinsic::ConstEvalFunctionIndex;
+using tint::core::intrinsic::IntrinsicInfo;
+using tint::core::intrinsic::MatchState;
+using tint::core::intrinsic::MatcherIndicesIndex;
+using tint::core::intrinsic::Number;
+using tint::core::intrinsic::NumberMatcher;
+using tint::core::intrinsic::NumberMatcherIndex;
+using tint::core::intrinsic::OverloadFlag;
+using tint::core::intrinsic::OverloadFlags;
+using tint::core::intrinsic::OverloadIndex;
+using tint::core::intrinsic::OverloadInfo;
+using tint::core::intrinsic::ParameterIndex;
+using tint::core::intrinsic::ParameterInfo;
+using tint::core::intrinsic::TemplateIndex;
+using tint::core::intrinsic::TypeMatcher;
+using tint::core::intrinsic::TypeMatcherIndex;
+using tint::core::type::Type;
 
 template<size_t N>
 using TemplateNumberMatcher = tint::core::intrinsic::TemplateNumberMatcher<N>;
 
 template<size_t N>
 using TemplateTypeMatcher = tint::core::intrinsic::TemplateTypeMatcher<N>;
-
-// clang-format off
 
 {{  with $I.Sem -}}
 {{    range .Types -}}
@@ -83,6 +80,9 @@ constexpr ParameterInfo kParameters[] = {
 {{-   if $p.Usage }}k{{PascalCase $p.Usage}}
 {{-   else        }}kNone
 {{-   end }},
+    /* is_const */
+{{-   if $p.IsConst }} true
+{{-   else          }} false{{end}},
     /* matcher_indices */
 {{-   if ge $p.MatcherIndicesOffset 0 }} MatcherIndicesIndex({{$p.MatcherIndicesOffset}})
 {{-   else                            }} MatcherIndicesIndex(/* invalid */)
@@ -237,19 +237,17 @@ constexpr IntrinsicInfo kConstructorsAndConverters[] = {
 };
 {{- end }}
 
-// clang-format on
-
 }  // anonymous namespace
 
 const core::intrinsic::TableData {{$.Name}}{
-  /* templates */ {{if .Templates}}kTemplates{{else}}Empty{{end}},
-  /* type_matcher_indices */ {{if .MatcherIndices}}kMatcherIndices{{else}}Empty{{end}},
-  /* type_matchers */ {{if .TMatchers}}kTypeMatchers{{else}}Empty{{end}},
-  /* number_matchers */ {{if .NMatchers}}kNumberMatchers{{else}}Empty{{end}},
-  /* parameters */ {{if .Parameters}}kParameters{{else}}Empty{{end}},
+  /* templates */ {{if .Templates}}kTemplates{{else}}{}{{end}},
+  /* type_matcher_indices */ {{if .MatcherIndices}}kMatcherIndices{{else}}{}{{end}},
+  /* type_matchers */ {{if .TMatchers}}kTypeMatchers{{else}}{}{{end}},
+  /* number_matchers */ {{if .NMatchers}}kNumberMatchers{{else}}{}{{end}},
+  /* parameters */ {{if .Parameters}}kParameters{{else}}{}{{end}},
   /* overloads */ kOverloads,
-  /* const_eval_functions */ {{if .ConstEvalFunctions}}kConstEvalFunctions{{else}}Empty{{end}},
-  /* ctor_conv */ {{if .ConstructorsAndConverters}}kConstructorsAndConverters{{else}}Empty{{end}},
+  /* const_eval_functions */ {{if .ConstEvalFunctions}}kConstEvalFunctions{{else}}{}{{end}},
+  /* ctor_conv */ {{if .ConstructorsAndConverters}}kConstructorsAndConverters{{else}}{}{{end}},
   /* builtins */ kBuiltins,
 {{- range $op := List "+" "-" "*" "/" "%" "^" "&" "|" "&&" "||" "==" "!=" "<" ">" "<=" ">=" "<<" ">>"}}
 {{-   $N := Eval "OperatorName" $op }}

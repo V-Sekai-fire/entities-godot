@@ -28,11 +28,7 @@
 #ifndef SRC_TINT_LANG_CORE_IR_TRANSFORM_SUBSTITUTE_OVERRIDES_H_
 #define SRC_TINT_LANG_CORE_IR_TRANSFORM_SUBSTITUTE_OVERRIDES_H_
 
-#include <unordered_map>
-
-#include "src/tint/api/common/override_id.h"
-#include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/reflection.h"
+#include "src/tint/api/common/substitute_overrides_config.h"
 #include "src/tint/utils/result.h"
 
 // Forward declarations.
@@ -41,35 +37,6 @@ class Module;
 }
 
 namespace tint::core::ir::transform {
-
-/// The capabilities that the transform can support.
-const core::ir::Capabilities kSubstituteOverridesCapabilities{
-    core::ir::Capability::kAllowOverrides,
-};
-
-/// Configuration options for the transform
-struct SubstituteOverridesConfig {
-    /// Constructor
-    SubstituteOverridesConfig();
-
-    /// Copy constructor
-    SubstituteOverridesConfig(const SubstituteOverridesConfig&) = default;
-
-    /// Destructor
-    ~SubstituteOverridesConfig() = default;
-
-    /// Assignment operator
-    /// @returns this config
-    SubstituteOverridesConfig& operator=(const SubstituteOverridesConfig&) = default;
-
-    /// The map of override identifier to the override value.
-    /// The value is always a double coming into the transform and will be
-    /// converted to the correct type through and initializer.
-    std::unordered_map<OverrideId, double> map;
-
-    /// Reflect the fields of this class so that it can be used by tint::ForeachField()
-    TINT_REFLECT(SubstituteOverridesConfig, map);
-};
 
 /// Substitute overrides to their constant values.
 /// @param module the module to transform

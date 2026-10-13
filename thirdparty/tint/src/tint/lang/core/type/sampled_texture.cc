@@ -27,9 +27,9 @@
 
 #include "src/tint/lang/core/type/sampled_texture.h"
 
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/type/manager.h"
 #include "src/tint/lang/core/type/texture_dimension.h"
-#include "src/tint/utils/diagnostic/diagnostic.h"
 #include "src/tint/utils/ice/ice.h"
 #include "src/tint/utils/math/hash.h"
 #include "src/tint/utils/text/string_stream.h"
@@ -55,6 +55,12 @@ bool SampledTexture::Equals(const UniqueNode& other) const {
 std::string SampledTexture::FriendlyName() const {
     StringStream out;
     out << "texture_" << Dim() << "<" << type_->FriendlyName() << ">";
+    return out.str();
+}
+
+std::string SampledTexture::IdentifierName() const {
+    StringStream out;
+    out << "texture_" << Dim() << "_" << type_->IdentifierName();
     return out.str();
 }
 

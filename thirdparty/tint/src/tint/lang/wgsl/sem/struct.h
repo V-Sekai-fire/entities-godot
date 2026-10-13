@@ -28,9 +28,6 @@
 #ifndef SRC_TINT_LANG_WGSL_SEM_STRUCT_H_
 #define SRC_TINT_LANG_WGSL_SEM_STRUCT_H_
 
-#include <optional>
-
-#include "src/tint/lang/core/address_space.h"
 #include "src/tint/lang/core/type/struct.h"
 #include "src/tint/lang/core/type/type.h"
 #include "src/tint/lang/wgsl/ast/struct.h"
@@ -58,15 +55,11 @@ class Struct final : public Castable<Struct, core::type::Struct> {
     /// @param declaration the AST structure declaration
     /// @param name the name of the structure
     /// @param members the structure members
-    /// @param align the byte alignment of the structure
     /// @param size the byte size of the structure
-    /// @param size_no_padding size of the members without the end of structure alignment padding
     Struct(const ast::Struct* declaration,
            Symbol name,
            VectorRef<const StructMember*> members,
-           uint32_t align,
-           uint32_t size,
-           uint32_t size_no_padding);
+           uint32_t size);
 
     /// Destructor
     ~Struct() override;
@@ -75,6 +68,7 @@ class Struct final : public Castable<Struct, core::type::Struct> {
     const ast::Struct* Declaration() const { return declaration_; }
 
     /// @returns the members of the structure
+    // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
     VectorRef<const StructMember*> Members() const {
         return Base::Members().ReinterpretCast<const StructMember*>();
     }
@@ -112,6 +106,7 @@ class StructMember final : public Castable<StructMember, core::type::StructMembe
     const ast::StructMember* Declaration() const { return declaration_; }
 
     /// @returns the structure that owns this member
+    // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
     const sem::Struct* Struct() const { return static_cast<const sem::Struct*>(Base::Struct()); }
 
   private:

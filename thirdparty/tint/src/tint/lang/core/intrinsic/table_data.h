@@ -29,14 +29,15 @@
 #define SRC_TINT_LANG_CORE_INTRINSIC_TABLE_DATA_H_
 
 #include <stdint.h>
+
 #include <limits>
+#include <span>
 #include <string>
 
 #include "src/tint/lang/core/constant/eval.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/evaluation_stage.h"
-#include "src/tint/lang/core/parameter_usage.h"
 #include "src/tint/utils/containers/enum_set.h"
-#include "src/tint/utils/containers/slice.h"
 #include "src/tint/utils/text/styled_text.h"
 #include "src/tint/utils/text/text_style.h"
 
@@ -105,8 +106,7 @@ struct TableIndex {
     /// @returns true if the integer type `T` has enough bits to index all the
     /// elements in the array @p arr.
     template <typename U, size_t COUNT>
-    static constexpr bool CanIndex(U (&arr)[COUNT]) {
-        (void)arr;  // The array isn't actually used
+    static constexpr bool CanIndex([[maybe_unused]] U (&arr)[COUNT]) {
         /// kInvalid is the largest value representable by `T`. It is not a valid index.
         return COUNT < kInvalid;
     }
@@ -116,7 +116,7 @@ struct TableIndex {
 };
 
 /// Index type used to index TableData::template_types
-using TemplateIndex = TableIndex<TableIndexNamespace::kTemplate, uint8_t>;
+using TemplateIndex = TableIndex<TableIndexNamespace::kTemplate, uint16_t>;
 
 /// Index type used to index TableData::type_matchers or TableData::number_matchers
 using MatcherIndex = TableIndex<TableIndexNamespace::kMatcher, uint8_t>;
@@ -161,6 +161,9 @@ struct ParameterInfo {
     /// The parameter usage (parameter name in definition file)
     const ParameterUsage usage;
 
+    /// True if the parameter is required to be constant.
+    const bool is_const;
+
     /// Index of the matcher indices that are used to match the parameter types.
     /// These indices are consumed by the matchers themselves.
     const MatcherIndicesIndex matcher_indices;
@@ -169,7 +172,16 @@ struct ParameterInfo {
 /// TemplateInfo describes an template
 struct TemplateInfo {
     /// An enumerator of template kind
-    enum class Kind : uint8_t { kType, kNumber };
+    /// The enum names don't match because they come directly from .def enums
+    enum class Kind : uint8_t {
+        kType,
+        kNumber,
+        kaccess,
+        kaddress_space,
+        ksubgroup_matrix_kind,
+        kmajorness,
+        ktexel_format,
+    };
 
     /// Name of the template type (e.g. 'T')
     const char* name;
@@ -212,7 +224,7 @@ struct IntrinsicInfo {
 };
 
 /// A IntrinsicInfo with no overloads
-static constexpr IntrinsicInfo kNoOverloads{0, OverloadIndex(OverloadIndex::kInvalid)};
+inline constexpr IntrinsicInfo kNoOverloads{0, OverloadIndex(OverloadIndex::kInvalid)};
 
 /// Number is an 32 bit unsigned integer, which can be in one of three states:
 /// * Invalid - Number has not been assigned a value
@@ -436,6 +448,9 @@ class MatchState {
     inline void PrintNum(StyledText& out);
 
   private:
+    template <typename IndexType>
+    inline auto& NextMatcher();
+
     const MatcherIndex* matcher_indices_ = nullptr;
 };
 
@@ -536,23 +551,23 @@ struct TableData {
     }
 
     /// The list of templates used by the intrinsic overloads
-    const Slice<const TemplateInfo> templates;
+    const std::span<const TemplateInfo> templates;
     /// The list of type matcher indices
-    const Slice<const MatcherIndex> matcher_indices;
+    const std::span<const MatcherIndex> matcher_indices;
     /// The list of type matchers used by the intrinsic overloads
-    const Slice<const TypeMatcher> type_matchers;
+    const std::span<const TypeMatcher> type_matchers;
     /// The list of number matchers used by the intrinsic overloads
-    const Slice<const NumberMatcher> number_matchers;
+    const std::span<const NumberMatcher> number_matchers;
     /// The list of parameters used by the intrinsic overloads
-    const Slice<const ParameterInfo> parameters;
+    const std::span<const ParameterInfo> parameters;
     /// The list of overloads used by the intrinsics
-    const Slice<const OverloadInfo> overloads;
+    const std::span<const OverloadInfo> overloads;
     /// The list of constant evaluation functions used by the intrinsics
-    const Slice<const constant::Eval::Function> const_eval_functions;
+    const std::span<const constant::Eval::Function> const_eval_functions;
     /// The type constructor and convertor intrinsics
-    const Slice<const IntrinsicInfo> ctor_conv;
+    const std::span<const IntrinsicInfo> ctor_conv;
     /// The builtin function intrinsic
-    const Slice<const IntrinsicInfo> builtins;
+    const std::span<const IntrinsicInfo> builtins;
     /// The IntrinsicInfo for the binary operator 'plus'
     const IntrinsicInfo& binary_plus;
     /// The IntrinsicInfo for the binary operator 'minus'
@@ -601,31 +616,32 @@ struct TableData {
     const IntrinsicInfo& unary_and;
 };
 
-TINT_BEGIN_DISABLE_WARNING(UNSAFE_BUFFER_USAGE);
-const core::type::Type* MatchState::Type(const core::type::Type* ty) {
-    TypeMatcherIndex matcher_index{(*matcher_indices_++).value};
-    auto& matcher = data[matcher_index];
-    return matcher.match(*this, ty);
+template <typename IndexType>
+inline auto& MatchState::NextMatcher() {
+    // Incrementing matcher_indices_ triggers unsafe buffer warnings.
+    // Pointer arithmetic is retained here because this section is performance-critical.
+    // SAFETY: matcher_indices_ points to a valid range of matcher index values generated by the
+    // intrinsic compiler tool, and increments are strictly bounded by the parsed expression
+    // structure.
+    IndexType matcher_index{DAWN_UNSAFE_BUFFERS((*matcher_indices_++).value)};
+    return data[matcher_index];
 }
 
-Number MatchState::Num(Number number) {
-    NumberMatcherIndex matcher_index{(*matcher_indices_++).value};
-    auto& matcher = data[matcher_index];
-    return matcher.match(*this, number);
+inline const core::type::Type* MatchState::Type(const core::type::Type* ty) {
+    return NextMatcher<TypeMatcherIndex>().match(*this, ty);
 }
 
-void MatchState::PrintType(StyledText& out) {
-    TypeMatcherIndex matcher_index{(*matcher_indices_++).value};
-    auto& matcher = data[matcher_index];
-    matcher.print(this, out);
+inline Number MatchState::Num(Number number) {
+    return NextMatcher<NumberMatcherIndex>().match(*this, number);
 }
 
-void MatchState::PrintNum(StyledText& out) {
-    NumberMatcherIndex matcher_index{(*matcher_indices_++).value};
-    auto& matcher = data[matcher_index];
-    matcher.print(this, out);
+inline void MatchState::PrintType(StyledText& out) {
+    NextMatcher<TypeMatcherIndex>().print(this, out);
 }
-TINT_END_DISABLE_WARNING(UNSAFE_BUFFER_USAGE);
+
+inline void MatchState::PrintNum(StyledText& out) {
+    NextMatcher<NumberMatcherIndex>().print(this, out);
+}
 
 /// TemplateTypeMatcher is a Matcher for a template type.
 /// The TemplateTypeMatcher will initially match against any type, and then will only be further

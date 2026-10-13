@@ -31,7 +31,7 @@
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 
 using namespace tint::core::fluent_types;     // NOLINT
 using namespace tint::core::number_suffixes;  // NOLINT
@@ -80,10 +80,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> CombineAccessInstructions(Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "core.CombineAccessInstructions");
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(ir, "before core.CombineAccessInstructions");
 
     State{ir}.Process();
 

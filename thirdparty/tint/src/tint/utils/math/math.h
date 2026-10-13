@@ -37,11 +37,11 @@ namespace tint {
 
 /// @param alignment the next multiple to round `value` to
 /// @param value the value to round to the next multiple of `alignment`
-/// @return `value` rounded to the next multiple of `alignment`
-/// @note `alignment` must be positive. An alignment of zero will cause a DBZ.
+/// @return `value` rounded to the next multiple of `alignment`, or `value` if `alignment` is 0
+/// @note `alignment` must be positive.
 template <typename T>
 inline constexpr T RoundUp(T alignment, T value) {
-    return ((value + alignment - 1) / alignment) * alignment;
+    return alignment != 0 ? ((value + alignment - 1) / alignment) * alignment : value;
 }
 
 /// @param value the value to check whether it is a power-of-two
@@ -102,7 +102,8 @@ inline constexpr uint64_t NextPowerOfTwo(uint64_t value) {
 /// @param value the input value
 /// @returns the largest power of two that `value` is a multiple of
 template <typename T>
-inline std::enable_if_t<std::is_unsigned<T>::value, T> MaxAlignOf(T value) {
+    requires(std::is_unsigned_v<T>)
+inline T MaxAlignOf(T value) {
     T pot = 1;
     while (value && ((value & 1u) == 0)) {
         pot <<= 1;

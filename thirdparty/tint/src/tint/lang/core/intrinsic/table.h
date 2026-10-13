@@ -29,27 +29,28 @@
 #define SRC_TINT_LANG_CORE_INTRINSIC_TABLE_H_
 
 #include <memory>
+#include <ostream>
 #include <string>
+#include <tuple>
 #include <utility>
+#include <variant>
 
 #include "src/tint/lang/core/binary_op.h"
-#include "src/tint/lang/core/builtin_fn.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/evaluation_stage.h"
 #include "src/tint/lang/core/intrinsic/ctor_conv.h"
 #include "src/tint/lang/core/intrinsic/table_data.h"
-#include "src/tint/lang/core/parameter_usage.h"
 #include "src/tint/lang/core/unary_op.h"
+#include "src/tint/utils/containers/hashmap.h"
 #include "src/tint/utils/containers/vector.h"
 #include "src/tint/utils/text/string.h"
 #include "src/tint/utils/text/string_stream.h"
 #include "src/tint/utils/text/styled_text.h"
 
-// Forward declarations
-namespace tint::diag {
-class List;
-}  // namespace tint::diag
-
 namespace tint::core::intrinsic {
+
+// Note: Ensure any new enum here is also added to TemplateInfo::Kind (and sem.go).
+using TemplateParameter = std::variant<const core::type::Type*, core::Majorness>;
 
 /// Overload describes a fully matched builtin function overload
 struct Overload {
@@ -61,12 +62,14 @@ struct Overload {
         const core::type::Type* const type;
         /// Parameter usage
         core::ParameterUsage const usage = core::ParameterUsage::kNone;
+        /// True if the parameter is required to be const.
+        const bool is_const;
 
         /// Equality operator
         /// @param other the parameter to compare against
         /// @returns true if this parameter and @p other are the same
         bool operator==(const Parameter& other) const {
-            return type == other.type && usage == other.usage;
+            return type == other.type && usage == other.usage && is_const == other.is_const;
         }
 
         /// Inequality operator
@@ -143,7 +146,7 @@ void PrintCandidate(StyledText& ss,
                     Context& context,
                     const Candidate& candidate,
                     std::string_view intrinsic_name,
-                    VectorRef<const core::type::Type*> template_args,
+                    VectorRef<TemplateParameter> template_args,
                     VectorRef<const core::type::Type*> args);
 
 /// Lookup looks for the builtin overload with the given signature, raising an error diagnostic
@@ -163,7 +166,7 @@ void PrintCandidate(StyledText& ss,
 Result<Overload, StyledText> LookupFn(Context& context,
                                       std::string_view function_name,
                                       size_t function_id,
-                                      VectorRef<const core::type::Type*> template_args,
+                                      VectorRef<TemplateParameter> template_args,
                                       VectorRef<const core::type::Type*> args,
                                       EvaluationStage earliest_eval_stage);
 
@@ -184,7 +187,7 @@ Result<Overload, StyledText> LookupFn(Context& context,
 Result<Overload, StyledText> LookupMemberFn(Context& context,
                                             std::string_view function_name,
                                             size_t function_id,
-                                            VectorRef<const core::type::Type*> template_args,
+                                            VectorRef<TemplateParameter> template_args,
                                             VectorRef<const core::type::Type*> args,
                                             EvaluationStage earliest_eval_stage);
 
@@ -242,7 +245,7 @@ Result<Overload, StyledText> LookupBinary(Context& context,
 Result<Overload, StyledText> LookupCtorConv(Context& context,
                                             std::string_view type_name,
                                             size_t type_id,
-                                            VectorRef<const core::type::Type*> template_args,
+                                            VectorRef<TemplateParameter> template_args,
                                             VectorRef<const core::type::Type*> args,
                                             EvaluationStage earliest_eval_stage);
 
@@ -276,7 +279,7 @@ struct Table {
     ///        (EvaluationStage::kConstant).
     /// @return the resolved builtin function overload
     Result<Overload, StyledText> Lookup(BuiltinFn builtin_fn,
-                                        VectorRef<const core::type::Type*> template_args,
+                                        VectorRef<TemplateParameter> template_args,
                                         VectorRef<const core::type::Type*> args,
                                         EvaluationStage earliest_eval_stage) {
         std::string_view name = DIALECT::ToString(builtin_fn);
@@ -300,7 +303,7 @@ struct Table {
     /// @return the resolved builtin function overload
     Result<Overload, StyledText> Lookup(BuiltinFn builtin_fn,
                                         const core::type::Type* object,
-                                        VectorRef<const core::type::Type*> template_args,
+                                        VectorRef<TemplateParameter> template_args,
                                         VectorRef<const core::type::Type*> args,
                                         EvaluationStage earliest_eval_stage) {
         // Push the object type into the argument list.
@@ -329,7 +332,9 @@ struct Table {
     Result<Overload, StyledText> Lookup(core::UnaryOp op,
                                         const core::type::Type* arg,
                                         EvaluationStage earliest_eval_stage) {
-        return LookupUnary(context, op, arg, earliest_eval_stage);
+        UnaryOpSig cache_key = std::make_tuple(op, arg, earliest_eval_stage);
+        return unary_cache_.GetOrAdd(
+            cache_key, [&] { return LookupUnary(context, op, arg, earliest_eval_stage); });
     }
 
     /// Lookup looks for the binary op overload with the given signature, raising an error
@@ -351,7 +356,10 @@ struct Table {
                                         const core::type::Type* rhs,
                                         EvaluationStage earliest_eval_stage,
                                         bool is_compound) {
-        return LookupBinary(context, op, lhs, rhs, earliest_eval_stage, is_compound);
+        BinaryOpSig cache_key = std::make_tuple(op, lhs, rhs, earliest_eval_stage, is_compound);
+        return binary_cache_.GetOrAdd(cache_key, [&] {
+            return LookupBinary(context, op, lhs, rhs, earliest_eval_stage, is_compound);
+        });
     }
 
     /// Lookup looks for the value constructor or conversion overload for the given CtorConv.
@@ -366,7 +374,7 @@ struct Table {
     ///        after shader creation time (EvaluationStage::kConstant).
     /// @return the resolved type constructor or conversion function overload
     Result<Overload, StyledText> Lookup(CtorConv type,
-                                        VectorRef<const core::type::Type*> template_args,
+                                        VectorRef<TemplateParameter> template_args,
                                         VectorRef<const core::type::Type*> args,
                                         EvaluationStage earliest_eval_stage) {
         std::string_view name = DIALECT::ToString(type);
@@ -377,6 +385,18 @@ struct Table {
 
     /// The intrinsic context
     Context context;
+
+    /// Cache for unary operator overloads
+    using UnaryOpSig = std::tuple<core::UnaryOp, const core::type::Type*, EvaluationStage>;
+    Hashmap<UnaryOpSig, Result<Overload, StyledText>, 16> unary_cache_;
+
+    /// Cache for binary operator overloads
+    using BinaryOpSig = std::tuple<core::BinaryOp,
+                                   const core::type::Type*,
+                                   const core::type::Type*,
+                                   EvaluationStage,
+                                   bool>;
+    Hashmap<BinaryOpSig, Result<Overload, StyledText>, 16> binary_cache_;
 };
 
 }  // namespace tint::core::intrinsic
@@ -396,6 +416,19 @@ struct Hasher<core::intrinsic::Overload> {
         return Hash(hash, i.info, i.return_type);
     }
 };
+
+template <typename STREAM, typename... TYPES>
+    requires(traits::IsOStream<STREAM>)
+auto& operator<<(STREAM& out, const core::intrinsic::TemplateParameter param) {
+    if (std::holds_alternative<const core::type::Type*>(param)) {
+        out << (std::get<const core::type::Type*>(param))->FriendlyName();
+    } else if (std::holds_alternative<core::Majorness>(param)) {
+        out << std::get<core::Majorness>(param);
+    } else {
+        TINT_UNREACHABLE() << "Unhandled template kind";
+    }
+    return out;
+}
 
 }  // namespace tint
 

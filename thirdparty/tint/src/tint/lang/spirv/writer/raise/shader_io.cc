@@ -27,13 +27,24 @@
 
 #include "src/tint/lang/spirv/writer/raise/shader_io.h"
 
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <set>
+#include <utility>
 
+#include "spirv/unified1/spirv.h"
+#include "src/tint/lang/core/enums.h"
+#include "src/tint/lang/core/fluent_types.h"
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/transform/shader_io.h"
-#include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/lang/core/type/array.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
+#include "src/tint/lang/spirv/builtin_fn.h"
+#include "src/tint/lang/spirv/ir/builtin_call.h"
+#include "src/tint/lang/spirv/type/image.h"
+#include "src/tint/lang/spirv/type/literal.h"
+#include "src/tint/utils/ice/ice.h"
 
 using namespace tint::core::fluent_types;     // NOLINT
 using namespace tint::core::number_suffixes;  // NOLINT
@@ -41,12 +52,6 @@ using namespace tint::core::number_suffixes;  // NOLINT
 namespace tint::spirv::writer::raise {
 
 namespace {
-
-/// State that persists across the whole module and can be shared between entry points.
-struct PerModuleState {
-    /// The frag_depth clamp arguments.
-    core::ir::Value* frag_depth_clamp_args = nullptr;
-};
 
 /// PIMPL state for the parts of the shader IO transform specific to SPIR-V.
 /// For SPIR-V, we declare a global variable for each input and output. The wrapper entry point then
@@ -58,21 +63,56 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
     /// The output variables.
     Vector<core::ir::Var*, 4> output_vars;
 
+    Vector<uint32_t, 4> input_indices;
+
     /// The configuration options.
     const ShaderIOConfig& config;
 
-    /// The per-module state object.
-    PerModuleState& module_state;
+    // Final output value of 'position' builtin from the vertex shader.
+    core::ir::Value* vert_out_position = nullptr;
+
+    // IO index for vertex position emulation interpolant
+    std::optional<uint32_t> center_pos_vert_idx = std::nullopt;
+
+    // IO index for fragment position emulation interpolant
+    std::optional<uint32_t> center_pos_frag_idx = std::nullopt;
+
+    // IO index for sample_index
+    std::optional<uint32_t> sample_index_idx = std::nullopt;
+
+    std::optional<uint32_t> global_invocation_index_index;
+    std::optional<uint32_t> global_invocation_id_index;
+    std::optional<uint32_t> workgroup_index_index;
+    std::optional<uint32_t> workgroup_id_index;
+    std::optional<uint32_t> num_workgroups_index;
 
     /// Constructor
-    StateImpl(core::ir::Module& mod,
-              core::ir::Function* f,
-              const ShaderIOConfig& cfg,
-              PerModuleState& mod_state)
-        : ShaderIOBackendState(mod, f), config(cfg), module_state(mod_state) {}
+    StateImpl(core::ir::Module& mod, core::ir::Function* f, const ShaderIOConfig& cfg)
+        : ShaderIOBackendState(mod, f), config(cfg) {
+        if (auto wgsize = func->WorkgroupSizeAsConst()) {
+            workgroup_size = wgsize;
+        }
+    }
 
     /// Destructor
     ~StateImpl() override {}
+
+    /// Add a new interpolant that will be used to emulate the position builtin as if it always is
+    /// pixel centered.
+    /// @param addrspace the address to use for the global variables
+    uint32_t AddCenterPosInterpolant(core::AddressSpace addrspace) {
+        // For our 'position' -> 'FragCoord' polyfill we must use 'perspective' because
+        // 'interpolateAtOffset' may not be supported for 'linear'.
+        auto io_attrib = core::IOAttributes{
+            .location = config.polyfill_pixel_center.value(),
+            .interpolation = core::Interpolation{.type = core::InterpolationType::kPerspective,
+                                                 .sampling = core::InterpolationSampling::kCenter}};
+
+        if (addrspace == core::AddressSpace::kOut) {
+            return AddOutput(ir.symbols.New("center_pos"), ty.vec4f(), io_attrib);
+        }
+        return AddInput(ir.symbols.New("center_pos"), ty.vec4f(), io_attrib);
+    }
 
     /// Declare a global variable for each IO entry listed in @p entries.
     /// @param vars the list of variables
@@ -85,6 +125,15 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
                   core::AddressSpace addrspace,
                   core::Access access,
                   const char* name_suffix) {
+        if (func->IsVertex() && addrspace == core::AddressSpace::kOut &&
+            config.polyfill_pixel_center.has_value()) {
+            center_pos_vert_idx = AddCenterPosInterpolant(addrspace);
+
+        } else if (func->IsFragment() && addrspace == core::AddressSpace::kIn &&
+                   config.polyfill_pixel_center.has_value()) {
+            center_pos_frag_idx = AddCenterPosInterpolant(addrspace);
+        }
+
         for (auto io : entries) {
             StringStream name;
             name << ir.NameOf(func).Name();
@@ -99,7 +148,33 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
                 // Vulkan requires that fragment integer builtin inputs be Flat decorated.
                 if (func->IsFragment() && addrspace == core::AddressSpace::kIn &&
                     io.type->IsIntegerScalarOrVector()) {
-                    io.attributes.interpolation = {core::InterpolationType::kFlat};
+                    io.attributes.interpolation =
+                        core::Interpolation{core::InterpolationType::kFlat};
+                }
+
+                uint32_t index = static_cast<uint32_t>(input_indices.Length());
+                switch (io.attributes.builtin.value()) {
+                    // Record an index for polyfilled inputs.
+                    case core::BuiltinValue::kGlobalInvocationIndex:
+                        global_invocation_index_index = index;
+                        input_indices.Push(index);
+                        continue;
+                    // Save the indices of the builtins below for use in polyfills.
+                    case core::BuiltinValue::kWorkgroupIndex:
+                        workgroup_index_index = index;
+                        input_indices.Push(index);
+                        continue;
+                    case core::BuiltinValue::kGlobalInvocationId:
+                        global_invocation_id_index = index;
+                        break;
+                    case core::BuiltinValue::kWorkgroupId:
+                        workgroup_id_index = index;
+                        break;
+                    case core::BuiltinValue::kNumWorkgroups:
+                        num_workgroups_index = index;
+                        break;
+                    default:
+                        break;
                 }
             }
             if (io.attributes.location) {
@@ -118,70 +193,251 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
                 }
             }
 
+            auto new_addrspace = addrspace;
+
+            // Color becomes an InputAttachment in the handle space
+            if (io.attributes.color) {
+                auto* sample_ty = store_type->DeepestElement();
+                if (sample_ty->Is<core::type::F16>()) {
+                    sample_ty = ty.f32();
+                }
+                store_type = ty.Get<spirv::type::Image>(
+                    sample_ty, type::Dim::kSubpassData, type::Depth::kNotDepth,
+                    type::Arrayed::kNonArrayed,
+                    config.multisampled_framebuffer_fetch ? type::Multisampled::kMultisampled
+                                                          : type::Multisampled::kSingleSampled,
+                    type::Sampled::kReadWriteOpCompatible, core::TexelFormat::kUndefined, access);
+
+                new_addrspace = core::AddressSpace::kHandle;
+
+                // Attach the provided binding point
+                auto iter = config.colour_index_to_binding_point.find(io.attributes.color.value());
+                TINT_IR_ASSERT(ir, iter != config.colour_index_to_binding_point.end());
+
+                TINT_IR_ASSERT(ir, !io.attributes.binding_point.has_value());
+                io.attributes.binding_point = iter->second;
+
+                io.attributes.input_attachment_index = io.attributes.color;
+                io.attributes.color = std::nullopt;
+
+                ir.properties.Add(core::ir::Property::kAllowAnyInputAttachmentIndexType);
+            }
+
             // Create an IO variable and add it to the root block.
-            auto* ptr = ty.ptr(addrspace, store_type, access);
+            auto* ptr = ty.ptr(new_addrspace, store_type, access);
             auto* var = b.Var(name.str(), ptr);
             var->SetAttributes(io.attributes);
+
             ir.root_block->Append(var);
+            input_indices.Push(static_cast<uint32_t>(vars.Length()));
             vars.Push(var);
         }
     }
 
     /// @copydoc ShaderIO::BackendState::FinalizeInputs
-    Vector<core::ir::FunctionParam*, 4> FinalizeInputs() override {
+    Result<Vector<core::ir::FunctionParam*, 4>> FinalizeInputs() override {
+        if (config.multisampled_framebuffer_fetch) {
+            sample_index_idx =
+                RequireBuiltinInput(core::BuiltinValue::kSampleIndex, ty.u32(), "sample_idx");
+        }
+
+        // The following builtin values are polyfilled using other builtin values:
+        // * workgroup_index - workgroup_id and num_workgroups
+        // * global_invocation_index - global_invocation_id, num_workgroups (and workgroup size)
+        const bool has_global_invocation_index =
+            HasBuiltinInput(core::BuiltinValue::kGlobalInvocationIndex);
+        const bool has_workgroup_index = HasBuiltinInput(core::BuiltinValue::kWorkgroupIndex);
+        const bool needs_workgroup_id = has_workgroup_index;
+        if (needs_workgroup_id) {
+            RequireBuiltinInput(core::BuiltinValue::kWorkgroupId, ty.vec3u(), "workgroup_id");
+        }
+        const bool needs_num_workgroups = has_workgroup_index || has_global_invocation_index;
+        if (needs_num_workgroups) {
+            RequireBuiltinInput(core::BuiltinValue::kNumWorkgroups, ty.vec3u(), "num_workgroups");
+        }
+        const bool needs_global_invocation_id = has_global_invocation_index;
+        if (needs_global_invocation_id) {
+            RequireBuiltinInput(core::BuiltinValue::kGlobalInvocationId, ty.vec3u(),
+                                "global_invocation_id");
+        }
+
         MakeVars(input_vars, inputs, core::AddressSpace::kIn, core::Access::kRead, "_Input");
-        return tint::Empty;
+        return Vector<core::ir::FunctionParam*, 4>{};
     }
 
     /// @copydoc ShaderIO::BackendState::FinalizeOutputs
-    const core::type::Type* FinalizeOutputs() override {
+    Result<const core::type::Type*> FinalizeOutputs() override {
         MakeVars(output_vars, outputs, core::AddressSpace::kOut, core::Access::kWrite, "_Output");
         return ty.void_();
     }
 
     /// @copydoc ShaderIO::BackendState::GetInput
     core::ir::Value* GetInput(core::ir::Builder& builder, uint32_t idx) override {
+        if (idx == global_invocation_index_index) {
+            return PolyfillGlobalInvocationIndex(builder, global_invocation_id_index.value(),
+                                                 num_workgroups_index.value());
+        }
+        if (idx == workgroup_index_index) {
+            return PolyfillWorkgroupIndex(builder, workgroup_id_index.value(),
+                                          num_workgroups_index.value());
+        }
         // Load the input from the global variable declared earlier.
         auto* ptr = ty.ptr(core::AddressSpace::kIn, inputs[idx].type, core::Access::kRead);
-        auto* from = input_vars[idx]->Result();
+        auto input_index = input_indices[idx];
+        core::ir::Value* from = input_vars[input_index]->Result();
 
         // SampleMask becomes an array for SPIR-V, so load from the first element.
         if (inputs[idx].attributes.builtin == core::BuiltinValue::kSampleMask) {
-            from = builder.Access(ptr, input_vars[idx], 0_u)->Result();
+            from = builder.Access(ptr, input_vars[input_index], 0_u);
         }
 
-        auto* value = builder.Load(from)->Result();
+        core::ir::Value* value = builder.Load(from)->Result();
+
+        if (inputs[idx].attributes.color.has_value()) {
+            // coords for input_attachment are always (0, 0)
+            auto* coords = builder.Composite(ty.vec2i(), 0_i, 0_i);
+
+            // Start building the argument list for the builtin.
+            // The first two operands are always the texture and then the coordinates.
+            Vector<core::ir::Value*, 8> builtin_args;
+            builtin_args.Push(value);
+            builtin_args.Push(coords);
+
+            if (config.multisampled_framebuffer_fetch) {
+                builtin_args.Push(
+                    builder.Constant(builder.ir.constant_values.Get<core::constant::Scalar<u32>>(
+                        ty.Get<type::Literal>(), u32(SpvImageOperandsSampleMask))));
+                builtin_args.Push(builder.Load(input_vars[sample_index_idx.value()])->Result());
+            }
+
+            // Call the builtin.
+            auto* sampled_ty = builtin_args[0]->Type()->As<spirv::type::Image>()->GetSampledType();
+            value =
+                builder
+                    .Call<spirv::ir::BuiltinCall>(ty.vec4(sampled_ty), spirv::BuiltinFn::kImageRead,
+                                                  std::move(builtin_args))
+                    ->Result();
+
+            auto* orig_ty = inputs[idx].type;
+            uint32_t width =
+                orig_ty->Is<core::type::Vector>() ? orig_ty->As<core::type::Vector>()->Width() : 1;
+            if (width != 4) {
+                Vector<uint32_t, 3> indices;
+                for (uint32_t i = 0; i < width; ++i) {
+                    indices.Push(i);
+                }
+                value = builder.Swizzle(ty.MatchWidth(sampled_ty, orig_ty), value, indices);
+            }
+        }
 
         // Convert f32 values to f16 values if needed.
-        if (config.polyfill_f16_io && inputs[idx].type->DeepestElement()->Is<core::type::F16>()) {
-            value = builder.Convert(inputs[idx].type, value)->Result();
+        bool should_convert_f16 =
+            config.polyfill_f16_io || inputs[idx].attributes.color.has_value();
+        if (should_convert_f16 && inputs[idx].type->DeepestElement()->Is<core::type::F16>()) {
+            value = builder.Convert(inputs[idx].type, value);
+        }
+
+        if (inputs[idx].attributes.builtin == core::BuiltinValue::kPosition &&
+            center_pos_frag_idx.has_value()) {
+            // This fix is idempotent in that if it was not needed it will still apply correctly.
+            auto* vec_xy = builder.Swizzle(ty.vec2f(), value, {0, 1});
+            auto* floor_xy = builder.Call(ty.vec2f(), core::BuiltinFn::kFloor, vec_xy);
+            auto p5_const = builder.Constant(0.5_f);
+            auto* plus_p5 = builder.Add(floor_xy, builder.Splat(ty.vec2f(), p5_const));
+
+            auto center_idx = input_indices[center_pos_frag_idx.value()];
+            // Use interpolateAtOffset to get the pixel center. The Vulkan spec does not guarantee
+            // that 'center' interpolation sampling will actually be the pixel center when sample
+            // shading is enabled. In fact, it suggests that it will be at sample location. However
+            // it appears that this is not consistent across all devices.
+            // See: https://docs.vulkan.org/refpages/latest/refpages/source/FragCoord.html
+            auto* xyzw_from_user_center = builder.Call<spirv::ir::BuiltinCall>(
+                ty.vec4f(), spirv::BuiltinFn::kInterpolateAtOffset, input_vars[center_idx],
+                builder.Splat(ty.vec2f(), 0_f));
+
+            auto* interpolated_z = builder.Swizzle(ty.f32(), xyzw_from_user_center, {2});
+            auto* interpolated_w = builder.Swizzle(ty.f32(), xyzw_from_user_center, {3});
+
+            // This is the perspective divide (distinct from perspective correct interpolation).
+            // Technically we would be doing it on 'x' and 'y' components as well but we are using
+            // the values from 'FragCoord' to avoid having to know viewport size.
+            auto* user_center_z = builder.Divide(interpolated_z, interpolated_w);
+
+            // The expected value for component 'w' of 'FragCoord' is actually 1/w.
+            auto* user_center_w = builder.Divide(1_f, interpolated_w);
+
+            auto* viewport_user_center_z = ViewportMappedFragDepth(builder, user_center_z);
+            value = builder.Construct(ty.vec4f(), plus_p5, viewport_user_center_z, user_center_w);
         }
 
         return value;
     }
 
+    /// Propagate outputs from the inner function call to their final destination.
+    /// @param builder the IR builder for new instructions
+    /// @param inner_result the return value from calling the original entry point function
+    void SetBackendOutputs(core::ir::Builder& builder, core::ir::Value* inner_result) override {
+        if (center_pos_vert_idx.has_value()) {
+            SetOutput(builder, center_pos_vert_idx.value(), inner_result);
+        }
+    }
+
     /// @copydoc ShaderIO::BackendState::SetOutput
     void SetOutput(core::ir::Builder& builder, uint32_t idx, core::ir::Value* value) override {
         // Store the output to the global variable declared earlier.
-        auto* ptr = ty.ptr(core::AddressSpace::kOut, outputs[idx].type, core::Access::kWrite);
-        auto* to = output_vars[idx]->Result();
+        auto& output = outputs[idx];
+        auto* ptr = ty.ptr(core::AddressSpace::kOut, output.type, core::Access::kWrite);
+        core::ir::Value* to = output_vars[idx]->Result();
 
         // SampleMask becomes an array for SPIR-V, so store to the first element.
-        if (outputs[idx].attributes.builtin == core::BuiltinValue::kSampleMask) {
-            to = builder.Access(ptr, to, 0_u)->Result();
+        if (output.attributes.builtin == core::BuiltinValue::kSampleMask) {
+            to = builder.Access(ptr, to, 0_u);
+        }
+
+        if (output.attributes.builtin == core::BuiltinValue::kPosition) {
+            vert_out_position = value;
+        }
+
+        if (center_pos_vert_idx.has_value() && center_pos_vert_idx == idx) {
+            // Special center position polyfilled from within vertex shader.
+            TINT_IR_ASSERT(ir, vert_out_position);
+            value = vert_out_position;
         }
 
         // Clamp frag_depth values if necessary.
-        if (outputs[idx].attributes.builtin == core::BuiltinValue::kFragDepth) {
+        if (output.attributes.builtin == core::BuiltinValue::kFragDepth) {
             value = ClampFragDepth(builder, value);
         }
 
         // Convert f16 values to f32 values if needed.
         if (config.polyfill_f16_io && value->Type()->DeepestElement()->Is<core::type::F16>()) {
-            value = builder.Convert(to->Type()->UnwrapPtr(), value)->Result();
+            value = builder.Convert(to->Type()->UnwrapPtr(), value);
         }
 
         builder.Store(to, value);
+    }
+
+    /// Remap viewport z if necessary.
+    /// @param builder the builder to use for new instructions
+    /// @param frag_depth the incoming frag_depth value
+    /// @returns the clamped value
+    core::ir::Value* ViewportMappedFragDepth(core::ir::Builder& builder,
+                                             core::ir::Value* frag_depth) {
+        if (!config.immediate_data_layout.HasImmediate(core::InternalImmediate::kFragDepthMin) ||
+            !config.immediate_data_layout.HasImmediate(core::InternalImmediate::kFragDepthMax)) {
+            return frag_depth;
+        }
+
+        auto* min =
+            config.immediate_data_layout.GetValue(builder, core::InternalImmediate::kFragDepthMin);
+        auto* max =
+            config.immediate_data_layout.GetValue(builder, core::InternalImmediate::kFragDepthMax);
+
+        // Viewport remapping depth normalization equation.
+        // https://www.w3.org/TR/webgpu/#coordinate-systems#:~:text=Viewport%20coordinates
+        auto* max_minus_min = builder.Subtract(max, min);
+        auto* rhs = builder.Multiply(max_minus_min, frag_depth);
+        return builder.Add(min, rhs);
     }
 
     /// Clamp a frag_depth builtin value if necessary.
@@ -189,16 +445,16 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
     /// @param frag_depth the incoming frag_depth value
     /// @returns the clamped value
     core::ir::Value* ClampFragDepth(core::ir::Builder& builder, core::ir::Value* frag_depth) {
-        if (!config.depth_range_offsets) {
+        if (!config.immediate_data_layout.HasImmediate(core::InternalImmediate::kFragDepthMin) ||
+            !config.immediate_data_layout.HasImmediate(core::InternalImmediate::kFragDepthMax)) {
             return frag_depth;
         }
 
-        auto* push_constants = config.push_constant_layout.var;
-        auto min_idx = u32(config.push_constant_layout.IndexOf(config.depth_range_offsets->min));
-        auto max_idx = u32(config.push_constant_layout.IndexOf(config.depth_range_offsets->max));
-        auto* min = builder.Load(builder.Access<ptr<push_constant, f32>>(push_constants, min_idx));
-        auto* max = builder.Load(builder.Access<ptr<push_constant, f32>>(push_constants, max_idx));
-        return builder.Call<f32>(core::BuiltinFn::kClamp, frag_depth, min, max)->Result();
+        auto* min =
+            config.immediate_data_layout.GetValue(builder, core::InternalImmediate::kFragDepthMin);
+        auto* max =
+            config.immediate_data_layout.GetValue(builder, core::InternalImmediate::kFragDepthMax);
+        return builder.Clamp(frag_depth, min, max);
     }
 
     /// @copydoc ShaderIO::BackendState::NeedsVertexPointSize
@@ -207,15 +463,14 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
 }  // namespace
 
 Result<SuccessType> ShaderIO(core::ir::Module& ir, const ShaderIOConfig& config) {
-    auto result = ValidateAndDumpIfNeeded(ir, "spirv.ShaderIO");
-    if (result != Success) {
-        return result;
-    }
+    AssertValid(ir, "before spirv.ShaderIO");
 
-    PerModuleState module_state;
-    core::ir::transform::RunShaderIOBase(ir, [&](core::ir::Module& mod, core::ir::Function* func) {
-        return std::make_unique<StateImpl>(mod, func, config, module_state);
-    });
+    TINT_CHECK_RESULT(core::ir::transform::RunShaderIOBase(
+        ir, [&](core::ir::Module& mod, core::ir::Function* func) {
+            return std::make_unique<StateImpl>(mod, func, config);
+        }));
+
+    ir.properties.Add(core::ir::Property::kAllowBackendSpecificShaderIO);
 
     return Success;
 }

@@ -16,12 +16,13 @@ See:
 
 {{- $I := LoadIntrinsics "src/tint/lang/core/core.def" -}}
 
+// clang-format off
+
 #include <limits>
 #include <string>
 
 #include "src/tint/lang/core/intrinsic/dialect.h"
 #include "src/tint/lang/core/intrinsic/type_matchers.h"
-#include "src/tint/utils/text/string_stream.h"
 
 namespace tint::core::intrinsic {
 
@@ -30,3 +31,5 @@ namespace tint::core::intrinsic {
   "Name"       "Dialect::kData" -}}
 
 }  // namespace tint::core::intrinsic
+
+// clang-format on

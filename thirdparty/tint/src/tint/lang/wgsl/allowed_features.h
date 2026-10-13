@@ -30,9 +30,8 @@
 
 #include <unordered_set>
 
-#include "src/tint/lang/wgsl/extension.h"
-#include "src/tint/lang/wgsl/language_feature.h"
-#include "src/tint/utils/reflection.h"
+#include "src/tint/lang/wgsl/enums.h"
+#include "src/tint/utils/reflection/reflection.h"
 
 namespace tint::wgsl {
 
@@ -42,6 +41,7 @@ struct AllowedFeatures {
     /// The extensions that are allowed.
     std::unordered_set<wgsl::Extension> extensions;
     /// The language features that are allowed.
+    /// Note that this only affects language features that are not fully shipped.
     std::unordered_set<wgsl::LanguageFeature> features;
 
     /// Helper to produce an AllowedFeatures object that allows all extensions and features.

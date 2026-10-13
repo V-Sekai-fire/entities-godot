@@ -27,8 +27,10 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "src/tint/lang/core/ir/transform/rename_conflicts.h"
+
 #include "src/tint/lang/core/ir/construct.h"
 #include "src/tint/lang/core/ir/control_instruction.h"
+#include "src/tint/lang/core/ir/convert.h"
 #include "src/tint/lang/core/ir/core_builtin_call.h"
 #include "src/tint/lang/core/ir/function.h"
 #include "src/tint/lang/core/ir/instruction.h"
@@ -36,7 +38,7 @@
 #include "src/tint/lang/core/ir/loop.h"
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/multi_in_block.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 #include "src/tint/lang/core/ir/var.h"
 #include "src/tint/lang/core/type/array.h"
 #include "src/tint/lang/core/type/matrix.h"
@@ -45,6 +47,7 @@
 #include "src/tint/lang/core/type/struct.h"
 #include "src/tint/lang/core/type/vector.h"
 #include "src/tint/utils/containers/hashmap.h"
+#include "src/tint/utils/containers/hashset.h"
 #include "src/tint/utils/containers/reverse.h"
 #include "src/tint/utils/macros/defer.h"
 #include "src/tint/utils/rtti/switch.h"
@@ -152,7 +155,7 @@ struct State {
             }
         }
 
-        Switch(
+        tint::Switch(
             inst,  //
             [&](core::ir::Loop* loop) {
                 // Initializer's scope encompasses the body and continuing
@@ -188,6 +191,10 @@ struct State {
                 EnsureResolvable(inst->Result()->Type());
             },
             [&](core::ir::Construct*) {
+                // Ensure the type of a type constructor is resolvable
+                EnsureResolvable(inst->Result()->Type());
+            },
+            [&](core::ir::Convert*) {
                 // Ensure the type of a type constructor is resolvable
                 EnsureResolvable(inst->Result()->Type());
             },
@@ -236,6 +243,16 @@ struct State {
                     auto name = s->Name().NameView();
                     if (IsBuiltinStruct(s)) {
                         EnsureResolvesToBuiltin(name);
+                    } else {
+                        Hashset<std::string_view, 8> member_names;
+                        for (auto* mem : s->Members()) {
+                            auto mem_name = mem->Name().NameView();
+                            if (!member_names.Add(mem_name)) {
+                                auto new_name = ir.symbols.New(mem_name);
+                                const_cast<core::type::StructMember*>(mem)->SetName(new_name);
+                                member_names.Add(new_name.NameView());
+                            }
+                        }
                     }
                     return nullptr;
                 });
@@ -271,14 +288,14 @@ struct State {
         // Add the declaration to the current scope, and make sure that it was either successfully
         // added or has already been added.
         auto add = scopes.Back().Add(name.NameView(), thing);
-        TINT_ASSERT(add || add.value == thing);
+        TINT_IR_ASSERT(ir, add || add.value == thing);
     }
 
     /// Rename changes the name of @p thing with the old name of @p old_name
     /// @returns the new name
     Symbol Rename(CastableBase* thing, std::string_view old_name) {
         Symbol new_name = ir.symbols.New(old_name);
-        Switch(
+        tint::Switch(
             thing,  //
             [&](core::ir::Value* value) { ir.SetName(value, new_name); },
             [&](core::type::Struct* str) { str->SetName(new_name); },  //
@@ -288,17 +305,14 @@ struct State {
 
     /// @return true if @p s is a builtin (non-user declared) structure.
     bool IsBuiltinStruct(const core::type::Struct* s) {
-        return tint::HasPrefix(s->Name().NameView(), "__");
+        return s->Name().NameView().starts_with("__");
     }
 };
 
 }  // namespace
 
 Result<SuccessType> RenameConflicts(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "core.RenameConflicts", kRenameConflictsCapabilities);
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(ir, "before core.RenameConflicts");
 
     State{ir}.Process();
 

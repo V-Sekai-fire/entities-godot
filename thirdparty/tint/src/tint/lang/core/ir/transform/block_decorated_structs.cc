@@ -29,7 +29,7 @@
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
-#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/core/ir/validator/validate.h"
 #include "src/tint/lang/core/type/pointer.h"
 #include "src/tint/lang/core/type/struct.h"
 
@@ -41,7 +41,7 @@ namespace {
 
 void Run(Module& ir) {
     Builder builder{ir};
-    type::Manager& ty{ir.Types()};
+    core::type::Manager& ty{ir.Types()};
 
     if (ir.root_block->IsEmpty()) {
         return;
@@ -67,7 +67,7 @@ void Run(Module& ir) {
         auto* store_ty = ptr->StoreType();
 
         if (auto* str = store_ty->As<core::type::Struct>()) {
-            if (str->StructFlags().Contains(type::kBlock)) {
+            if (str->StructFlags().Contains(core::type::kBlock)) {
                 // The struct already has a block attribute, so we don't need to do anything here.
                 continue;
             }
@@ -75,7 +75,7 @@ void Run(Module& ir) {
                 // We know the original struct will only ever be used as the store type of a buffer,
                 // so just mark it as a block-decorated struct.
                 // TODO(crbug.com/tint/745): Remove the const_cast.
-                const_cast<type::Struct*>(str)->SetStructFlag(type::kBlock);
+                const_cast<core::type::Struct*>(str)->SetStructFlag(core::type::kBlock);
                 continue;
             }
         }
@@ -106,9 +106,11 @@ void Run(Module& ir) {
         // The structure has been wrapped, so replace all uses of the old variable with a member
         // accessor on the new variable.
         var->Result()->ReplaceAllUsesWith([&](Usage use) -> Value* {
-            auto* access = builder.Access(var->Result()->Type(), new_var, 0_u);
-            access->InsertBefore(use.instruction);
-            return access->Result();
+            Value* access = nullptr;
+            builder.InsertBefore(use.instruction, [&] {
+                access = builder.Access(var->Result()->Type(), new_var, 0_u);
+            });
+            return access;
         });
 
         var->Destroy();
@@ -118,10 +120,7 @@ void Run(Module& ir) {
 }  // namespace
 
 Result<SuccessType> BlockDecoratedStructs(Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "core.BlockDecoratedStructs");
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(ir, "before core.BlockDecoratedStructs");
 
     Run(ir);
 

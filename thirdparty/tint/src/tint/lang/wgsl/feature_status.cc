@@ -27,7 +27,7 @@
 
 #include "src/tint/lang/wgsl/feature_status.h"
 
-#include "src/tint/lang/wgsl/language_feature.h"
+#include "src/tint/lang/wgsl/enums.h"
 
 namespace tint::wgsl {
 
@@ -37,16 +37,39 @@ FeatureStatus GetLanguageFeatureStatus(LanguageFeature f) {
             // Experimental features
             ///////////////////////////////////////////////////////////////////
         case LanguageFeature::kSizedBindingArray:
+        case LanguageFeature::kTexelBuffers:
+        case LanguageFeature::kMultisampledArrayTextures:
+        case LanguageFeature::kFragmentDepth:
             return FeatureStatus::kUnsafeExperimental;
 
             ////////////////////////////////////////////////////////////////////
-            // Enabled features
+            // Chromium developer features
+            ///////////////////////////////////////////////////////////////////
+        case LanguageFeature::kChromiumPrint:
+            return FeatureStatus::kUnsafeExperimental;
+
+            ////////////////////////////////////////////////////////////////////
+            // Shipped with killswitch features
+            ///////////////////////////////////////////////////////////////////
+        case LanguageFeature::kSubgroupId:
+        case LanguageFeature::kSubgroupUniformity:
+        case LanguageFeature::kTextureAndSamplerLet:
+        case LanguageFeature::kTextureFormatsTier1:
+        case LanguageFeature::kLinearIndexing:
+        case LanguageFeature::kBufferView:
+        case LanguageFeature::kSwizzleAssignment:
+            return FeatureStatus::kShippedWithKillswitch;
+
+            ////////////////////////////////////////////////////////////////////
+            // Shipped features
             ////////////////////////////////////////////////////////////////////
         case LanguageFeature::kPacked4X8IntegerDotProduct:
         case LanguageFeature::kPointerCompositeAccess:
-        case LanguageFeature::kUnrestrictedPointerParameters:
         case LanguageFeature::kReadonlyAndReadwriteStorageTextures:
-            return FeatureStatus::kShippedWithKillswitch;
+        case LanguageFeature::kUnrestrictedPointerParameters:
+        case LanguageFeature::kImmediateAddressSpace:
+        case LanguageFeature::kUniformBufferStandardLayout:
+            return FeatureStatus::kShipped;
 
             ////////////////////////////////////////////////////////////////////
             // Testing / special cases
