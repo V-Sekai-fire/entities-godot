@@ -1,0 +1,153 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+index 5f56c344cf..c726dfb353 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+@@ -2609,6 +2609,9 @@ class Parser {
+                 case spv::Op::OpControlBarrier:
+                     TINT_CHECK_RESULT(EmitControlBarrier(inst));
+                     break;
++                case spv::Op::OpMemoryBarrier:
++                    TINT_CHECK_RESULT(EmitMemoryBarrier(src, inst));
++                    break;
+                 case spv::Op::OpArrayLength:
+                     EmitArrayLength(inst);
+                     break;
+@@ -2655,18 +2658,23 @@ class Parser {
+                     EmitImageWrite(inst);
+                     break;
+                 case spv::Op::OpImageSampleDrefImplicitLod:
++                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
+                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleDrefImplicitLod);
+                     break;
+                 case spv::Op::OpImageSampleDrefExplicitLod:
++                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
+                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleDrefExplicitLod);
+                     break;
+                 case spv::Op::OpImageSampleProjDrefImplicitLod:
++                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
+                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleProjDrefImplicitLod);
+                     break;
+                 case spv::Op::OpImageSampleProjDrefExplicitLod:
++                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
+                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleProjDrefExplicitLod);
+                     break;
+                 case spv::Op::OpImageDrefGather:
++                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
+                     EmitImageGatherDref(inst);
+                     break;
+                 case spv::Op::OpPhi:
+@@ -3498,6 +3506,31 @@ class Parser {
+              inst.result_id());
+     }
+ 
++    /// Godot: the lowering of depth comparison sampling turns the texture variable into a depth
++    /// texture, but cannot follow a texture passed as a function parameter and fails an internal
++    /// assertion, which aborts. Refuse that input with an error instead.
++    /// @param inst a depth comparison image instruction
++    Result<SuccessType> CheckDepthTextureIsNotAParameter(const spvc::Instruction& inst) {
++        auto* def_use = spirv_context_->get_def_use_mgr();
++        auto* si = def_use->GetDef(inst.GetSingleWordInOperand(0));
++        while (si && si->opcode() == spv::Op::OpCopyObject) {
++            si = def_use->GetDef(si->GetSingleWordInOperand(0));
++        }
++        if (!si || si->opcode() != spv::Op::OpSampledImage) {
++            return Success;
++        }
++        auto* image = def_use->GetDef(si->GetSingleWordInOperand(0));
++        if (image && image->opcode() == spv::Op::OpLoad) {
++            image = def_use->GetDef(image->GetSingleWordInOperand(0));
++        }
++        if (image && image->opcode() == spv::Op::OpFunctionParameter) {
++            return Failure(
++                "depth comparison sampling of a texture passed as a function parameter is not "
++                "supported");
++        }
++        return Success;
++    }
++
+     void EmitSampledImage(const spvc::Instruction& inst) {
+         auto* tex = Value(inst.GetSingleWordInOperand(0));
+         auto* img_type = tex->Type()->As<type::Image>();
+@@ -3699,6 +3732,45 @@ class Parser {
+                   inst.result_id());
+     }
+ 
++    /// Godot: GLSL `memoryBarrier*(); barrier();` is a workgroup-scope OpMemoryBarrier right
++    /// before an OpControlBarrier. WGSL only has control barriers, so the memory barrier's
++    /// semantics are added to that control barrier. Any other OpMemoryBarrier is refused.
++    /// @param src the block of @p inst
++    /// @param inst the OpMemoryBarrier
++    Result<SuccessType> EmitMemoryBarrier(spvc::BasicBlock& src, const spvc::Instruction& inst) {
++        auto* constants = spirv_context_->get_constant_mgr();
++        auto* scope = constants->FindDeclaredConstant(inst.GetSingleWordInOperand(0));
++        auto* semantics = constants->FindDeclaredConstant(inst.GetSingleWordInOperand(1));
++        auto it = src.begin();
++        while (it != src.end() && &*it != &inst) {
++            ++it;
++        }
++        if (it != src.end()) {
++            ++it;
++        }
++        // Workgroup memory is only visible inside the workgroup, so a wider scope on a barrier
++        // of only workgroup memory (GLSL `memoryBarrierShared()`) is the same barrier.
++        const uint32_t workgroup_only =
++            dawn::to_underlying(spv::MemorySemanticsMask::AcquireRelease) |
++            dawn::to_underlying(spv::MemorySemanticsMask::WorkgroupMemory) |
++            dawn::to_underlying(spv::MemorySemanticsMask::AtomicCounterMemory);
++        bool scope_ok =
++            scope && semantics &&
++            (scope->GetU32() == dawn::to_underlying(spv::Scope::Workgroup) ||
++             (scope->GetU32() == dawn::to_underlying(spv::Scope::Device) &&
++              (semantics->GetU32() & ~workgroup_only) == 0));
++        if (!scope_ok || it == src.end() || it->opcode() != spv::Op::OpControlBarrier) {
++            return Failure(
++                "OpMemoryBarrier is only supported with workgroup scope (or device scope on "
++                "workgroup memory only) right before an OpControlBarrier");
++        }
++        // Vulkan ignores AtomicCounterMemory, and WGSL has no atomic counters.
++        memory_barrier_semantics_[&*it] =
++            semantics->GetU32() &
++            ~dawn::to_underlying(spv::MemorySemanticsMask::AtomicCounterMemory);
++        return Success;
++    }
++
+     Result<SuccessType> EmitControlBarrier(const spvc::Instruction& inst) {
+         auto get_constant = [&](uint32_t idx) {
+             uint32_t id = inst.GetSingleWordOperand(idx);
+@@ -3711,6 +3783,11 @@ class Parser {
+         uint32_t memory = get_constant(1);
+         uint32_t semantics = get_constant(2);
+ 
++        // Godot: add the semantics of a workgroup OpMemoryBarrier right before this barrier.
++        if (auto it = memory_barrier_semantics_.find(&inst); it != memory_barrier_semantics_.end()) {
++            semantics |= it->second;
++        }
++
+         if (execution != dawn::to_underlying(spv::Scope::Workgroup)) {
+             return Failure(
+                 "unsupported control barrier execution scope: expected Workgroup, got: " +
+@@ -4864,6 +4941,14 @@ class Parser {
+             }
+         }
+ 
++        // Godot: a storage buffer can not be `write` only (NonReadable `writeonly buffer`), as in
++        // RemapBufferBlockAddressSpace.
++        if (access_mode == core::Access::kWrite &&
++            spv::StorageClass(inst.GetSingleWordInOperand(0)) ==
++                spv::StorageClass::StorageBuffer) {
++            access_mode = core::Access::kReadWrite;
++        }
++
+         auto* element_ty = Type(inst.type_id(), access_mode)->As<core::type::Pointer>();
+         if (element_ty->AddressSpace() == core::AddressSpace::kOut) {
+             if (element_ty->StoreType()->IsIntegerScalarOrVector()) {
+@@ -5049,6 +5134,9 @@ class Parser {
+ 
+     // Map of spir-v branch conditional instructions to the related IR if instruction.
+     std::unordered_map<const spvc::Instruction*, core::ir::If*> branch_conditional_to_if_;
++
++    /// Godot: memory semantics of an OpMemoryBarrier, keyed by the OpControlBarrier after it.
++    std::unordered_map<const spvc::Instruction*, uint32_t> memory_barrier_semantics_;
+ };
+ 
+ }  // namespace

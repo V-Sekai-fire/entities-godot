@@ -1151,6 +1151,10 @@ Patches:
 - `0002-spirv-reader-push-constant-binding.patch` (reader option that puts the `PushConstant`
   block at a `var<uniform>` binding point chosen by the embedder, with a size limit; the driver
   uses the same `webgpu_immediates_set()` rule from `drivers/webgpu/webgpu_common.h`)
+- `0003-spirv-reader-godot-glsl-fixes.patch` (read `writeonly` storage buffers as `read_write`;
+  fold a workgroup `OpMemoryBarrier` into the `OpControlBarrier` right after it, as GLSL
+  `memoryBarrier*(); barrier();` compiles to; refuse depth comparison sampling of a texture
+  passed as a function parameter with an error instead of an internal compiler error)
 
 ## tinyexr
 
