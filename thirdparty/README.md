@@ -1172,6 +1172,8 @@ Patches:
 - `0009-spirv-reader-depth-sample.patch` (read a 2D or 2D array depth texture sampled without
   comparison with four `textureLoad`s blended bilinearly, as WebGPU cannot pair depth textures
   with filtering samplers; Godot reads its shadow atlases with a linear sampler)
+- `0010-spirv-reader-point-coord.patch` (read `gl_PointCoord` as `vec2(0.5)`: WebGPU draws only
+  1-pixel points, whose one fragment is at the point's center, and WGSL has no such builtin)
 
 ## tinyexr
 
