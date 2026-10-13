@@ -1,0 +1,34 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+index cd1f4d4cb2..373a06fb13 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+@@ -1066,6 +1066,7 @@ class Parser {
+                                 case spv::Decoration::NonReadable:
+                                 case spv::Decoration::RelaxedPrecision:
+                                 case spv::Decoration::Coherent:
++                                case spv::Decoration::Volatile:
+                                 case spv::Decoration::Restrict:
+                                 case spv::Decoration::RowMajor:
+                                 case spv::Decoration::Offset:
+@@ -1278,7 +1279,9 @@ class Parser {
+                         case spv::Decoration::RelaxedPrecision:  // Not supported in WGSL
+                             break;
+                         case spv::Decoration::Coherent:
+-                            // Tint has coherent memory semantics, so this is a no-op.
++                        case spv::Decoration::Volatile:
++                            // Tint has coherent memory semantics, so this is a no-op. Volatile
++                            // (each access goes to memory) gives nothing more WGSL can express.
+                             break;
+                         case spv::Decoration::Restrict:
+                             // All Tint pointers are restrict. This is a no-op.
+@@ -4915,7 +4918,9 @@ class Parser {
+                     io_attributes.blend_src = deco->GetSingleWordOperand(2);
+                     break;
+                 case spv::Decoration::Coherent:
+-                    // Tint has coherent memory semantics, so this is a no-op.
++                case spv::Decoration::Volatile:
++                    // Tint has coherent memory semantics, so this is a no-op. Volatile (each
++                    // access goes to memory) gives nothing more WGSL can express.
+                     break;
+                 case spv::Decoration::Restrict:
+                     // Hint to the compiler that it may compile as if there is no aliasing. Ignore.
