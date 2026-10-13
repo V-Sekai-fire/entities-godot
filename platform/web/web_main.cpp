@@ -78,7 +78,8 @@ void cleanup_after_sync() {
 	shutdown_complete = true;
 }
 
-void main_loop_callback() {
+// Runs one frame. Returns true when the engine asks to quit.
+static bool frame_iterate() {
 #ifndef PROXY_TO_PTHREAD_ENABLED
 	uint64_t current_ticks = os->get_ticks_usec();
 #endif
@@ -88,7 +89,7 @@ void main_loop_callback() {
 		Main::force_redraw();
 #ifndef PROXY_TO_PTHREAD_ENABLED
 	} else if (current_ticks < target_ticks) {
-		return; // Skip frame.
+		return false; // Skip frame.
 #endif
 	}
 
@@ -104,7 +105,11 @@ void main_loop_callback() {
 	}
 #endif
 
-	if (os->main_loop_iterate()) {
+	return os->main_loop_iterate();
+}
+
+void main_loop_callback() {
+	if (frame_iterate()) {
 		emscripten_cancel_main_loop(); // Cancel current loop and set the cleanup one.
 		emscripten_set_main_loop(exit_callback, -1, false);
 		godot_js_os_finish_async(cleanup_after_sync);
@@ -173,10 +178,24 @@ extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
 		SceneTree::get_singleton()->get_root()->emit_signal(SNAME("files_dropped"), ps);
 	}
 #endif
+#ifdef WEBGPU_ENABLED
+	// WebGPU waits (readbacks, buffer maps) suspend with JSPI, which only works below a promising
+	// export such as main. Emscripten's main loop calls each frame from JavaScript, so instead keep
+	// main running and suspend between frames.
+	while (true) {
+		if (frame_iterate()) {
+			break;
+		}
+		godot_js_os_wait_frame();
+	}
+	emscripten_set_main_loop(exit_callback, -1, false);
+	godot_js_os_finish_async(cleanup_after_sync);
+#else
 	emscripten_set_main_loop(main_loop_callback, -1, false);
 	// Immediately run the first iteration.
 	// We are inside an animation frame, we want to immediately draw on the newly setup canvas.
 	main_loop_callback();
+#endif
 
 	return os->get_exit_code();
 }

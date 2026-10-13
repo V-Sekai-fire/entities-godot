@@ -282,6 +282,15 @@ const GodotOS = {
 		},
 	},
 
+	// Resolves on the next animation frame. With JSPI, the caller suspends until then.
+	godot_js_os_wait_frame__async: true,
+	godot_js_os_wait_frame__sig: 'v',
+	godot_js_os_wait_frame: function () {
+		return new Promise((resolve) => {
+			requestAnimationFrame(() => resolve());
+		});
+	},
+
 	godot_js_os_finish_async__proxy: 'sync',
 	godot_js_os_finish_async__sig: 'vi',
 	godot_js_os_finish_async: function (p_callback) {
