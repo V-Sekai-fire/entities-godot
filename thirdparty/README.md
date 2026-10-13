@@ -1154,10 +1154,14 @@ Patches:
 - `0003-spirv-reader-godot-glsl-fixes.patch` (read `writeonly` storage buffers as `read_write`;
   fold a workgroup `OpMemoryBarrier` into the `OpControlBarrier` right after it, as GLSL
   `memoryBarrier*(); barrier();` compiles to; refuse depth comparison sampling of a texture
-  passed as a function parameter with an error instead of an internal compiler error)
+  passed as a function parameter with an error instead of an internal compiler error; 0005
+  removes that error)
 - `0004-spirv-reader-run-time-indexed-handle-arrays.patch` (read an array of images or samplers
   indexed with a run-time value through an `OpSwitch` over the elements, each case reading its
   own binding; an index past the end reads the last element)
+- `0005-spirv-reader-handle-params.patch` (replace texture and sampler function parameters with
+  the module-scope variables passed to them, one function copy per set of variables; replaces the
+  depth-texture-parameter error from 0003)
 
 ## tinyexr
 

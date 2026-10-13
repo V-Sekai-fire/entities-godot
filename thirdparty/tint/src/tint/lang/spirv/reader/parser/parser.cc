@@ -2658,23 +2658,18 @@ class Parser {
                     EmitImageWrite(inst);
                     break;
                 case spv::Op::OpImageSampleDrefImplicitLod:
-                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleDrefImplicitLod);
                     break;
                 case spv::Op::OpImageSampleDrefExplicitLod:
-                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleDrefExplicitLod);
                     break;
                 case spv::Op::OpImageSampleProjDrefImplicitLod:
-                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleProjDrefImplicitLod);
                     break;
                 case spv::Op::OpImageSampleProjDrefExplicitLod:
-                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleProjDrefExplicitLod);
                     break;
                 case spv::Op::OpImageDrefGather:
-                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
                     EmitImageGatherDref(inst);
                     break;
                 case spv::Op::OpPhi:
@@ -3504,31 +3499,6 @@ class Parser {
                      si->Type()->As<spirv::type::SampledImage>()->Image()},
                  Args(inst, 2)),
              inst.result_id());
-    }
-
-    /// Godot: the lowering of depth comparison sampling turns the texture variable into a depth
-    /// texture, but cannot follow a texture passed as a function parameter and fails an internal
-    /// assertion, which aborts. Refuse that input with an error instead.
-    /// @param inst a depth comparison image instruction
-    Result<SuccessType> CheckDepthTextureIsNotAParameter(const spvc::Instruction& inst) {
-        auto* def_use = spirv_context_->get_def_use_mgr();
-        auto* si = def_use->GetDef(inst.GetSingleWordInOperand(0));
-        while (si && si->opcode() == spv::Op::OpCopyObject) {
-            si = def_use->GetDef(si->GetSingleWordInOperand(0));
-        }
-        if (!si || si->opcode() != spv::Op::OpSampledImage) {
-            return Success;
-        }
-        auto* image = def_use->GetDef(si->GetSingleWordInOperand(0));
-        if (image && image->opcode() == spv::Op::OpLoad) {
-            image = def_use->GetDef(image->GetSingleWordInOperand(0));
-        }
-        if (image && image->opcode() == spv::Op::OpFunctionParameter) {
-            return Failure(
-                "depth comparison sampling of a texture passed as a function parameter is not "
-                "supported");
-        }
-        return Success;
     }
 
     void EmitSampledImage(const spvc::Instruction& inst) {

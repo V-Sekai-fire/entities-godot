@@ -1,0 +1,330 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/handle_params.cc b/thirdparty/tint/src/tint/lang/spirv/reader/lower/handle_params.cc
+new file mode 100644
+index 0000000000..ba0dcffd4e
+--- /dev/null
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/handle_params.cc
+@@ -0,0 +1,188 @@
++// Copyright 2026 The Dawn & Tint Authors
++//
++// Redistribution and use in source and binary forms, with or without
++// modification, are permitted provided that the following conditions are met:
++//
++// 1. Redistributions of source code must retain the above copyright notice, this
++//    list of conditions and the following disclaimer.
++//
++// 2. Redistributions in binary form must reproduce the above copyright notice,
++//    this list of conditions and the following disclaimer in the documentation
++//    and/or other materials provided with the distribution.
++//
++// 3. Neither the name of the copyright holder nor the names of its
++//    contributors may be used to endorse or promote products derived from
++//    this software without specific prior written permission.
++//
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
++// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
++// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
++// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++
++#include "src/tint/lang/spirv/reader/lower/handle_params.h"
++
++#include <map>
++#include <unordered_set>
++#include <utility>
++#include <vector>
++
++#include "src/tint/lang/core/ir/builder.h"
++#include "src/tint/lang/core/ir/clone_context.h"
++#include "src/tint/lang/core/ir/module.h"
++#include "src/tint/lang/core/ir/traverse.h"
++#include "src/tint/lang/core/ir/user_call.h"
++#include "src/tint/lang/core/ir/var.h"
++
++namespace tint::spirv::reader::lower {
++namespace {
++
++bool IsHandlePointer(const core::type::Type* type) {
++    auto* ptr = type->As<core::type::Pointer>();
++    return ptr && ptr->AddressSpace() == core::AddressSpace::kHandle;
++}
++
++/// @returns the module-scope variable @p value is the result of, or nullptr
++core::ir::Var* RootVar(core::ir::Module& ir, core::ir::Value* value) {
++    auto* res = value->As<core::ir::InstructionResult>();
++    if (!res) {
++        return nullptr;
++    }
++    auto* var = res->Instruction()->As<core::ir::Var>();
++    if (!var || var->Block() != ir.root_block) {
++        return nullptr;
++    }
++    return var;
++}
++
++struct State {
++    core::ir::Module& ir;
++
++    /// (callee, the variable bound to each parameter or nullptr) -> specialized copy
++    std::map<std::pair<core::ir::Function*, std::vector<core::ir::Var*>>, core::ir::Function*>
++        variants{};
++
++    core::ir::Function* Variant(core::ir::Function* callee,
++                                const std::vector<core::ir::Var*>& bound) {
++        auto key = std::make_pair(callee, bound);
++        if (auto it = variants.find(key); it != variants.end()) {
++            return it->second;
++        }
++        auto* fn = core::ir::CloneContext{ir}.Clone(callee);
++        if (auto name = ir.NameOf(callee); name.IsValid()) {
++            ir.SetName(fn, ir.symbols.New(name.Name()));
++        }
++        Vector<core::ir::FunctionParam*, 8> kept;
++        auto params = fn->Params();
++        for (size_t i = 0; i < params.Length(); i++) {
++            if (bound[i]) {
++                params[i]->ReplaceAllUsesWith(bound[i]->Result());
++                params[i]->Destroy();
++            } else {
++                kept.Push(params[i]);
++            }
++        }
++        fn->SetParams(std::move(kept));
++        ir.functions.Push(fn);
++        variants[key] = fn;
++        return fn;
++    }
++
++    /// Rewrites the calls in @p fn that pass a variable to a handle pointer parameter.
++    /// @returns true if a call was rewritten
++    bool Specialize(core::ir::Function* fn) {
++        std::vector<core::ir::UserCall*> calls;
++        core::ir::Traverse(fn->Block(), [&](core::ir::UserCall* call) { calls.push_back(call); });
++        bool changed = false;
++        for (auto* call : calls) {
++            auto* callee = call->Target();
++            auto params = callee->Params();
++            auto args = call->Args();
++            std::vector<core::ir::Var*> bound(params.Length(), nullptr);
++            bool any = false;
++            for (size_t i = 0; i < params.Length() && i < args.size(); i++) {
++                if (IsHandlePointer(params[i]->Type())) {
++                    bound[i] = RootVar(ir, args[i]);
++                    any = any || bound[i] != nullptr;
++                }
++            }
++            if (!any) {
++                continue;
++            }
++            Vector<core::ir::Value*, 8> new_args;
++            for (size_t i = 0; i < args.size(); i++) {
++                if (i >= bound.size() || !bound[i]) {
++                    new_args.Push(args[i]);
++                }
++            }
++            auto* variant = Variant(callee, bound);
++            call->SetTarget(variant);
++            call->SetArgs(std::move(new_args));
++            changed = true;
++        }
++        return changed;
++    }
++
++    Result<SuccessType> Process() {
++        // Specialize until no call passes a variable to a handle pointer parameter. A copy can
++        // itself call with a parameter that is now a variable, so repeat over all functions.
++        for (bool changed = true; changed;) {
++            changed = false;
++            Vector<core::ir::Function*, 16> fns(ir.functions);
++            for (auto* fn : fns) {
++                changed = Specialize(fn) || changed;
++            }
++        }
++
++        // Keep the functions reachable from the entry points.
++        std::unordered_set<core::ir::Function*> live;
++        std::vector<core::ir::Function*> work;
++        for (auto* fn : ir.functions) {
++            if (fn->IsEntryPoint()) {
++                live.insert(fn);
++                work.push_back(fn);
++            }
++        }
++        while (!work.empty()) {
++            auto* fn = work.back();
++            work.pop_back();
++            core::ir::Traverse(fn->Block(), [&](core::ir::UserCall* call) {
++                if (live.insert(call->Target()).second) {
++                    work.push_back(call->Target());
++                }
++            });
++        }
++        Vector<core::ir::Function*, 16> kept;
++        for (auto* fn : ir.functions) {
++            if (live.count(fn)) {
++                kept.Push(fn);
++            } else {
++                fn->Destroy();
++            }
++        }
++        ir.functions = std::move(kept);
++
++        for (auto* fn : ir.functions) {
++            for (auto* param : fn->Params()) {
++                if (IsHandlePointer(param->Type())) {
++                    return Failure("a texture or sampler function parameter is not passed a "
++                                   "module-scope variable");
++                }
++            }
++        }
++        return Success;
++    }
++};
++
++}  // namespace
++
++Result<SuccessType> HandleParams(core::ir::Module& ir) {
++    return State{ir}.Process();
++}
++
++}  // namespace tint::spirv::reader::lower
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/handle_params.h b/thirdparty/tint/src/tint/lang/spirv/reader/lower/handle_params.h
+new file mode 100644
+index 0000000000..08df3727dd
+--- /dev/null
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/handle_params.h
+@@ -0,0 +1,49 @@
++// Copyright 2026 The Dawn & Tint Authors
++//
++// Redistribution and use in source and binary forms, with or without
++// modification, are permitted provided that the following conditions are met:
++//
++// 1. Redistributions of source code must retain the above copyright notice, this
++//    list of conditions and the following disclaimer.
++//
++// 2. Redistributions in binary form must reproduce the above copyright notice,
++//    this list of conditions and the following disclaimer in the documentation
++//    and/or other materials provided with the distribution.
++//
++// 3. Neither the name of the copyright holder nor the names of its
++//    contributors may be used to endorse or promote products derived from
++//    this software without specific prior written permission.
++//
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
++// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
++// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
++// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++
++#ifndef SRC_TINT_LANG_SPIRV_READER_LOWER_HANDLE_PARAMS_H_
++#define SRC_TINT_LANG_SPIRV_READER_LOWER_HANDLE_PARAMS_H_
++
++#include "src/tint/utils/result.h"
++
++namespace tint::core::ir {
++class Module;
++}
++
++namespace tint::spirv::reader::lower {
++
++/// Godot: replaces every function parameter that is a pointer to a texture or sampler with the
++/// module-scope variable the caller passes, making one copy of the function per distinct set of
++/// variables. Texture lowering then sees the variables themselves, which depth comparison
++/// sampling needs to turn a texture into a depth texture and a sampler into a comparison sampler.
++/// @param module the module to transform
++/// @returns success or failure
++Result<SuccessType> HandleParams(core::ir::Module& module);
++
++}  // namespace tint::spirv::reader::lower
++
++#endif  // SRC_TINT_LANG_SPIRV_READER_LOWER_HANDLE_PARAMS_H_
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
+index 238ae9333c..c392c3a253 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
+@@ -34,6 +34,7 @@
+ #include "src/tint/lang/spirv/reader/lower/builtins.h"
+ #include "src/tint/lang/spirv/reader/lower/decompose_strided_array.h"
+ #include "src/tint/lang/spirv/reader/lower/decompose_strided_matrix.h"
++#include "src/tint/lang/spirv/reader/lower/handle_params.h"
+ #include "src/tint/lang/spirv/reader/lower/shader_io.h"
+ #include "src/tint/lang/spirv/reader/lower/texture.h"
+ #include "src/tint/lang/spirv/reader/lower/transpose_row_major.h"
+@@ -43,6 +44,8 @@ namespace tint::spirv::reader {
+ 
+ Result<SuccessType> Lower(core::ir::Module& mod) {
+     TINT_CHECK_RESULT(core::ir::transform::DeadCodeElimination(mod));
++    // Godot: texture and sampler parameters become the variables passed to them.
++    TINT_CHECK_RESULT(lower::HandleParams(mod));
+     TINT_CHECK_RESULT(lower::VectorElementPointer(mod));
+     TINT_CHECK_RESULT(lower::ShaderIO(mod));
+     TINT_CHECK_RESULT(lower::Builtins(mod));
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+index c726dfb353..b871281914 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+@@ -2658,23 +2658,18 @@ class Parser {
+                     EmitImageWrite(inst);
+                     break;
+                 case spv::Op::OpImageSampleDrefImplicitLod:
+-                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
+                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleDrefImplicitLod);
+                     break;
+                 case spv::Op::OpImageSampleDrefExplicitLod:
+-                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
+                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleDrefExplicitLod);
+                     break;
+                 case spv::Op::OpImageSampleProjDrefImplicitLod:
+-                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
+                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleProjDrefImplicitLod);
+                     break;
+                 case spv::Op::OpImageSampleProjDrefExplicitLod:
+-                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
+                     EmitImageSampleDepth(inst, spirv::BuiltinFn::kImageSampleProjDrefExplicitLod);
+                     break;
+                 case spv::Op::OpImageDrefGather:
+-                    TINT_CHECK_RESULT(CheckDepthTextureIsNotAParameter(inst));
+                     EmitImageGatherDref(inst);
+                     break;
+                 case spv::Op::OpPhi:
+@@ -3506,31 +3501,6 @@ class Parser {
+              inst.result_id());
+     }
+ 
+-    /// Godot: the lowering of depth comparison sampling turns the texture variable into a depth
+-    /// texture, but cannot follow a texture passed as a function parameter and fails an internal
+-    /// assertion, which aborts. Refuse that input with an error instead.
+-    /// @param inst a depth comparison image instruction
+-    Result<SuccessType> CheckDepthTextureIsNotAParameter(const spvc::Instruction& inst) {
+-        auto* def_use = spirv_context_->get_def_use_mgr();
+-        auto* si = def_use->GetDef(inst.GetSingleWordInOperand(0));
+-        while (si && si->opcode() == spv::Op::OpCopyObject) {
+-            si = def_use->GetDef(si->GetSingleWordInOperand(0));
+-        }
+-        if (!si || si->opcode() != spv::Op::OpSampledImage) {
+-            return Success;
+-        }
+-        auto* image = def_use->GetDef(si->GetSingleWordInOperand(0));
+-        if (image && image->opcode() == spv::Op::OpLoad) {
+-            image = def_use->GetDef(image->GetSingleWordInOperand(0));
+-        }
+-        if (image && image->opcode() == spv::Op::OpFunctionParameter) {
+-            return Failure(
+-                "depth comparison sampling of a texture passed as a function parameter is not "
+-                "supported");
+-        }
+-        return Success;
+-    }
+-
+     void EmitSampledImage(const spvc::Instruction& inst) {
+         auto* tex = Value(inst.GetSingleWordInOperand(0));
+         auto* img_type = tex->Type()->As<type::Image>();
