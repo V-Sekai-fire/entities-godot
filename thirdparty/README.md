@@ -1179,6 +1179,10 @@ Patches:
   triangle faces the other way and is culled. Godot's Metal and D3D12 drivers flip the same way)
 - `0012-spirv-reader-volatile.patch` (read the `Volatile` decoration as a no-op, like `Coherent`:
   WGSL has no way to say it, and Godot's volumetric fog marks a storage buffer with it)
+- `0013-spirv-reader-read-only-storage-as-sampled.patch` (`read_only_storage_as_sampled` option:
+  read a `NonWritable` storage image as a sampled texture read with `textureLoad`, a cube one as a
+  2D array; both read the same texels, and sampled textures count against the per-stage sampled
+  texture limit instead of the lower storage texture limit, which SDFGI's shaders exceed)
 
 ## tinyexr
 

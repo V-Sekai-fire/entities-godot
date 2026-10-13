@@ -41,7 +41,8 @@ namespace tint::spirv::reader::lower {
 /// Tint's core IR.
 /// @param module the module to transform
 /// @returns success or failure
-Result<SuccessType> Texture(core::ir::Module& module);
+/// @param read_only_storage_as_sampled read NonWritable storage images as sampled textures
+Result<SuccessType> Texture(core::ir::Module& module, bool read_only_storage_as_sampled = false);
 
 }  // namespace tint::spirv::reader::lower
 

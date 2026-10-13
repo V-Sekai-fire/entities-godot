@@ -63,6 +63,11 @@ struct Options {
     /// Negate the y of the vertex position output. SPIR-V for Vulkan has y pointing down in clip
     /// space, WGSL has it pointing up, like SPIRV-Cross's flip_vert_y for Metal.
     bool flip_vertex_y = false;
+
+    /// Read storage images decorated NonWritable as sampled textures read with `textureLoad`.
+    /// Both read the same texels, and sampled textures count against the per-stage sampled
+    /// texture limit instead of the much lower storage texture limit.
+    bool read_only_storage_as_sampled = false;
     /// Godot: the WGSL binding of each texture, sampler and buffer, chosen by the embedder from the
     /// layout of the whole shader (all stages), so every stage numbers bindings the same way.
     /// Called with the SPIR-V descriptor set and binding, the element of a handle array (0 if not

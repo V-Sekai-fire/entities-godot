@@ -36,7 +36,9 @@ namespace tint::spirv::reader {
 /// Lower converts a SPIR-V-dialect IR module to a core-dialect IR module
 /// @param  mod the IR module
 /// @return the result of the operation
-Result<SuccessType> Lower(core::ir::Module& mod, bool flip_vertex_y = false);
+Result<SuccessType> Lower(core::ir::Module& mod,
+                          bool flip_vertex_y = false,
+                          bool read_only_storage_as_sampled = false);
 
 }  // namespace tint::spirv::reader
 
