@@ -75,6 +75,10 @@ private:
 		bool is_transfer_first_map = false;
 		// Tracks the actual GPU-side map state.
 		bool is_mapped = false;
+		// Upload buffers: the memory buffer_map() returns. Godot keeps writing through a mapped
+		// pointer while it records copies, as with Vulkan's persistent mapping, but WebGPU only
+		// copies from unmapped buffers. So the copy commands upload the range they read from here.
+		uint8_t *upload_shadow = nullptr;
 
 		uint32_t frame_idx = UINT32_MAX;
 		bool is_dynamic() const { return frame_idx != UINT32_MAX; }
@@ -89,6 +93,7 @@ private:
 	uint32_t frame_count = 1;
 	HashSet<BufferDynamicInfo *> dirty_dynamic_buffers;
 	void _flush_pending_dynamic_buffers();
+	void _upload_shadow_range(BufferInfo *p_buffer, uint64_t p_offset, uint64_t p_size);
 
 public:
 	virtual BufferID buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t p_frames_drawn) override final;

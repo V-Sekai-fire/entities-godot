@@ -263,7 +263,12 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 		map_mode = 0;
 	}
 
-	const bool maps_at_creation = is_transfer_buffer && (map_mode & WGPUMapMode_Write);
+	// Upload buffers are never mapped on the GPU side; see BufferInfo::upload_shadow.
+	const bool is_upload = !is_dynamic && (map_mode & WGPUMapMode_Write);
+	if (is_upload) {
+		usage = (WGPUBufferUsage)(((int)usage & ~WGPUBufferUsage_MapWrite) | WGPUBufferUsage_CopyDst);
+	}
+	const bool maps_at_creation = false;
 
 	// Each frame's slice of a dynamic buffer starts on a dynamic offset, which WebGPU requires to be
 	// a multiple of minUniformBufferOffsetAlignment (256 at most).
@@ -299,6 +304,10 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 	buffer_info->map_mode = (WGPUMapMode)map_mode;
 	buffer_info->is_transfer_first_map = maps_at_creation;
 	buffer_info->is_mapped = maps_at_creation;
+	if (is_upload) {
+		buffer_info->upload_shadow = (uint8_t *)memalloc(STEPIFY(slice_size, 4));
+		memset(buffer_info->upload_shadow, 0, STEPIFY(slice_size, 4));
+	}
 
 	return BufferID(buffer_info);
 }
@@ -319,6 +328,9 @@ void RenderingDeviceDriverWebGpu::buffer_free(BufferID p_buffer) {
 		}
 		memdelete(dyn);
 	} else {
+		if (buffer_info->upload_shadow) {
+			memfree(buffer_info->upload_shadow);
+		}
 		memdelete(buffer_info);
 	}
 }
@@ -336,6 +348,9 @@ static void handle_buffer_map(WGPUMapAsyncStatus status, WGPUStringView _message
 
 uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+	if (buffer_info->upload_shadow) {
+		return buffer_info->upload_shadow;
+	}
 
 	uint64_t offset = 0;
 	uint64_t size = buffer_info->size;
@@ -377,6 +392,9 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 
 void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+	if (buffer_info->upload_shadow) {
+		return;
+	}
 	if (!buffer_info->is_mapped) {
 		return;
 	}
@@ -412,6 +430,16 @@ uint64_t RenderingDeviceDriverWebGpu::buffer_get_dynamic_offsets(Span<BufferID> 
 		shift += VERTEX_DYN_BITS;
 	}
 	return mask;
+}
+
+void RenderingDeviceDriverWebGpu::_upload_shadow_range(BufferInfo *p_buffer, uint64_t p_offset, uint64_t p_size) {
+	// wgpuQueueWriteBuffer runs on the queue before the command buffer holding the copy is
+	// submitted, so the copy reads what Godot wrote. Offset and size must be multiples of 4.
+	uint64_t begin = p_offset & ~uint64_t(3);
+	uint64_t end = MIN(STEPIFY(p_offset + p_size, 4), STEPIFY(p_buffer->size, 4));
+	if (end > begin) {
+		wgpuQueueWriteBuffer(queue, p_buffer->buffer, begin, p_buffer->upload_shadow + begin, end - begin);
+	}
 }
 
 void RenderingDeviceDriverWebGpu::_flush_pending_dynamic_buffers() {
@@ -2706,6 +2734,9 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buff
 
 	for (uint32_t i = 0; i < p_regions.size(); i++) {
 		BufferCopyRegion region = p_regions[i];
+		if (src_buffer_info->upload_shadow) {
+			_upload_shadow_range(src_buffer_info, region.src_offset, region.size);
+		}
 		wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, STEPIFY(region.size, 256));
 	}
 
@@ -2844,6 +2875,11 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 			cp_size.height = STEPIFY(cp_size.height, block_h);
 		}
 
+		if (src_buffer_info->upload_shadow) {
+			uint64_t rows = (cp_size.height + block_height - 1) / block_height;
+			uint64_t bytes = uint64_t(cp_buffer.layout.bytesPerRow) * rows * MAX(cp_size.depthOrArrayLayers, 1u);
+			_upload_shadow_range(src_buffer_info, region.buffer_offset, bytes);
+		}
 		wgpuCommandEncoderCopyBufferToTexture(command_buffer_info->encoder, &cp_buffer, &cp_texture, &cp_size);
 	}
 
