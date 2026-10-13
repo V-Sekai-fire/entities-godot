@@ -81,8 +81,9 @@ static void _debug_dump_shader(const char *p_dir, const String &p_shader_name, R
 }
 #endif
 
+// 3: uniforms carry the stages that read them.
 // 2: stages hold WGSL from tint (1 held SPIR-V).
-const uint32_t RenderingShaderContainerWebGpu::FORMAT_VERSION = 2;
+const uint32_t RenderingShaderContainerWebGpu::FORMAT_VERSION = 3;
 
 uint32_t RenderingShaderContainerWebGpu::_format() const {
 	// 'WGPU' LE
@@ -271,6 +272,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 
 	// SPIR-V -> WGSL for each stage, with the textures and samplers each stage uses.
 	HashMap<uint64_t, WebGpuTintBinding> used;
+	HashMap<uint64_t, uint32_t> read_stages; // Binding -> stages whose code reads it.
 	Vector<CharString> wgsl_stages;
 	for (uint32_t i = 0; i < p_spirv.size(); i++) {
 		Span<uint32_t> stage_spirv = p_spirv[i].spirv();
@@ -282,10 +284,19 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		std::string wgsl;
 		std::string error;
 		std::vector<WebGpuTintBinding> bindings;
+		std::vector<uint64_t> read;
 		bool ok = webgpu_tint_spirv_to_wgsl(stage_spirv.ptr(), stage_spirv.size(), plan, push_constant_group,
-				WEBGPU_PUSH_CONSTANT_EMULATION_BINDING, WEBGPU_MAX_IMMEDIATE_SIZE, wgsl, bindings, error);
+				WEBGPU_PUSH_CONSTANT_EMULATION_BINDING, WEBGPU_MAX_IMMEDIATE_SIZE, wgsl, bindings, read, error);
 		ERR_FAIL_COND_V_MSG(!ok, false, vformat("SPIR-V to WGSL failed for %s stage %s: %s", shader_name_str, String(RenderingDeviceCommons::SHADER_STAGE_NAMES[p_spirv[i].shader_stage]), String::utf8(error.c_str())));
 
+		for (uint64_t key : read) {
+			uint32_t *stages = read_stages.getptr(key);
+			if (stages) {
+				*stages |= 1u << p_spirv[i].shader_stage;
+			} else {
+				read_stages.insert(key, 1u << p_spirv[i].shader_stage);
+			}
+		}
 		for (const WebGpuTintBinding &b : bindings) {
 			uint64_t key = (uint64_t(b.group) << 32) | b.binding;
 			WebGpuTintBinding *existing = used.getptr(key);
@@ -337,12 +348,18 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 			_webgpu_corrections(uniform_refl.type, uniform_refl.length, u.corrections);
 			u.base_hint = WebGpuBindingHint();
 			u.binding_hints.clear();
+			u.stages_read = 0;
 
 			// Element k of this uniform is WebGPU binding first + k. Unused elements stay UNUSED,
 			// which the driver reads as "prune this layout entry".
 			const uint32_t first = uniform_refl.binding + offset;
 			const uint32_t count = 1 + (uint32_t)u.corrections.size(); // Hints the driver reads.
 			bool have_base = false;
+			const uint32_t span = uniform_refl.type == RDC::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE ? 2 * MAX(uniform_refl.length, 1u) : count;
+			for (uint32_t k = 0; k < span; k++) {
+				const uint32_t *stages = read_stages.getptr((uint64_t(set_idx) << 32) | (first + k));
+				u.stages_read |= stages ? *stages : 0;
+			}
 			for (uint32_t k = 0; k < count; k++) {
 				const WebGpuTintBinding *b = used.getptr((uint64_t(set_idx) << 32) | (first + k));
 				WebGpuBindingHint hint = b ? _webgpu_hint(*b) : WebGpuBindingHint();
@@ -393,7 +410,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 
 // Size of the non-arrayed items we store in container extra data.
 static constexpr uint32_t WEBGPU_UNIFORM_EXTRA_BASE_SIZE =
-		sizeof(WebGpuBindingHint) + 5 * sizeof(uint32_t);
+		sizeof(WebGpuBindingHint) + 6 * sizeof(uint32_t);
 
 uint32_t RenderingShaderContainerWebGpu::_to_bytes_reflection_binding_uniform_extra_data(uint8_t *p_bytes, uint32_t p_index) const {
 	const UniformData &u = webgpu_uniform_data[p_index];
@@ -415,6 +432,8 @@ uint32_t RenderingShaderContainerWebGpu::_to_bytes_reflection_binding_uniform_ex
 	encode_uint32(u.texture_sample_type, p);
 	p += sizeof(uint32_t);
 	encode_uint32(u.texture_is_multisample, p);
+	p += sizeof(uint32_t);
+	encode_uint32(u.stages_read, p);
 	p += sizeof(uint32_t);
 	encode_uint32(correction_count, p);
 	p += sizeof(uint32_t);
@@ -451,6 +470,8 @@ uint32_t RenderingShaderContainerWebGpu::_from_bytes_reflection_binding_uniform_
 	u.texture_sample_type = decode_uint32(p);
 	p += sizeof(uint32_t);
 	u.texture_is_multisample = decode_uint32(p);
+	p += sizeof(uint32_t);
+	u.stages_read = decode_uint32(p);
 	p += sizeof(uint32_t);
 	uint32_t correction_count = decode_uint32(p);
 	p += sizeof(uint32_t);

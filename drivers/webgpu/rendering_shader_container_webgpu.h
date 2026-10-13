@@ -46,6 +46,7 @@ public:
 		uint32_t texture_image_type = 0; // RDC::TextureType
 		uint32_t texture_sample_type = 0; // RDC::ShaderUniform::TextureSampleType
 		uint32_t texture_is_multisample = 0;
+		uint32_t stages_read = 0; // Bits of RDC::ShaderStage whose code reads any of the uniform's bindings.
 		Vector<uint32_t> corrections;
 		Vector<WebGpuBindingHint> binding_hints; // size == corrections.size()
 	};

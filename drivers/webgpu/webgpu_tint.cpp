@@ -92,7 +92,7 @@ bool is_compare(tint::core::BuiltinFn p_fn) {
 
 bool webgpu_tint_spirv_to_wgsl(const uint32_t *p_words, size_t p_word_count, const std::vector<WebGpuTintPlanEntry> &p_plan, uint32_t p_push_constant_group,
 		uint32_t p_push_constant_binding, uint32_t p_push_constant_max_size, std::string &r_wgsl,
-		std::vector<WebGpuTintBinding> &r_bindings, std::string &r_error) {
+		std::vector<WebGpuTintBinding> &r_bindings, std::vector<uint64_t> &r_read, std::string &r_error) {
 	static std::once_flag init;
 	std::call_once(init, [] { tint::Initialize(); });
 
@@ -122,12 +122,15 @@ bool webgpu_tint_spirv_to_wgsl(const uint32_t *p_words, size_t p_word_count, con
 	}
 
 	// Textures and samplers the module uses, then how they pair up in texture builtin calls.
+	// Every binding the module reads, as (group << 32) | binding, for the layout's stage visibility.
 	std::map<const tint::core::ir::Var *, WebGpuTintBinding> handles;
+	r_read.clear();
 	for (auto *inst : *ir->root_block) {
 		auto *var = inst->As<tint::core::ir::Var>();
 		if (!var || !var->BindingPoint() || var->Result()->NumUsages() == 0) {
 			continue;
 		}
+		r_read.push_back((uint64_t(var->BindingPoint()->group) << 32) | var->BindingPoint()->binding);
 		const tint::core::type::Type *type = handle_type(var);
 		WebGpuTintBinding b;
 		b.group = var->BindingPoint()->group;
