@@ -264,7 +264,10 @@ def configure(env: "SConsEnvironment"):
         # env.Append(LINKFLAGS=["--closure=1"])
 
         env.Append(CCFLAGS=["--use-port=emdawnwebgpu"])
-        env.Append(LINKFLAGS=["--use-port=emdawnwebgpu", "-sASYNCIFY=1", "-sASYNCIFY_STACK_SIZE=65536"])
+        # wgpuInstanceWaitAny suspends until the browser resolves a promise. JSPI (the browser's
+        # JavaScript Promise Integration, Baseline since September 2026) does that without
+        # Asyncify's code rewriting, which also breaks across the dlink main and side modules.
+        env.Append(LINKFLAGS=["--use-port=emdawnwebgpu", "-sJSPI=1"])
         backend = env["webgpu_backend"]
         if backend == "auto":
             backend = "emdawnwebgpu"
@@ -306,11 +309,6 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=["-sSIDE_MODULE=2"])
         env.Append(CCFLAGS=["-fvisibility=hidden"])
         env.Append(LINKFLAGS=["-fvisibility=hidden"])
-        if env["webgpu"]:
-            # Godot runs as a side module, and wgpuInstanceWaitAny (which suspends with Asyncify)
-            # lives in the main module. A side module must list such imports, or the suspension
-            # unwinds its frames without saving them. See Emscripten's "Asyncify with Dynamic Linking".
-            env.Append(LINKFLAGS=["-sASYNCIFY_IMPORTS=wgpuInstanceWaitAny"])
         env.extra_suffix = ".dlink" + env.extra_suffix
 
     # Run the main application in a web worker
