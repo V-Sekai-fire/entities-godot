@@ -1669,9 +1669,13 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 			binding_hints.insert(corrected_binding.corrected_binding_idx, u.base_hint);
 
+			// Visible only to the stages whose code reads the uniform: WebGPU counts each binding
+			// against the per-stage limits of every stage it is visible to, and Godot declares many
+			// bindings in stages that never read them. Uniform sets bound with other variants get a
+			// bind group per layout (_select_bind_group_from_uniform_set).
 			WGPUShaderStage shader_stage = (WGPUShaderStage)0;
 			for (uint32_t k = 0; k < SHADER_STAGE_MAX; k++) {
-				if (info.stages.has_flag((ShaderStage)(1 << k))) {
+				if (info.stages.has_flag((ShaderStage)(1 << k)) && (u.stages_read & (1u << k))) {
 					shader_stage |= webgpu_shader_stage_from_rd((ShaderStage)k);
 				}
 			}

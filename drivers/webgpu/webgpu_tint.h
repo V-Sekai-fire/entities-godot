@@ -81,4 +81,4 @@ struct WebGpuTintPlanEntry {
 // and samplers the WGSL uses, with the binding layout type each needs.
 bool webgpu_tint_spirv_to_wgsl(const uint32_t *p_words, size_t p_word_count, const std::vector<WebGpuTintPlanEntry> &p_plan, uint32_t p_push_constant_group,
 		uint32_t p_push_constant_binding, uint32_t p_push_constant_max_size, std::string &r_wgsl,
-		std::vector<WebGpuTintBinding> &r_bindings, std::string &r_error);
+		std::vector<WebGpuTintBinding> &r_bindings, std::vector<uint64_t> &r_read, std::string &r_error);
