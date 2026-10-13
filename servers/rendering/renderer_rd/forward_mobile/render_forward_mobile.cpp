@@ -3647,7 +3647,11 @@ RenderForwardMobile::RenderForwardMobile() {
 
 	{
 		//lightmaps
-		scene_state.max_lightmaps = MAX_LIGHTMAPS;
+		// Each lightmap takes two texture bindings (lightmap and shadowmask). On devices with only 16
+		// textures per stage (the WebGPU minimum) the full array alone would exceed the limit, so fewer
+		// lightmaps are bound per draw, leaving room for the material's own textures.
+		const uint32_t textures_per_stage = RD::get_singleton()->limit_get(RD::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE);
+		scene_state.max_lightmaps = CLAMP((textures_per_stage - 8) / 4, 1u, (uint32_t)MAX_LIGHTMAPS);
 		defines += "\n#define MAX_LIGHTMAP_TEXTURES " + itos(scene_state.max_lightmaps) + "\n";
 		defines += "\n#define MAX_LIGHTMAPS " + itos(scene_state.max_lightmaps) + "\n";
 
