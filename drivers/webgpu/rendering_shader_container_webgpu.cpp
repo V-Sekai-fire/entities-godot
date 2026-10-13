@@ -227,6 +227,29 @@ static void _webgpu_merge(WebGpuTintBinding &r_into, const WebGpuTintBinding &p_
 	r_into.multisampled = r_into.multisampled || p_from.multisampled;
 }
 
+// Combined image samplers that hold depth but are read as plain float textures through a linear
+// sampler. Vulkan allows that; WebGPU cannot filter depth, and the SPIR-V does not say the texture
+// holds depth. Their layouts take an unfilterable-float texture and a non-filtering sampler, and
+// the driver binds a nearest copy of the sampler Godot passes.
+struct WebGpuDepthRead {
+	const char *shader; // ShaderRD name, before ":<variant>".
+	uint32_t set;
+	uint32_t binding;
+};
+static const WebGpuDepthRead WEBGPU_DEPTH_READS[] = {
+	{ "CubeToDpShaderRD", 0, 0 }, // The omni light's cube shadow, copied into the shadow atlas.
+};
+
+static bool _webgpu_is_depth_read(const String &p_shader_name, uint32_t p_set, uint32_t p_binding) {
+	const String shader = p_shader_name.get_slicec(':', 0);
+	for (const WebGpuDepthRead &r : WEBGPU_DEPTH_READS) {
+		if (shader == r.shader && p_set == r.set && p_binding == r.binding) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p_shader) {
 	const LocalVector<ReflectShaderStage> &p_spirv = p_shader.shader_stages;
 
@@ -333,6 +356,13 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 					u.base_hint = hint;
 					have_base = true;
 				}
+			}
+			if (uniform_refl.type == RDC::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE && uniform_refl.length <= 1 &&
+					u.base_hint.type == WebGpuBindingHintType::TEXTURE && u.binding_hints.size() == 1 &&
+					_webgpu_is_depth_read(shader_name_str, set_idx, uniform_refl.binding)) {
+				u.base_hint.texture.sample_type = WGPUTextureSampleType_UnfilterableFloat;
+				u.binding_hints.write[0].type = WebGpuBindingHintType::SAMPLER;
+				u.binding_hints.write[0].sampler.sampler_type = WGPUSamplerBindingType_NonFiltering;
 			}
 			offset += uniform_refl.type == RDC::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE ? 2 * MAX(uniform_refl.length, 1u) - 1 : (uint32_t)u.corrections.size();
 			global_idx++;

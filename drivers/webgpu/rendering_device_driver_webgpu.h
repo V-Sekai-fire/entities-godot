@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 #include "drivers/webgpu/webgpu_binding_remap.h"
 #include "drivers/webgpu/webgpu_common.h"
@@ -93,6 +94,12 @@ private:
 	uint32_t frame_count = 1;
 	HashSet<BufferDynamicInfo *> dirty_dynamic_buffers;
 	void _flush_pending_dynamic_buffers();
+
+	// Samplers: the descriptor of each, and the nearest copy bound where a layout cannot filter.
+	HashMap<WGPUSampler, WGPUSamplerDescriptor> sampler_descs;
+	HashMap<WGPUSampler, WGPUSampler> nearest_samplers;
+	HashMap<WGPUBindGroupLayout, HashSet<uint32_t>> non_filtering_sampler_bindings;
+	WGPUSampler _sampler_get_non_filtering(WGPUSampler p_sampler);
 	void _upload_shadow_range(BufferInfo *p_buffer, uint64_t p_offset, uint64_t p_size);
 
 public:

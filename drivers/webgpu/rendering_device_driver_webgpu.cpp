@@ -859,12 +859,39 @@ RenderingDeviceDriver::SamplerID RenderingDeviceDriverWebGpu::sampler_create(con
 	};
 
 	WGPUSampler sampler = wgpuDeviceCreateSampler(device, &sampler_desc);
+	sampler_descs[sampler] = sampler_desc;
 	return SamplerID(sampler);
 }
 
 void RenderingDeviceDriverWebGpu::sampler_free(SamplerID p_sampler) {
 	WGPUSampler sampler = (WGPUSampler)p_sampler.id;
+	WGPUSampler *nearest = nearest_samplers.getptr(sampler);
+	if (nearest) {
+		wgpuSamplerRelease(*nearest);
+		nearest_samplers.erase(sampler);
+	}
+	sampler_descs.erase(sampler);
 	wgpuSamplerRelease(sampler);
+}
+
+WGPUSampler RenderingDeviceDriverWebGpu::_sampler_get_non_filtering(WGPUSampler p_sampler) {
+	const WGPUSamplerDescriptor *desc = sampler_descs.getptr(p_sampler);
+	if (!desc || desc->compare != WGPUCompareFunction_Undefined ||
+			(desc->magFilter != WGPUFilterMode_Linear && desc->minFilter != WGPUFilterMode_Linear && desc->mipmapFilter != WGPUMipmapFilterMode_Linear)) {
+		return p_sampler;
+	}
+	WGPUSampler *nearest = nearest_samplers.getptr(p_sampler);
+	if (nearest) {
+		return *nearest;
+	}
+	WGPUSamplerDescriptor nearest_desc = *desc;
+	nearest_desc.magFilter = WGPUFilterMode_Nearest;
+	nearest_desc.minFilter = WGPUFilterMode_Nearest;
+	nearest_desc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+	nearest_desc.maxAnisotropy = 1;
+	WGPUSampler created = wgpuDeviceCreateSampler(device, &nearest_desc);
+	nearest_samplers[p_sampler] = created;
+	return created;
 }
 
 bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFormat _p_format, SamplerFilter p_filter) {
@@ -1746,8 +1773,9 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						}
 					} else {
 						layout_entry.texture.sampleType = WGPUTextureSampleType_BindingNotUsed;
+						const bool sampler_hint = u.binding_hints.size() == 1 && u.binding_hints[0].type == WebGpuBindingHintType::SAMPLER;
 						layout_entry.sampler = (WGPUSamplerBindingLayout){
-							.type = WGPUSamplerBindingType_Filtering,
+							.type = sampler_hint ? (WGPUSamplerBindingType)u.binding_hints[0].sampler.sampler_type : WGPUSamplerBindingType_Filtering,
 						};
 						if (!pruned) {
 							bind_group_layout_entries.write[set_idx].push_back(layout_entry);
@@ -2022,6 +2050,11 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 		WGPUBindGroupLayout bind_group_layout = wgpuDeviceCreateBindGroupLayout(device, &bind_group_layout_desc);
 		ERR_FAIL_COND_V(!bind_group_layout, ShaderID());
+		for (const WGPUBindGroupLayoutEntry &e : bind_group_layout_entries[set_idx]) {
+			if (e.sampler.type == WGPUSamplerBindingType_NonFiltering) {
+				non_filtering_sampler_bindings[bind_group_layout].insert(e.binding);
+			}
+		}
 
 		shader_info->bind_group_layouts.push_back(bind_group_layout);
 		shader_info->bind_group_layout_descs.push_back(bind_group_layout_desc);
@@ -2319,6 +2352,17 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 				break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_MAX:
 				break;
+		}
+	}
+
+	// A sampler bound where the layout cannot filter (a depth read; see WEBGPU_DEPTH_READS in the
+	// shader container) is replaced by its nearest copy.
+	const HashSet<uint32_t> *non_filtering = non_filtering_sampler_bindings.getptr(p_layout);
+	if (non_filtering) {
+		for (WGPUBindGroupEntry &e : entries) {
+			if (e.sampler && non_filtering->has(e.binding)) {
+				e.sampler = _sampler_get_non_filtering(e.sampler);
+			}
 		}
 	}
 
