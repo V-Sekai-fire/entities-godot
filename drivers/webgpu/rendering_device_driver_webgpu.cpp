@@ -1912,7 +1912,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			},
 		};
 
-		shader_info->shader_contents.push_back(String((const char *)decompressed_code.ptr()));
+		shader_info->shader_contents.push_back(String::utf8((const char *)decompressed_code.ptr(), source_size));
 
 		WGPUShaderModuleDescriptor shader_module_desc = (WGPUShaderModuleDescriptor){
 			.nextInChain = &source.chain,

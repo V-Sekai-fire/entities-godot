@@ -3,9 +3,80 @@ from misc.utility.scons_hints import *
 
 Import("env")
 
+import os
+
 if env["platform"] != "web":
     raise ValueError('The WebGPU driver is only supported on platform "web" (via emdawnwebgpu).')
 
+# Thirdparty: tint's SPIR-V reader (on SPIRV-Cross's parser) and WGSL writer, for SPIR-V to WGSL.
+# tint needs C++20; it and the bridge that includes it (webgpu_tint.cpp) build with their own env.
+
+tint_dir = "#thirdparty/tint/"
+spirv_cross_dir = "#thirdparty/spirv-cross/"
+spirv_headers_dir = "#thirdparty/spirv-headers/include/"
+
+tint_excluded = (
+    "/lang/spirv/writer/",
+    "/lang/spirv/validate/",
+    "/lang/spirv/reader/ast_parser/",
+    "/lang/spirv/reader/ast_lower/",
+)
+tint_root = Dir(tint_dir).srcnode().abspath
+tint_sources = []
+for root, _dirs, files in os.walk(os.path.join(tint_root, "src", "tint")):
+    rel_root = root.replace(os.sep, "/") + "/"
+    if any(part in rel_root for part in tint_excluded):
+        continue
+    for f in files:
+        if f.endswith(".cc") and not f.endswith("_test.cc") and not f.endswith("_bench.cc"):
+            tint_sources.append(os.path.join(root, f))
+tint_sources.sort()
+
+spirv_cross_sources = [spirv_cross_dir + f for f in ["spirv_parser.cpp", "spirv_cross_parsed_ir.cpp"]]
+
+env_tint = env.Clone()
+env_tint.disable_warnings()
+env_tint["CXXFLAGS"] = [f for f in env_tint["CXXFLAGS"] if not str(f).startswith("-std=")]
+env_tint.Prepend(CXXFLAGS=["-std=c++20"])
+env_tint.Prepend(
+    CPPPATH=[
+        tint_dir,
+        tint_dir + "include/",
+        spirv_headers_dir,
+        spirv_headers_dir + "spirv/unified1/",
+        spirv_cross_dir,
+        spirv_cross_dir + "include/",
+    ]
+)
+# Like drivers/metal, but kept off: with Godot's disable_exceptions, SPIRV-Cross reports and aborts
+# instead of throwing.
+if env["disable_exceptions"]:
+    env_tint.Append(CPPDEFINES=["SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS"])
+env_tint.Append(
+    CPPDEFINES=[
+        ("DAWN_HAVE_UTILS_BUILD_CONFIG", 1),
+        ("TINT_BUILD_SPV_READER", 1),
+        ("TINT_BUILD_WGSL_WRITER", 1),
+        ("TINT_BUILD_SPV_WRITER", 0),
+        ("TINT_BUILD_WGSL_READER", 0),
+        ("TINT_BUILD_SYNTAX_TREE_WRITER", 0),
+        ("TINT_BUILD_GLSL_WRITER", 0),
+        ("TINT_BUILD_HLSL_WRITER", 0),
+        ("TINT_BUILD_MSL_WRITER", 0),
+    ]
+)
+
+thirdparty_obj = []
+env_tint.add_source_files(thirdparty_obj, tint_sources)
+env_tint.add_source_files(thirdparty_obj, spirv_cross_sources)
+env_tint.add_source_files(thirdparty_obj, ["webgpu_tint.cpp"])
+env.drivers_sources += thirdparty_obj
+
+# Godot source files
+
 driver_obj = []
-env.add_source_files(driver_obj, "*.cpp")
+env.add_source_files(driver_obj, [f for f in Glob("*.cpp") if f.name != "webgpu_tint.cpp"])
 env.drivers_sources += driver_obj
+
+# Rebuild the driver when the thirdparty code changes.
+env.Depends(driver_obj, thirdparty_obj)

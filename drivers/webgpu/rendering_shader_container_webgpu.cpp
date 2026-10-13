@@ -37,6 +37,9 @@
 #include "core/string/print_string.h"
 #include "core/string/ustring.h"
 #include "core/templates/local_vector.h"
+#include "drivers/webgpu/webgpu_binding_remap.h"
+#include "drivers/webgpu/webgpu_platform.h"
+#include "drivers/webgpu/webgpu_tint.h"
 
 #include <thirdparty/spirv-reflect/spirv_reflect.h>
 
@@ -78,7 +81,8 @@ static void _debug_dump_shader(const char *p_dir, const String &p_shader_name, R
 }
 #endif
 
-const uint32_t RenderingShaderContainerWebGpu::FORMAT_VERSION = 1;
+// 2: stages hold WGSL from tint (1 held SPIR-V).
+const uint32_t RenderingShaderContainerWebGpu::FORMAT_VERSION = 2;
 
 uint32_t RenderingShaderContainerWebGpu::_format() const {
 	// 'WGPU' LE
@@ -113,35 +117,176 @@ void RenderingShaderContainerWebGpu::_set_from_shader_reflection_post(const Refl
 	webgpu_uniform_data.resize(reflection_binding_set_uniforms_data.size());
 }
 
+// The corrections the driver's _remap_binding_indices() reads to number WebGPU bindings: an array
+// of N handles becomes N bindings, each element of a combined image sampler a texture then a
+// sampler, and every later binding in the set moves up by the bindings added before it.
+// _webgpu_plan() gives tint's reader the same numbering.
+static void _webgpu_corrections(RenderingDeviceCommons::UniformType p_type, uint32_t p_length, Vector<uint32_t> &r_corrections) {
+	using RDC = RenderingDeviceCommons;
+	r_corrections.clear();
+	switch (p_type) {
+		case RDC::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE:
+			r_corrections.push_back(WEBGPU_BINDING_REMAP_SPLIT_COMBINED);
+			for (uint32_t i = 1; i < p_length; i++) {
+				r_corrections.push_back(WEBGPU_BINDING_REMAP_SPLIT_BINDING_ARRAY);
+			}
+			break;
+		case RDC::UNIFORM_TYPE_SAMPLER:
+		case RDC::UNIFORM_TYPE_TEXTURE:
+		case RDC::UNIFORM_TYPE_IMAGE:
+			for (uint32_t i = 1; i < p_length; i++) {
+				r_corrections.push_back(WEBGPU_BINDING_REMAP_SPLIT_BINDING_ARRAY);
+			}
+			break;
+		default:
+			break;
+	}
+}
+
+// Appends the WebGPU binding of each element of a uniform, numbered as
+// _remap_binding_indices() does from _webgpu_corrections(), and returns the bindings it added.
+static uint32_t _webgpu_plan(uint32_t p_set, uint32_t p_binding, RenderingDeviceCommons::UniformType p_type, uint32_t p_length, uint32_t p_offset, std::vector<WebGpuTintPlanEntry> &r_plan) {
+	using RDC = RenderingDeviceCommons;
+	const uint32_t first = p_binding + p_offset;
+	switch (p_type) {
+		case RDC::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
+			const uint32_t n = MAX(p_length, 1u);
+			for (uint32_t k = 0; k < n; k++) {
+				r_plan.push_back({ p_set, p_binding, k, false, first + 2 * k });
+				r_plan.push_back({ p_set, p_binding, k, true, first + 2 * k + 1 });
+			}
+			return 2 * n - 1;
+		}
+		case RDC::UNIFORM_TYPE_SAMPLER:
+		case RDC::UNIFORM_TYPE_TEXTURE:
+		case RDC::UNIFORM_TYPE_IMAGE: {
+			const uint32_t n = MAX(p_length, 1u);
+			for (uint32_t k = 0; k < n; k++) {
+				r_plan.push_back({ p_set, p_binding, k, p_type == RDC::UNIFORM_TYPE_SAMPLER, first + k });
+			}
+			return n - 1;
+		}
+		default:
+			r_plan.push_back({ p_set, p_binding, 0, false, first });
+			return 0;
+	}
+}
+
+static WebGpuBindingHint _webgpu_hint(const WebGpuTintBinding &p_binding) {
+	WebGpuBindingHint hint;
+	if (p_binding.kind == WebGpuTintBinding::KIND_SAMPLER) {
+		hint.type = WebGpuBindingHintType::SAMPLER;
+		switch (p_binding.sampler_type) {
+			case WebGpuTintBinding::SAMPLER_COMPARISON:
+				hint.sampler.sampler_type = WGPUSamplerBindingType_Comparison;
+				break;
+			case WebGpuTintBinding::SAMPLER_NON_FILTERING:
+				hint.sampler.sampler_type = WGPUSamplerBindingType_NonFiltering;
+				break;
+			default:
+				hint.sampler.sampler_type = WGPUSamplerBindingType_Filtering;
+				break;
+		}
+	} else {
+		hint.type = WebGpuBindingHintType::TEXTURE;
+		switch (p_binding.sample_type) {
+			case WebGpuTintBinding::SAMPLE_DEPTH:
+				hint.texture.sample_type = WGPUTextureSampleType_Depth;
+				break;
+			case WebGpuTintBinding::SAMPLE_UNFILTERABLE_FLOAT:
+				hint.texture.sample_type = WGPUTextureSampleType_UnfilterableFloat;
+				break;
+			case WebGpuTintBinding::SAMPLE_SINT:
+				hint.texture.sample_type = WGPUTextureSampleType_Sint;
+				break;
+			case WebGpuTintBinding::SAMPLE_UINT:
+				hint.texture.sample_type = WGPUTextureSampleType_Uint;
+				break;
+			default:
+				hint.texture.sample_type = WGPUTextureSampleType_Float;
+				break;
+		}
+		hint.texture.multisampled = p_binding.multisampled ? 1 : 0;
+	}
+	return hint;
+}
+
+// Two stages may use one binding differently (one samples it, one only loads it): keep the one
+// that constrains the layout more.
+static void _webgpu_merge(WebGpuTintBinding &r_into, const WebGpuTintBinding &p_from) {
+	if (r_into.kind == WebGpuTintBinding::KIND_SAMPLER) {
+		if (p_from.sampler_type == WebGpuTintBinding::SAMPLER_COMPARISON ||
+				(p_from.sampler_type == WebGpuTintBinding::SAMPLER_NON_FILTERING && r_into.sampler_type == WebGpuTintBinding::SAMPLER_FILTERING)) {
+			r_into.sampler_type = p_from.sampler_type;
+		}
+	} else if (r_into.sample_type == WebGpuTintBinding::SAMPLE_UNFILTERABLE_FLOAT || p_from.sample_type == WebGpuTintBinding::SAMPLE_DEPTH) {
+		if (p_from.sample_type != WebGpuTintBinding::SAMPLE_FLOAT) {
+			r_into.sample_type = p_from.sample_type;
+		}
+	}
+	r_into.multisampled = r_into.multisampled || p_from.multisampled;
+}
+
 bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p_shader) {
 	const LocalVector<ReflectShaderStage> &p_spirv = p_shader.shader_stages;
 
 	String shader_name_str = String::utf8(shader_name.ptr(), shader_name.length());
 
-	Vector<String> skip_shaders = {
-		"GiShader",
-		"ClusterDebugShaderRD:0",
-		"BokehDofRasterShaderRD:0",
-		"CubeToDpShaderRD:0",
-		"VoxelGiDebugShaderRD",
-		"Sdfgi",
-	};
+	// The bind group the push constant block goes to; the driver binds its emulation buffer there.
+	const uint32_t push_constant_group = webgpu_immediates_set(p_shader.uniform_sets.size());
 
-	for (const String &name : skip_shaders) {
-		if (shader_name_str.contains(name)) {
-			ERR_FAIL_V_MSG(false, vformat("Refusing to compile %s", name));
+	// One binding plan for all stages, from the whole shader's uniforms.
+	std::vector<WebGpuTintPlanEntry> plan;
+	for (uint32_t set_idx = 0; set_idx < p_shader.uniform_sets.size(); set_idx++) {
+		const ReflectDescriptorSet &set_refl = p_shader.uniform_sets[set_idx];
+		uint32_t offset = 0;
+		for (uint32_t binding_idx = 0; binding_idx < set_refl.size(); binding_idx++) {
+			const ReflectUniform &uniform_refl = set_refl[binding_idx];
+			offset += _webgpu_plan(set_idx, uniform_refl.binding, uniform_refl.type, uniform_refl.length, offset, plan);
 		}
 	}
 
-	// SPIR-V is handed straight to Dawn via emdawnwebgpu; Dawn does the
-	// SPIR-V -> WGSL step internally.
+	// SPIR-V -> WGSL for each stage, with the textures and samplers each stage uses.
+	HashMap<uint64_t, WebGpuTintBinding> used;
+	Vector<CharString> wgsl_stages;
+	for (uint32_t i = 0; i < p_spirv.size(); i++) {
+		Span<uint32_t> stage_spirv = p_spirv[i].spirv();
 
+#ifdef DEBUG_SHADERS
+		_debug_dump_shader(DEBUG_SHADERS_RAW_LOCATION, shader_name_str, p_spirv[i].shader_stage, (const uint8_t *)stage_spirv.ptr(), stage_spirv.size() * sizeof(uint32_t));
+#endif
+
+		std::string wgsl;
+		std::string error;
+		std::vector<WebGpuTintBinding> bindings;
+		bool ok = webgpu_tint_spirv_to_wgsl(stage_spirv.ptr(), stage_spirv.size(), plan, push_constant_group,
+				WEBGPU_PUSH_CONSTANT_EMULATION_BINDING, WEBGPU_MAX_IMMEDIATE_SIZE, wgsl, bindings, error);
+		ERR_FAIL_COND_V_MSG(!ok, false, vformat("SPIR-V to WGSL failed for %s stage %s: %s", shader_name_str, String(RenderingDeviceCommons::SHADER_STAGE_NAMES[p_spirv[i].shader_stage]), String::utf8(error.c_str())));
+
+		for (const WebGpuTintBinding &b : bindings) {
+			uint64_t key = (uint64_t(b.group) << 32) | b.binding;
+			WebGpuTintBinding *existing = used.getptr(key);
+			if (existing) {
+				_webgpu_merge(*existing, b);
+			} else {
+				used.insert(key, b);
+			}
+		}
+		CharString text;
+		text.resize_uninitialized(wgsl.size() + 1);
+		memcpy(text.ptrw(), wgsl.data(), wgsl.size());
+		text.ptrw()[wgsl.size()] = 0;
+		wgsl_stages.push_back(text);
+	}
+
+	// Corrections and binding hints for each Godot uniform.
 	webgpu_uniform_data.resize(reflection_binding_set_uniforms_data.size());
 
 	uint32_t global_idx = 0;
 	for (uint32_t set_idx = 0; set_idx < p_shader.uniform_sets.size(); set_idx++) {
 		const ReflectDescriptorSet &set_refl = p_shader.uniform_sets[set_idx];
 
+		uint32_t offset = 0; // WebGPU bindings added by earlier uniforms of this set.
 		for (uint32_t binding_idx = 0; binding_idx < set_refl.size(); binding_idx++) {
 			const ReflectUniform &uniform_refl = set_refl[binding_idx];
 			UniformData &u = webgpu_uniform_data.write[global_idx];
@@ -166,23 +311,38 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 				u.image_access = (uint32_t)RDC::ShaderUniform::ImageAccess::ReadOnly;
 			}
 
+			_webgpu_corrections(uniform_refl.type, uniform_refl.length, u.corrections);
 			u.base_hint = WebGpuBindingHint();
-			u.corrections.clear();
 			u.binding_hints.clear();
 
+			// Element k of this uniform is WebGPU binding first + k. Unused elements stay UNUSED,
+			// which the driver reads as "prune this layout entry".
+			const uint32_t first = uniform_refl.binding + offset;
+			const uint32_t count = 1 + (uint32_t)u.corrections.size(); // Hints the driver reads.
+			bool have_base = false;
+			for (uint32_t k = 0; k < count; k++) {
+				const WebGpuTintBinding *b = used.getptr((uint64_t(set_idx) << 32) | (first + k));
+				WebGpuBindingHint hint = b ? _webgpu_hint(*b) : WebGpuBindingHint();
+				if (k > 0) {
+					u.binding_hints.push_back(hint);
+				}
+				// The base hint describes the whole uniform: element 0 for a combined image
+				// sampler (the texture), else any used element of the array.
+				const bool combined = uniform_refl.type == RDC::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
+				if (b && !have_base && (k == 0 || !combined)) {
+					u.base_hint = hint;
+					have_base = true;
+				}
+			}
+			offset += uniform_refl.type == RDC::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE ? 2 * MAX(uniform_refl.length, 1u) - 1 : (uint32_t)u.corrections.size();
 			global_idx++;
 		}
 	}
 
-	shaders.resize(p_spirv.size());
-	for (uint32_t i = 0; i < p_spirv.size(); i++) {
-		Span<uint32_t> stage_spirv = p_spirv[i].spirv();
-		const uint8_t *src = (const uint8_t *)stage_spirv.ptr();
-		uint32_t src_size = (uint32_t)(stage_spirv.size() * sizeof(uint32_t));
-
-#ifdef DEBUG_SHADERS
-		_debug_dump_shader(DEBUG_SHADERS_RAW_LOCATION, shader_name_str, p_spirv[i].shader_stage, src, src_size);
-#endif
+	shaders.resize(wgsl_stages.size());
+	for (int64_t i = 0; i < wgsl_stages.size(); i++) {
+		const uint8_t *src = (const uint8_t *)wgsl_stages[i].get_data();
+		uint32_t src_size = (uint32_t)wgsl_stages[i].length();
 
 		Shader &shader = shaders.write[i];
 		shader.shader_stage = p_spirv[i].shader_stage;
@@ -193,7 +353,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		bool compressed = compress_code(
 				src, src_size,
 				shader.code_compressed_bytes.ptrw(), &compressed_size, &shader.code_compression_flags);
-		ERR_FAIL_COND_V_MSG(!compressed, false, vformat("Failed to compress SPIR-V for stage #%d.", i));
+		ERR_FAIL_COND_V_MSG(!compressed, false, vformat("Failed to compress WGSL for stage #%d.", i));
 
 		shader.code_compressed_bytes.resize(compressed_size);
 	}
