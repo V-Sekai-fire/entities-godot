@@ -349,6 +349,9 @@ void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGP
 	surface_config.usage = WGPUTextureUsage_RenderAttachment;
 	surface_config.width = this->width;
 	surface_config.height = this->height;
+	// Opaque, as on every other driver: with Auto, Firefox composites the canvas with its alpha,
+	// and renderers that leave alpha 0 in the background show the page behind it (black).
+	surface_config.alphaMode = WGPUCompositeAlphaMode_Opaque;
 
 	wgpuSurfaceConfigure(this->surface, &surface_config);
 }
