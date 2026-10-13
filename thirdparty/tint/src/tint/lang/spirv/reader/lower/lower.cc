@@ -43,7 +43,9 @@
 
 namespace tint::spirv::reader {
 
-Result<SuccessType> Lower(core::ir::Module& mod, bool flip_vertex_y) {
+Result<SuccessType> Lower(core::ir::Module& mod,
+                          bool flip_vertex_y,
+                          bool read_only_storage_as_sampled) {
     TINT_CHECK_RESULT(core::ir::transform::DeadCodeElimination(mod));
     // Godot: texture and sampler parameters become the variables passed to them.
     TINT_CHECK_RESULT(lower::HandleParams(mod));
@@ -59,7 +61,7 @@ Result<SuccessType> Lower(core::ir::Module& mod, bool flip_vertex_y) {
     TINT_CHECK_RESULT(lower::DecomposeStridedMatrix(mod));
     TINT_CHECK_RESULT(lower::DecomposeStridedArray(mod));
     TINT_CHECK_RESULT(lower::Atomics(mod));
-    TINT_CHECK_RESULT(lower::Texture(mod));
+    TINT_CHECK_RESULT(lower::Texture(mod, read_only_storage_as_sampled));
     // Godot: depth textures read with a non-comparison sampler are read with loads instead.
     TINT_CHECK_RESULT(lower::DepthSample(mod));
 

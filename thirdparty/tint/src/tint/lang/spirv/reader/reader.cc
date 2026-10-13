@@ -43,7 +43,7 @@ Result<core::ir::Module> ReadIR(const std::vector<uint32_t>& input, const Option
     mod.enable_validation_asserts = options.enable_validation_asserts;
 
     // Lower the module to the core dialect of the IR.
-    TINT_CHECK_RESULT(Lower(mod, options.flip_vertex_y));
+    TINT_CHECK_RESULT(Lower(mod, options.flip_vertex_y, options.read_only_storage_as_sampled));
 
     // Always validate the core IR, so that we fail somewhat gracefully on invalid inputs instead of
     // just ICEing later on.

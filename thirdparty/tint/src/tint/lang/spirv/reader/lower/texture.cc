@@ -66,6 +66,9 @@ struct State {
     /// The type manager.
     core::type::Manager& ty{ir.Types()};
 
+    /// Read NonWritable storage images as sampled textures.
+    bool read_only_storage_as_sampled = false;
+
     /// Map of all OpSampledImages seen
     Hashmap<core::ir::Value*, core::ir::Instruction*, 4> sampled_images_{};
 
@@ -1058,6 +1061,17 @@ struct State {
             return ty.input_attachment(img->GetSampledType());
         }
 
+        if (img->GetSampled() == spirv::type::Sampled::kReadWriteOpCompatible &&
+            read_only_storage_as_sampled && img->GetAccess() == core::Access::kRead) {
+            // WGSL has no textureLoad on cube textures; a cube image is read as a 2D array,
+            // as a cube storage texture is.
+            auto dim = ConvertDim(img->GetDim(), img->GetArrayed());
+            if (dim == core::type::TextureDimension::kCube) {
+                dim = core::type::TextureDimension::k2dArray;
+            }
+            return ty.sampled_texture(dim, img->GetSampledType());
+        }
+
         if (img->GetSampled() == spirv::type::Sampled::kReadWriteOpCompatible) {
             return ty.storage_texture(ConvertDim(img->GetDim(), img->GetArrayed()),
                                       img->GetTexelFormat(), img->GetAccess());
@@ -1082,10 +1096,12 @@ struct State {
 
 }  // namespace
 
-Result<SuccessType> Texture(core::ir::Module& ir) {
+Result<SuccessType> Texture(core::ir::Module& ir, bool read_only_storage_as_sampled) {
     AssertValid(ir, "before spirv.Texture");
 
-    State{ir}.Process();
+    State state{ir};
+    state.read_only_storage_as_sampled = read_only_storage_as_sampled;
+    state.Process();
 
     ir.properties.Remove(core::ir::Property::kAllowPointerToHandle);
 
