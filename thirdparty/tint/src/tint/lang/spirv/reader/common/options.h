@@ -28,6 +28,10 @@
 #ifndef SRC_TINT_LANG_SPIRV_READER_COMMON_OPTIONS_H_
 #define SRC_TINT_LANG_SPIRV_READER_COMMON_OPTIONS_H_
 
+#include <cstdint>
+#include <optional>
+
+#include "src/tint/api/common/binding_point.h"
 #include "src/tint/lang/wgsl/allowed_features.h"
 
 namespace tint::spirv::reader {
@@ -39,6 +43,13 @@ struct Options {
     // TODO(jrprice): Remove this when SPIR-V -> IR and IR -> WGSL are separate steps.
     /// The extensions and language features that are allowed to be used in the generated WGSL.
     wgsl::AllowedFeatures allowed_features = {};
+    /// Godot: the binding point of the `var<uniform>` that a `PushConstant` block is emitted as.
+    /// WGSL has no push constants; the embedder binds the push constant data at this point, like
+    /// the D3D12 and Metal translators are told where the push constant block goes. A module with
+    /// a push constant block fails to read when this is not set.
+    std::optional<BindingPoint> push_constant_binding;
+    /// Godot: the largest push constant block accepted, in bytes. 0 means no limit.
+    uint32_t push_constant_max_size = 0;
 };
 
 }  // namespace tint::spirv::reader

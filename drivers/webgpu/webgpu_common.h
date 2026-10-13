@@ -37,4 +37,12 @@ struct WebGpuBindingHint {
 
 #define WEBGPU_PUSH_CONSTANT_EMULATION_BINDING 256
 
+// The bind group that holds the push constant emulation uniform buffer: one past the uniform sets
+// the shader uses, capped at the last bind group. The SPIR-V to WGSL step is told to put the push
+// constant block at @group(webgpu_immediates_set(n)) @binding(WEBGPU_PUSH_CONSTANT_EMULATION_BINDING)
+// and the driver binds `push_constant_emulation_buffer` there.
+inline uint32_t webgpu_immediates_set(uint32_t p_uniform_set_count) {
+	return p_uniform_set_count < (uint32_t)(WEBGPU_MAX_BIND_GROUPS - 1) ? p_uniform_set_count : (uint32_t)(WEBGPU_MAX_BIND_GROUPS - 1);
+}
+
 #endif

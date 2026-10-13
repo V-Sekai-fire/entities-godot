@@ -1938,8 +1938,8 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				vformat("Shader %s uses too many uniform sets: %d / %d.",
 						shader_info->shader_name, bind_group_layout_entries.size(), WEBGPU_MAX_BIND_GROUPS));
 
-		// Matches `immediates_set` from RenderingShaderContainerWebGpu::_set_code_from_spirv.
-		const uint32_t immediates_set = MIN((uint32_t)bind_group_layout_entries.size(), (uint32_t)(WEBGPU_MAX_BIND_GROUPS - 1));
+		// Same rule as the SPIR-V to WGSL step uses for the push constant binding point.
+		const uint32_t immediates_set = webgpu_immediates_set((uint32_t)bind_group_layout_entries.size());
 		shader_info->push_constant_set_index = (int32_t)immediates_set;
 
 		if (immediates_set < (uint32_t)bind_group_layout_entries.size()) {

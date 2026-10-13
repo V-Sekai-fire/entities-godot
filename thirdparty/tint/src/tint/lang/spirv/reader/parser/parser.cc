@@ -61,6 +61,9 @@ namespace {
 /// Parses the SPIR-V module to produce a Tint IR module.
 class Parser {
   public:
+    /// @param options the parser options
+    explicit Parser(const Options& options) : options_(options) {}
+
     /// @param spirv the SPIR-V binary data
     /// @returns the generated SPIR-V IR module on success, or failure
     Result<core::ir::Module> Run(Slice<const uint32_t> spirv) {
@@ -94,6 +97,28 @@ class Parser {
         }
 
         RegisterNames();
+
+        // Godot: a push constant block becomes a `var<uniform>` at a binding point chosen by the
+        // embedder.
+        for (const auto& inst : module_->types_values()) {
+            if (inst.opcode() == spv::Op::OpVariable &&
+                spv::StorageClass(inst.GetSingleWordInOperand(0)) ==
+                    spv::StorageClass::PushConstant) {
+                if (!options_.push_constant_binding) {
+                    return Failure(
+                        "SPIR-V push constant block found but no push constant binding point was "
+                        "given in the reader options");
+                }
+                auto* ptr = Type(inst.type_id())->As<core::type::Pointer>();
+                if (options_.push_constant_max_size && ptr &&
+                    ptr->StoreType()->Size() > options_.push_constant_max_size) {
+                    return Failure("SPIR-V push constant block is " +
+                                   std::to_string(ptr->StoreType()->Size()) +
+                                   " bytes, the limit is " +
+                                   std::to_string(options_.push_constant_max_size));
+                }
+            }
+        }
 
         id_stack_.emplace_back();
         {
@@ -219,6 +244,7 @@ class Parser {
             case spv::StorageClass::StorageBuffer:
                 return core::AddressSpace::kStorage;
             case spv::StorageClass::Uniform:
+            case spv::StorageClass::PushConstant:  // Godot: emitted as a uniform buffer.
                 return core::AddressSpace::kUniform;
             case spv::StorageClass::UniformConstant:
                 return core::AddressSpace::kHandle;
@@ -517,6 +543,24 @@ class Parser {
                         case spv::Decoration::Sample:
                             interpolation().sampling = core::InterpolationSampling::kSample;
                             break;
+                        case spv::Decoration::ColMajor:
+                            // Godot: column major is the only matrix layout in WGSL.
+                            break;
+                        case spv::Decoration::Restrict:
+                            // Godot: aliasing hint only, nothing to emit in WGSL.
+                            break;
+                        case spv::Decoration::MatrixStride: {
+                            // Godot: accept the stride WGSL uses for the matrix anyway.
+                            const core::type::Type* el = member_ty;
+                            while (auto* arr = el->As<core::type::Array>()) {
+                                el = arr->ElemType();
+                            }
+                            auto* mat = el->As<core::type::Matrix>();
+                            if (!mat || mat->ColumnStride() != deco.value) {
+                                TINT_UNIMPLEMENTED() << "unhandled matrix stride " << deco.value;
+                            }
+                            break;
+                        }
 
                         default:
                             TINT_UNIMPLEMENTED() << "unhandled member decoration: " << deco.kind;
@@ -2352,6 +2396,9 @@ class Parser {
                 case spv::Decoration::Index:
                     io_attributes.blend_src = deco.value;
                     break;
+                case spv::Decoration::Restrict:
+                    // Godot: aliasing hint only, nothing to emit in WGSL.
+                    break;
                 default:
                     TINT_UNIMPLEMENTED() << "unhandled decoration " << d;
             }
@@ -2362,6 +2409,12 @@ class Parser {
             var->SetInitializer(Value(inst.GetSingleWordOperand(3)));
         }
 
+        if (spv::StorageClass(inst.GetSingleWordInOperand(0)) == spv::StorageClass::PushConstant) {
+            // Godot: checked in Run().
+            TINT_ASSERT(options_.push_constant_binding);
+            group = options_.push_constant_binding->group;
+            binding = options_.push_constant_binding->binding;
+        }
         if (group || binding) {
             TINT_ASSERT(group && binding);
             var->SetBindingPoint(group.value(), binding.value());
@@ -2388,6 +2441,8 @@ class Parser {
         tint::HashCode HashCode() const { return Hash(type, access_mode); }
     };
 
+    /// The parser options.
+    const Options& options_;
     /// The generated IR module.
     core::ir::Module ir_;
     /// The Tint IR builder.
@@ -2447,8 +2502,8 @@ class Parser {
 
 }  // namespace
 
-Result<core::ir::Module> Parse(Slice<const uint32_t> spirv) {
-    return Parser{}.Run(spirv);
+Result<core::ir::Module> Parse(Slice<const uint32_t> spirv, const Options& options) {
+    return Parser{options}.Run(spirv);
 }
 
 }  // namespace tint::spirv::reader

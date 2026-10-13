@@ -1143,6 +1143,9 @@ Patches:
 
 - `0001-spirv-reader-read-with-spirv-cross.patch` (read SPIR-V with SPIRV-Cross; route
   `spirv::reader::Read` through the IR reader and the WGSL IR raise)
+- `0002-spirv-reader-push-constant-binding.patch` (reader option that puts the `PushConstant`
+  block at a `var<uniform>` binding point chosen by the embedder; skip the `ColMajor` and
+  `Restrict` decorations, accept a `MatrixStride` that matches the WGSL layout)
 
 
 ## tinyexr

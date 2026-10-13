@@ -1,0 +1,211 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h b/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
+index 92292d86a8..8c98eeff1f 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
+@@ -28,6 +28,10 @@
+ #ifndef SRC_TINT_LANG_SPIRV_READER_COMMON_OPTIONS_H_
+ #define SRC_TINT_LANG_SPIRV_READER_COMMON_OPTIONS_H_
+ 
++#include <cstdint>
++#include <optional>
++
++#include "src/tint/api/common/binding_point.h"
+ #include "src/tint/lang/wgsl/allowed_features.h"
+ 
+ namespace tint::spirv::reader {
+@@ -39,6 +43,13 @@ struct Options {
+     // TODO(jrprice): Remove this when SPIR-V -> IR and IR -> WGSL are separate steps.
+     /// The extensions and language features that are allowed to be used in the generated WGSL.
+     wgsl::AllowedFeatures allowed_features = {};
++    /// Godot: the binding point of the `var<uniform>` that a `PushConstant` block is emitted as.
++    /// WGSL has no push constants; the embedder binds the push constant data at this point, like
++    /// the D3D12 and Metal translators are told where the push constant block goes. A module with
++    /// a push constant block fails to read when this is not set.
++    std::optional<BindingPoint> push_constant_binding;
++    /// Godot: the largest push constant block accepted, in bytes. 0 means no limit.
++    uint32_t push_constant_max_size = 0;
+ };
+ 
+ }  // namespace tint::spirv::reader
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+index 51a4f6898f..12fa7c2191 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+@@ -61,6 +61,9 @@ namespace {
+ /// Parses the SPIR-V module to produce a Tint IR module.
+ class Parser {
+   public:
++    /// @param options the parser options
++    explicit Parser(const Options& options) : options_(options) {}
++
+     /// @param spirv the SPIR-V binary data
+     /// @returns the generated SPIR-V IR module on success, or failure
+     Result<core::ir::Module> Run(Slice<const uint32_t> spirv) {
+@@ -95,6 +98,28 @@ class Parser {
+ 
+         RegisterNames();
+ 
++        // Godot: a push constant block becomes a `var<uniform>` at a binding point chosen by the
++        // embedder.
++        for (const auto& inst : module_->types_values()) {
++            if (inst.opcode() == spv::Op::OpVariable &&
++                spv::StorageClass(inst.GetSingleWordInOperand(0)) ==
++                    spv::StorageClass::PushConstant) {
++                if (!options_.push_constant_binding) {
++                    return Failure(
++                        "SPIR-V push constant block found but no push constant binding point was "
++                        "given in the reader options");
++                }
++                auto* ptr = Type(inst.type_id())->As<core::type::Pointer>();
++                if (options_.push_constant_max_size && ptr &&
++                    ptr->StoreType()->Size() > options_.push_constant_max_size) {
++                    return Failure("SPIR-V push constant block is " +
++                                   std::to_string(ptr->StoreType()->Size()) +
++                                   " bytes, the limit is " +
++                                   std::to_string(options_.push_constant_max_size));
++                }
++            }
++        }
++
+         id_stack_.emplace_back();
+         {
+             TINT_SCOPED_ASSIGNMENT(current_block_, ir_.root_block);
+@@ -219,6 +244,7 @@ class Parser {
+             case spv::StorageClass::StorageBuffer:
+                 return core::AddressSpace::kStorage;
+             case spv::StorageClass::Uniform:
++            case spv::StorageClass::PushConstant:  // Godot: emitted as a uniform buffer.
+                 return core::AddressSpace::kUniform;
+             case spv::StorageClass::UniformConstant:
+                 return core::AddressSpace::kHandle;
+@@ -517,6 +543,24 @@ class Parser {
+                         case spv::Decoration::Sample:
+                             interpolation().sampling = core::InterpolationSampling::kSample;
+                             break;
++                        case spv::Decoration::ColMajor:
++                            // Godot: column major is the only matrix layout in WGSL.
++                            break;
++                        case spv::Decoration::Restrict:
++                            // Godot: aliasing hint only, nothing to emit in WGSL.
++                            break;
++                        case spv::Decoration::MatrixStride: {
++                            // Godot: accept the stride WGSL uses for the matrix anyway.
++                            const core::type::Type* el = member_ty;
++                            while (auto* arr = el->As<core::type::Array>()) {
++                                el = arr->ElemType();
++                            }
++                            auto* mat = el->As<core::type::Matrix>();
++                            if (!mat || mat->ColumnStride() != deco.value) {
++                                TINT_UNIMPLEMENTED() << "unhandled matrix stride " << deco.value;
++                            }
++                            break;
++                        }
+ 
+                         default:
+                             TINT_UNIMPLEMENTED() << "unhandled member decoration: " << deco.kind;
+@@ -2352,6 +2396,9 @@ class Parser {
+                 case spv::Decoration::Index:
+                     io_attributes.blend_src = deco.value;
+                     break;
++                case spv::Decoration::Restrict:
++                    // Godot: aliasing hint only, nothing to emit in WGSL.
++                    break;
+                 default:
+                     TINT_UNIMPLEMENTED() << "unhandled decoration " << d;
+             }
+@@ -2362,6 +2409,12 @@ class Parser {
+             var->SetInitializer(Value(inst.GetSingleWordOperand(3)));
+         }
+ 
++        if (spv::StorageClass(inst.GetSingleWordInOperand(0)) == spv::StorageClass::PushConstant) {
++            // Godot: checked in Run().
++            TINT_ASSERT(options_.push_constant_binding);
++            group = options_.push_constant_binding->group;
++            binding = options_.push_constant_binding->binding;
++        }
+         if (group || binding) {
+             TINT_ASSERT(group && binding);
+             var->SetBindingPoint(group.value(), binding.value());
+@@ -2388,6 +2441,8 @@ class Parser {
+         tint::HashCode HashCode() const { return Hash(type, access_mode); }
+     };
+ 
++    /// The parser options.
++    const Options& options_;
+     /// The generated IR module.
+     core::ir::Module ir_;
+     /// The Tint IR builder.
+@@ -2447,8 +2502,8 @@ class Parser {
+ 
+ }  // namespace
+ 
+-Result<core::ir::Module> Parse(Slice<const uint32_t> spirv) {
+-    return Parser{}.Run(spirv);
++Result<core::ir::Module> Parse(Slice<const uint32_t> spirv, const Options& options) {
++    return Parser{options}.Run(spirv);
+ }
+ 
+ }  // namespace tint::spirv::reader
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.h b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.h
+index d4c77f1bc9..02a92c39e6 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.h
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.h
+@@ -30,6 +30,7 @@
+ 
+ #include <cstdint>
+ 
++#include "src/tint/lang/spirv/reader/common/options.h"
+ #include "src/tint/utils/containers/slice.h"
+ #include "src/tint/utils/result.h"
+ 
+@@ -42,8 +43,9 @@ namespace tint::spirv::reader {
+ 
+ /// Parse a SPIR-V binary to produce a SPIR-V IR module.
+ /// @param spirv the SPIR-V binary data
++/// @param options the parser options
+ /// @returns the SPIR-V IR module on success, or failure
+-Result<core::ir::Module> Parse(Slice<const uint32_t> spirv);
++Result<core::ir::Module> Parse(Slice<const uint32_t> spirv, const Options& options = {});
+ 
+ }  // namespace tint::spirv::reader
+ 
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc b/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
+index a7a68ba8f7..59dab47edb 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
+@@ -37,9 +37,9 @@
+ 
+ namespace tint::spirv::reader {
+ 
+-Result<core::ir::Module> ReadIR(const std::vector<uint32_t>& input) {
++Result<core::ir::Module> ReadIR(const std::vector<uint32_t>& input, const Options& options) {
+     // Parse the input SPIR-V to the SPIR-V dialect of the IR.
+-    auto mod = Parse(Slice(input.data(), input.size()));
++    auto mod = Parse(Slice(input.data(), input.size()), options);
+     if (mod != Success) {
+         return mod.Failure();
+     }
+@@ -61,7 +61,7 @@ Program Read(const std::vector<uint32_t>& input, const Options& options) {
+         return Program(std::move(b));
+     };
+ 
+-    auto ir = ReadIR(input);
++    auto ir = ReadIR(input, options);
+     if (ir != Success) {
+         return failed(ir.Failure().reason);
+     }
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/reader.h b/thirdparty/tint/src/tint/lang/spirv/reader/reader.h
+index 71aae7a99d..72fd059268 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/reader.h
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/reader.h
+@@ -44,8 +44,9 @@ namespace tint::spirv::reader {
+ /// If the SPIR-V binary fails to parse then the result will contain error messages.
+ /// TODO(crbug.com/tint/1907): Rename when we remove the AST path.
+ /// @param input the SPIR-V binary data
++/// @param options the parser options
+ /// @returns the Tint IR module
+-Result<core::ir::Module> ReadIR(const std::vector<uint32_t>& input);
++Result<core::ir::Module> ReadIR(const std::vector<uint32_t>& input, const Options& options = {});
+ 
+ /// Reads the SPIR-V source data, returning the parsed program.
+ /// If the source data fails to parse then the returned
