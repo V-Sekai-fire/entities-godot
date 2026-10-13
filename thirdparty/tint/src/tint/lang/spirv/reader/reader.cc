@@ -30,9 +30,10 @@
 #include <utility>
 
 #include "src/tint/lang/core/ir/module.h"
-#include "src/tint/lang/spirv/reader/ast_parser/parse.h"
 #include "src/tint/lang/spirv/reader/lower/lower.h"
 #include "src/tint/lang/spirv/reader/parser/parser.h"
+#include "src/tint/lang/wgsl/program/program_builder.h"
+#include "src/tint/lang/wgsl/writer/writer.h"
 
 namespace tint::spirv::reader {
 
@@ -51,8 +52,28 @@ Result<core::ir::Module> ReadIR(const std::vector<uint32_t>& input) {
     return mod;
 }
 
+// Godot: the AST parser (and its SPIRV-Tools dependency) has been removed. Read the SPIR-V to
+// core IR, then raise the IR to a WGSL program.
 Program Read(const std::vector<uint32_t>& input, const Options& options) {
-    return ast_parser::Parse(input, options);
+    auto failed = [](const std::string& reason) {
+        ProgramBuilder b;
+        b.Diagnostics().AddError(Source{}) << reason;
+        return Program(std::move(b));
+    };
+
+    auto ir = ReadIR(input);
+    if (ir != Success) {
+        return failed(ir.Failure().reason);
+    }
+
+    wgsl::writer::ProgramOptions program_options;
+    program_options.allow_non_uniform_derivatives = options.allow_non_uniform_derivatives;
+    program_options.allowed_features = options.allowed_features;
+    auto program = wgsl::writer::ProgramFromIR(ir.Get(), program_options);
+    if (program != Success) {
+        return failed(program.Failure().reason);
+    }
+    return program.Move();
 }
 
 }  // namespace tint::spirv::reader

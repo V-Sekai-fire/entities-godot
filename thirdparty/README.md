@@ -1121,6 +1121,30 @@ Patches:
 - `0001-let-delete-be-delete.patch` ([GH-116024](https://github.com/godotengine/godot/pull/116024))
 
 
+## tint
+
+- Upstream: https://github.com/floooh/tint-extract (subset of https://dawn.googlesource.com/dawn)
+- Version: git (308db188c0, 2025), Dawn b4219e7e4f0f0bae6239164e786bd7136af244aa (see `dawn.ref`)
+- License: BSD-3-Clause
+
+Files extracted from upstream source:
+
+- `include/`, `src/`, `LICENSE`, `README.md`, `dawn.ref`, `release.sh`, imported as a git subtree
+- Removed, as they need SPIRV-Tools, which Godot does not ship:
+  `src/tint/lang/spirv/reader/ast_parser/`, `src/tint/lang/spirv/reader/ast_lower/`,
+  `src/tint/lang/spirv/validate/`
+- Not built (still needs SPIRV-Tools): `src/tint/lang/spirv/writer/`
+
+The SPIR-V reader reads modules with SPIRV-Cross (`thirdparty/spirv-cross`: `spirv_parser.cpp`,
+`spirv_cross_parsed_ir.cpp`) instead of SPIRV-Tools. Build the reader with `-fexceptions` like
+`drivers/metal`, as SPIRV-Cross reports parse errors with exceptions.
+
+Patches:
+
+- `0001-spirv-reader-read-with-spirv-cross.patch` (read SPIR-V with SPIRV-Cross; route
+  `spirv::reader::Read` through the IR reader and the WGSL IR raise)
+
+
 ## tinyexr
 
 - Upstream: https://github.com/syoyo/tinyexr

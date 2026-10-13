@@ -1,0 +1,2022 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+index 009b05e1fb..51a4f6898f 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+@@ -36,18 +36,10 @@
+ #include <utility>
+ #include <vector>
+ 
+-// This header is in an external dependency, so warnings cannot be fixed without upstream changes.
+-TINT_BEGIN_DISABLE_WARNING(NEWLINE_EOF);
+-TINT_BEGIN_DISABLE_WARNING(OLD_STYLE_CAST);
+-TINT_BEGIN_DISABLE_WARNING(SIGN_CONVERSION);
+-TINT_BEGIN_DISABLE_WARNING(WEAK_VTABLES);
+-TINT_BEGIN_DISABLE_WARNING(UNSAFE_BUFFER_USAGE);
+-#include "source/opt/build_module.h"
+-TINT_END_DISABLE_WARNING(UNSAFE_BUFFER_USAGE);
+-TINT_END_DISABLE_WARNING(WEAK_VTABLES);
+-TINT_END_DISABLE_WARNING(SIGN_CONVERSION);
+-TINT_END_DISABLE_WARNING(OLD_STYLE_CAST);
+-TINT_END_DISABLE_WARNING(NEWLINE_EOF);
++// Godot: the SPIR-V module is read with SPIRV-Cross (spirv_cross::Parser) through a small
++// adapter, instead of SPIRV-Tools (spvtools::BuildModule). SPIRV-Tools validation is not run.
++#include "GLSL.std.450.h"
++#include "src/tint/lang/spirv/reader/parser/spirv_cross_module.h"
+ 
+ #include "src/tint/lang/core/ir/builder.h"
+ #include "src/tint/lang/core/ir/module.h"
+@@ -56,7 +48,7 @@ TINT_END_DISABLE_WARNING(NEWLINE_EOF);
+ #include "src/tint/lang/spirv/ir/builtin_call.h"
+ #include "src/tint/lang/spirv/type/image.h"
+ #include "src/tint/lang/spirv/type/sampled_image.h"
+-#include "src/tint/lang/spirv/validate/validate.h"
++#include "src/tint/utils/memory/bitcast.h"
+ 
+ using namespace tint::core::number_suffixes;  // NOLINT
+ using namespace tint::core::fluent_types;     // NOLINT
+@@ -65,33 +57,22 @@ namespace tint::spirv::reader {
+ 
+ namespace {
+ 
+-/// The SPIR-V environment that we validate against.
+-constexpr auto kTargetEnv = SPV_ENV_VULKAN_1_1;
+-
+ /// PIMPL class for SPIR-V parser.
+-/// Validates the SPIR-V module and then parses it to produce a Tint IR module.
++/// Parses the SPIR-V module to produce a Tint IR module.
+ class Parser {
+   public:
+     /// @param spirv the SPIR-V binary data
+     /// @returns the generated SPIR-V IR module on success, or failure
+     Result<core::ir::Module> Run(Slice<const uint32_t> spirv) {
+-        // Validate the incoming SPIR-V binary.
+-        auto result = validate::Validate(spirv, kTargetEnv);
+-        if (result != Success) {
+-            return result.Failure();
+-        }
+-
+-        // Build the SPIR-V tools internal representation of the SPIR-V module.
+-        spvtools::Context context(kTargetEnv);
+-        spirv_context_ =
+-            spvtools::BuildModule(kTargetEnv, context.CContext()->consumer, spirv.data, spirv.len);
+-        if (!spirv_context_) {
+-            return Failure("failed to build the internal representation of the module");
++        // Build the SPIRV-Cross representation of the SPIR-V module.
++        std::string error;
++        module_ = spvc::Module::Build(spirv.data, spirv.len, &error);
++        if (!module_) {
++            return Failure(error);
+         }
+ 
+         // Check for unsupported extensions.
+-        for (const auto& ext : spirv_context_->extensions()) {
+-            auto name = ext.GetOperand(0).AsString();
++        for (const auto& name : module_->extensions()) {
+             if (name != "SPV_KHR_storage_buffer_storage_class" &&
+                 name != "SPV_KHR_non_semantic_info") {
+                 return Failure("SPIR-V extension '" + name + "' is not supported");
+@@ -99,14 +80,14 @@ class Parser {
+         }
+ 
+         // Register imported instruction sets
+-        for (const auto& import : spirv_context_->ext_inst_imports()) {
+-            auto name = import.GetInOperand(0).AsString();
++        for (const auto& import : module_->ext_inst_imports()) {
++            const auto& name = import.name;
+ 
+             // TODO(dneto): Handle other extended instruction sets when needed.
+             if (name == "GLSL.std.450") {
+-                glsl_std_450_imports_.insert(import.result_id());
++                glsl_std_450_imports_.insert(import.id);
+             } else if (name.find("NonSemantic.") == 0) {
+-                ignored_imports_.insert(import.result_id());
++                ignored_imports_.insert(import.id);
+             } else {
+                 return Failure("Unrecognized extended instruction set: " + name);
+             }
+@@ -129,21 +110,16 @@ class Parser {
+         return std::move(ir_);
+     }
+ 
+-    std::optional<uint16_t> GetSpecId(const spvtools::opt::Instruction& inst) {
+-        auto decos =
+-            spirv_context_->get_decoration_mgr()->GetDecorationsFor(inst.result_id(), true);
+-        for (const auto* deco_inst : decos) {
+-            TINT_ASSERT(deco_inst->opcode() == spv::Op::OpDecorate);
+-
+-            if (deco_inst->GetSingleWordInOperand(1) ==
+-                static_cast<uint32_t>(spv::Decoration::SpecId)) {
+-                return {static_cast<uint16_t>(deco_inst->GetSingleWordInOperand(2))};
++    std::optional<uint16_t> GetSpecId(const spvc::Instruction& inst) {
++        for (const auto& deco : module_->GetDecorationsFor(inst.result_id())) {
++            if (deco.kind == static_cast<uint32_t>(spv::Decoration::SpecId)) {
++                return {static_cast<uint16_t>(deco.value)};
+             }
+         }
+         return std::nullopt;
+     }
+ 
+-    void CreateOverride(const spvtools::opt::Instruction& inst,
++    void CreateOverride(const spvc::Instruction& inst,
+                         core::ir::Value* value,
+                         std::optional<uint16_t> spec_id) {
+         auto* override_ = b_.Override(Type(inst.type_id()));
+@@ -164,7 +140,7 @@ class Parser {
+     // Generate a module-scope const declaration for each instruction
+     // that is OpSpecConstantTrue, OpSpecConstantFalse, or OpSpecConstant.
+     void EmitSpecConstants() {
+-        for (auto& inst : spirv_context_->types_values()) {
++        for (auto& inst : module_->types_values()) {
+             switch (inst.opcode()) {
+                 case spv::Op::OpSpecConstantTrue:
+                 case spv::Op::OpSpecConstantFalse: {
+@@ -219,34 +195,12 @@ class Parser {
+     }
+ 
+     void RegisterNames() {
+-        // Register names from OpName
+-        for (const auto& inst : spirv_context_->debugs2()) {
+-            switch (inst.opcode()) {
+-                case spv::Op::OpName: {
+-                    const auto name = inst.GetInOperand(1).AsString();
+-                    if (!name.empty()) {
+-                        id_to_name_[inst.GetSingleWordInOperand(0)] = name;
+-                    }
+-                    break;
+-                }
+-                case spv::Op::OpMemberName: {
+-                    const auto name = inst.GetInOperand(2).AsString();
+-                    if (!name.empty()) {
+-                        uint32_t struct_id = inst.GetSingleWordInOperand(0);
+-                        uint32_t member_idx = inst.GetSingleWordInOperand(1);
+-                        auto iter = struct_to_member_names_.insert({struct_id, {}});
+-                        auto& members = (*(iter.first)).second;
+-
+-                        if (members.size() < (member_idx + 1)) {
+-                            members.resize(member_idx + 1);
+-                        }
+-                        members[member_idx] = name;
+-                    }
+-                    break;
+-                }
+-                default:
+-                    break;
+-            }
++        // Register names from OpName and OpMemberName
++        for (const auto& [id, name] : module_->names()) {
++            id_to_name_[id] = name;
++        }
++        for (const auto& [struct_id, names] : module_->member_names()) {
++            struct_to_member_names_[struct_id] = names;
+         }
+     }
+ 
+@@ -320,103 +274,99 @@ class Parser {
+     /// @param type a SPIR-V type object
+     /// @param access_mode an optional access mode (for pointers)
+     /// @returns a Tint type object
+-    const core::type::Type* Type(const spvtools::opt::analysis::Type* type,
++    const core::type::Type* Type(const spvc::Type* type,
+                                  core::Access access_mode = core::Access::kUndefined) {
++        TINT_ASSERT(type);
+         return types_.GetOrAdd(TypeKey{type, access_mode}, [&]() -> const core::type::Type* {
+-            switch (type->kind()) {
+-                case spvtools::opt::analysis::Type::kVoid: {
++            switch (type->kind) {
++                case spvc::Type::kVoid: {
+                     return ty_.void_();
+                 }
+-                case spvtools::opt::analysis::Type::kBool: {
++                case spvc::Type::kBool: {
+                     return ty_.bool_();
+                 }
+-                case spvtools::opt::analysis::Type::kInteger: {
+-                    auto* int_ty = type->AsInteger();
+-                    TINT_ASSERT(int_ty->width() == 32);
+-                    if (int_ty->IsSigned()) {
++                case spvc::Type::kInteger: {
++                    TINT_ASSERT(type->width == 32);
++                    if (type->is_signed) {
+                         return ty_.i32();
+                     } else {
+                         return ty_.u32();
+                     }
+                 }
+-                case spvtools::opt::analysis::Type::kFloat: {
+-                    auto* float_ty = type->AsFloat();
+-                    if (float_ty->width() == 16) {
++                case spvc::Type::kFloat: {
++                    if (type->width == 16) {
+                         return ty_.f16();
+-                    } else if (float_ty->width() == 32) {
++                    } else if (type->width == 32) {
+                         return ty_.f32();
+                     } else {
+                         TINT_UNREACHABLE()
+-                            << "unsupported floating point type width: " << float_ty->width();
++                            << "unsupported floating point type width: " << type->width;
+                     }
+                 }
+-                case spvtools::opt::analysis::Type::kVector: {
+-                    auto* vec_ty = type->AsVector();
+-                    TINT_ASSERT(vec_ty->element_count() <= 4);
+-                    return ty_.vec(Type(vec_ty->element_type()), vec_ty->element_count());
++                case spvc::Type::kVector: {
++                    TINT_ASSERT(type->count <= 4);
++                    return ty_.vec(Type(type->element_type), type->count);
+                 }
+-                case spvtools::opt::analysis::Type::kMatrix: {
+-                    auto* mat_ty = type->AsMatrix();
+-                    TINT_ASSERT(mat_ty->element_count() <= 4);
+-                    return ty_.mat(As<core::type::Vector>(Type(mat_ty->element_type())),
+-                                   mat_ty->element_count());
++                case spvc::Type::kMatrix: {
++                    TINT_ASSERT(type->count <= 4);
++                    return ty_.mat(As<core::type::Vector>(Type(type->element_type)), type->count);
+                 }
+-                case spvtools::opt::analysis::Type::kArray: {
+-                    return EmitArray(type->AsArray());
++                case spvc::Type::kArray: {
++                    return EmitArray(type);
+                 }
+-                case spvtools::opt::analysis::Type::kRuntimeArray: {
+-                    auto* arr_ty = type->AsRuntimeArray();
+-                    return ty_.runtime_array(Type(arr_ty->element_type()));
++                case spvc::Type::kRuntimeArray: {
++                    return ty_.runtime_array(Type(type->element_type));
+                 }
+-                case spvtools::opt::analysis::Type::kStruct: {
+-                    return EmitStruct(type->AsStruct());
++                case spvc::Type::kStruct: {
++                    return EmitStruct(type);
+                 }
+-                case spvtools::opt::analysis::Type::kPointer: {
+-                    auto* ptr_ty = type->AsPointer();
+-                    return ty_.ptr(AddressSpace(ptr_ty->storage_class()),
+-                                   Type(ptr_ty->pointee_type()), access_mode);
++                case spvc::Type::kPointer: {
++                    return ty_.ptr(AddressSpace(spv::StorageClass(type->storage_class)),
++                                   Type(type->element_type), access_mode);
+                 }
+-                case spvtools::opt::analysis::Type::kSampler: {
++                case spvc::Type::kSampler: {
+                     return ty_.sampler();
+                 }
+-                case spvtools::opt::analysis::Type::kImage: {
+-                    auto* img = type->AsImage();
+-
+-                    auto* sampled_ty = Type(img->sampled_type());
+-                    auto dim = static_cast<type::Dim>(img->dim());
+-                    auto depth = static_cast<type::Depth>(img->depth());
+-                    auto arrayed =
+-                        img->is_arrayed() ? type::Arrayed::kArrayed : type::Arrayed::kNonArrayed;
+-                    auto ms = img->is_multisampled() ? type::Multisampled::kMultisampled
+-                                                     : type::Multisampled::kSingleSampled;
+-                    auto sampled = static_cast<type::Sampled>(img->sampled());
+-                    auto texel_format = ToTexelFormat(img->format());
+-                    auto access = ToAccess(img->access_qualifier());
+-
+-                    if (img->dim() != spv::Dim::Dim1D && img->dim() != spv::Dim::Dim2D &&
+-                        img->dim() != spv::Dim::Dim3D && img->dim() != spv::Dim::Cube &&
+-                        img->dim() != spv::Dim::SubpassData) {
+-                        TINT_ICE() << "Unsupported texture dimension: "
+-                                   << static_cast<uint32_t>(img->dim());
+-                    }
+-                    if (img->sampled() == 0) {
+-                        TINT_ICE() << "Unsupported texture sample setting: Known at Runtime";
+-                    }
+-
+-                    return ty_.Get<spirv::type::Image>(sampled_ty, dim, depth, arrayed, ms, sampled,
+-                                                       texel_format, access);
++                case spvc::Type::kImage: {
++                    return ImageType(type->image);
+                 }
+-                case spvtools::opt::analysis::Type::kSampledImage: {
+-                    auto* sampled = type->AsSampledImage();
+-                    return ty_.Get<spirv::type::SampledImage>(Type(sampled->image_type()));
++                case spvc::Type::kSampledImage: {
++                    return ty_.Get<spirv::type::SampledImage>(ImageType(type->image));
+                 }
+                 default: {
+-                    TINT_UNIMPLEMENTED() << "unhandled SPIR-V type: " << type->str();
++                    TINT_UNIMPLEMENTED() << "unhandled SPIR-V type: " << type->description;
+                 }
+             }
+         });
+     }
+ 
++    /// @param img the operands of a SPIR-V OpTypeImage
++    /// @returns a Tint SPIR-V image type
++    const core::type::Type* ImageType(const spvc::Type::ImageInfo& img) {
++        auto* sampled_ty = Type(img.sampled_type);
++        auto dim = static_cast<type::Dim>(img.dim);
++        auto depth = static_cast<type::Depth>(img.depth);
++        auto arrayed = img.arrayed ? type::Arrayed::kArrayed : type::Arrayed::kNonArrayed;
++        auto ms = img.multisampled ? type::Multisampled::kMultisampled
++                                   : type::Multisampled::kSingleSampled;
++        auto sampled = static_cast<type::Sampled>(img.sampled);
++        auto texel_format = ToTexelFormat(spv::ImageFormat(img.format));
++        auto access = ToAccess(spv::AccessQualifier(img.access));
++
++        auto spv_dim = spv::Dim(img.dim);
++        if (spv_dim != spv::Dim::Dim1D && spv_dim != spv::Dim::Dim2D &&
++            spv_dim != spv::Dim::Dim3D && spv_dim != spv::Dim::Cube &&
++            spv_dim != spv::Dim::SubpassData) {
++            TINT_ICE() << "Unsupported texture dimension: " << img.dim;
++        }
++        if (img.sampled == 0) {
++            TINT_ICE() << "Unsupported texture sample setting: Known at Runtime";
++        }
++
++        return ty_.Get<spirv::type::Image>(sampled_ty, dim, depth, arrayed, ms, sampled,
++                                           texel_format, access);
++    }
++
+     core::Access ToAccess(spv::AccessQualifier access) {
+         switch (access) {
+             case spv::AccessQualifier::ReadOnly:
+@@ -483,39 +433,37 @@ class Parser {
+     /// @param access_mode an optional access mode (for pointers)
+     /// @returns a Tint type object
+     const core::type::Type* Type(uint32_t id, core::Access access_mode = core::Access::kUndefined) {
+-        return Type(spirv_context_->get_type_mgr()->GetType(id), access_mode);
++        auto* type = module_->GetType(id);
++        if (!type) {
++            TINT_ICE() << "missing type for ID " << id;
++        }
++        return Type(type, access_mode);
+     }
+ 
+     /// @param arr_ty a SPIR-V array object
+     /// @returns a Tint array object
+-    const core::type::Type* EmitArray(const spvtools::opt::analysis::Array* arr_ty) {
+-        const auto& length = arr_ty->length_info();
+-        TINT_ASSERT(!length.words.empty());
+-        if (length.words[0] != spvtools::opt::analysis::Array::LengthInfo::kConstant) {
++    const core::type::Type* EmitArray(const spvc::Type* arr_ty) {
++        if (arr_ty->count_is_spec_constant) {
+             TINT_UNIMPLEMENTED() << "specialized array lengths";
+         }
+ 
+-        // Get the value from the constant used for the element count.
+-        const auto* count_const =
+-            spirv_context_->get_constant_mgr()->FindDeclaredConstant(length.id);
+-        TINT_ASSERT(count_const);
+-        const uint64_t count_val = count_const->GetZeroExtendedValue();
++        // SPIRV-Cross has already read the value of the constant used for the element count.
++        const uint64_t count_val = arr_ty->count;
+         TINT_ASSERT(count_val <= UINT32_MAX);
+ 
+         // TODO(crbug.com/1907): Handle decorations that affect the array layout.
+ 
+-        return ty_.array(Type(arr_ty->element_type()), static_cast<uint32_t>(count_val));
++        return ty_.array(Type(arr_ty->element_type), static_cast<uint32_t>(count_val));
+     }
+ 
+     /// @param struct_ty a SPIR-V struct object
+     /// @returns a Tint struct object
+-    const core::type::Type* EmitStruct(const spvtools::opt::analysis::Struct* struct_ty) {
+-        if (struct_ty->NumberOfComponents() == 0) {
++    const core::type::Type* EmitStruct(const spvc::Type* struct_ty) {
++        if (struct_ty->members.empty()) {
+             TINT_ICE() << "empty structures are not supported";
+         }
+ 
+-        auto* type_mgr = spirv_context_->get_type_mgr();
+-        auto struct_id = type_mgr->GetId(struct_ty);
++        auto struct_id = struct_ty->id;
+ 
+         std::vector<std::string>* member_names = nullptr;
+         auto struct_to_member_iter = struct_to_member_names_.find(struct_id);
+@@ -526,8 +474,8 @@ class Parser {
+         // Build a list of struct members.
+         uint32_t current_size = 0u;
+         Vector<core::type::StructMember*, 4> members;
+-        for (uint32_t i = 0; i < struct_ty->NumberOfComponents(); i++) {
+-            auto* member_ty = Type(struct_ty->element_types()[i]);
++        for (uint32_t i = 0; i < struct_ty->members.size(); i++) {
++            auto* member_ty = Type(struct_ty->members[i]);
+             uint32_t align = std::max<uint32_t>(member_ty->Align(), 1u);
+             uint32_t offset = tint::RoundUp(align, current_size);
+             core::IOAttributes attributes;
+@@ -542,20 +490,20 @@ class Parser {
+             };
+ 
+             // Handle member decorations that affect layout or attributes.
+-            if (struct_ty->element_decorations().count(i)) {
+-                for (auto& deco : struct_ty->element_decorations().at(i)) {
+-                    switch (spv::Decoration(deco[0])) {
++            if (i < struct_ty->member_decorations.size()) {
++                for (auto& deco : struct_ty->member_decorations[i]) {
++                    switch (spv::Decoration(deco.kind)) {
+                         case spv::Decoration::Offset:
+-                            offset = deco[1];
++                            offset = deco.value;
+                             break;
+                         case spv::Decoration::BuiltIn:
+-                            attributes.builtin = Builtin(spv::BuiltIn(deco[1]));
++                            attributes.builtin = Builtin(spv::BuiltIn(deco.value));
+                             break;
+                         case spv::Decoration::Invariant:
+                             attributes.invariant = true;
+                             break;
+                         case spv::Decoration::Location:
+-                            attributes.location = deco[1];
++                            attributes.location = deco.value;
+                             break;
+                         case spv::Decoration::NoPerspective:
+                             interpolation().type = core::InterpolationType::kLinear;
+@@ -571,7 +519,7 @@ class Parser {
+                             break;
+ 
+                         default:
+-                            TINT_UNIMPLEMENTED() << "unhandled member decoration: " << deco[0];
++                            TINT_UNIMPLEMENTED() << "unhandled member decoration: " << deco.kind;
+                     }
+                 }
+             }
+@@ -681,8 +629,8 @@ class Parser {
+             return new_v;
+         }
+ 
+-        if (auto* c = spirv_context_->get_constant_mgr()->FindDeclaredConstant(id)) {
+-            auto* val = b_.Constant(Constant(c));
++        if (auto c = module_->FindDeclaredConstant(id)) {
++            auto* val = b_.Constant(Constant(*c));
+             values_.Add(id, val);
+             return val;
+         }
+@@ -691,61 +639,41 @@ class Parser {
+ 
+     /// @param constant a SPIR-V constant object
+     /// @returns a Tint constant value
+-    const core::constant::Value* Constant(const spvtools::opt::analysis::Constant* constant) {
+-        // Handle OpConstantNull for all types.
+-        if (constant->AsNullConstant()) {
+-            return ir_.constant_values.Zero(Type(constant->type()));
+-        }
+-
+-        if (auto* bool_ = constant->AsBoolConstant()) {
+-            return b_.ConstantValue(bool_->value());
+-        }
+-        if (auto* i = constant->AsIntConstant()) {
+-            auto* int_ty = i->type()->AsInteger();
+-            TINT_ASSERT(int_ty->width() == 32);
+-            if (int_ty->IsSigned()) {
+-                return b_.ConstantValue(i32(i->GetS32BitValue()));
+-            } else {
+-                return b_.ConstantValue(u32(i->GetU32BitValue()));
+-            }
+-        }
+-        if (auto* f = constant->AsFloatConstant()) {
+-            auto* float_ty = f->type()->AsFloat();
+-            if (float_ty->width() == 16) {
+-                return b_.ConstantValue(f16::FromBits(static_cast<uint16_t>(f->words()[0])));
+-            } else if (float_ty->width() == 32) {
+-                return b_.ConstantValue(f32(f->GetFloat()));
+-            } else {
+-                TINT_UNREACHABLE() << "unsupported floating point type width";
+-            }
+-        }
+-        if (auto* v = constant->AsVectorConstant()) {
+-            Vector<const core::constant::Value*, 4> elements;
+-            for (auto& el : v->GetComponents()) {
+-                elements.Push(Constant(el));
+-            }
+-            return ir_.constant_values.Composite(Type(v->type()), std::move(elements));
+-        }
+-        if (auto* m = constant->AsMatrixConstant()) {
+-            Vector<const core::constant::Value*, 4> columns;
+-            for (auto& el : m->GetComponents()) {
+-                columns.Push(Constant(el));
+-            }
+-            return ir_.constant_values.Composite(Type(m->type()), std::move(columns));
+-        }
+-        if (auto* a = constant->AsArrayConstant()) {
+-            Vector<const core::constant::Value*, 16> elements;
+-            for (auto& el : a->GetComponents()) {
+-                elements.Push(Constant(el));
+-            }
+-            return ir_.constant_values.Composite(Type(a->type()), std::move(elements));
+-        }
+-        if (auto* s = constant->AsStructConstant()) {
+-            Vector<const core::constant::Value*, 16> elements;
+-            for (auto& el : s->GetComponents()) {
+-                elements.Push(Constant(el));
++    const core::constant::Value* Constant(const spvc::Constant& constant) {
++        // OpConstantNull has already been expanded to zero values by SPIRV-Cross.
++        auto* type = module_->GetType(constant.type_id);
++        TINT_ASSERT(type);
++
++        switch (type->kind) {
++            case spvc::Type::kBool:
++                return b_.ConstantValue(constant.bits != 0);
++            case spvc::Type::kInteger:
++                TINT_ASSERT(type->width == 32);
++                if (type->is_signed) {
++                    return b_.ConstantValue(i32(static_cast<int32_t>(constant.bits)));
++                } else {
++                    return b_.ConstantValue(u32(constant.bits));
++                }
++            case spvc::Type::kFloat:
++                if (type->width == 16) {
++                    return b_.ConstantValue(f16::FromBits(static_cast<uint16_t>(constant.bits)));
++                } else if (type->width == 32) {
++                    return b_.ConstantValue(f32(tint::Bitcast<float>(constant.bits)));
++                } else {
++                    TINT_UNREACHABLE() << "unsupported floating point type width";
++                }
++            case spvc::Type::kVector:
++            case spvc::Type::kMatrix:
++            case spvc::Type::kArray:
++            case spvc::Type::kStruct: {
++                Vector<const core::constant::Value*, 16> elements;
++                for (auto& el : constant.components) {
++                    elements.Push(Constant(el));
++                }
++                return ir_.constant_values.Composite(Type(type), std::move(elements));
+             }
+-            return ir_.constant_values.Composite(Type(s->type()), std::move(elements));
++            default:
++                break;
+         }
+         TINT_UNIMPLEMENTED() << "unhandled constant type";
+     }
+@@ -789,7 +717,7 @@ class Parser {
+ 
+     /// Emit the module-scope variables.
+     void EmitModuleScopeVariables() {
+-        for (auto& inst : spirv_context_->module()->types_values()) {
++        for (auto& inst : module_->types_values()) {
+             switch (inst.opcode()) {
+                 case spv::Op::OpVariable:
+                     EmitVar(inst);
+@@ -805,11 +733,12 @@ class Parser {
+ 
+     /// Emit the functions.
+     void EmitFunctions() {
+-        for (auto& func : *spirv_context_->module()) {
++        for (auto& func_ptr : module_->functions()) {
++            auto& func = *func_ptr;
+             current_spirv_function_ = &func;
+ 
+             Vector<core::ir::FunctionParam*, 4> params;
+-            func.ForEachParam([&](spvtools::opt::Instruction* spirv_param) {
++            func.ForEachParam([&](const spvc::Instruction* spirv_param) {
+                 auto* param = b_.FunctionParam(Type(spirv_param->type_id()));
+                 values_.Add(spirv_param->result_id(), param);
+ 
+@@ -845,9 +774,9 @@ class Parser {
+     /// Emit entry point attributes.
+     void EmitEntryPointAttributes() {
+         // Handle OpEntryPoint declarations.
+-        for (auto& entry_point : spirv_context_->module()->entry_points()) {
+-            auto model = entry_point.GetSingleWordInOperand(0);
+-            auto* func = Function(entry_point.GetSingleWordInOperand(1));
++        for (auto& entry_point : module_->entry_points()) {
++            auto model = entry_point.model;
++            auto* func = Function(entry_point.function);
+ 
+             // Set the pipeline stage.
+             switch (spv::ExecutionModel(model)) {
+@@ -865,11 +794,11 @@ class Parser {
+             }
+ 
+             // Set the entry point name.
+-            ir_.SetName(func, entry_point.GetOperand(2).AsString());
++            ir_.SetName(func, entry_point.name);
+         }
+ 
+         // Handle OpExecutionMode declarations.
+-        for (auto& execution_mode : spirv_context_->module()->execution_modes()) {
++        for (auto& execution_mode : module_->execution_modes()) {
+             auto* func = functions_.GetOr(execution_mode.GetSingleWordInOperand(0), nullptr);
+             auto mode = execution_mode.GetSingleWordInOperand(1);
+             TINT_ASSERT(func);
+@@ -895,7 +824,7 @@ class Parser {
+ 
+     // A block parent is a container for a scope, like a `{}`d section in code. It controls the
+     // block addition to the current blocks and the ID stack entry for the block.
+-    void EmitBlockParent(core::ir::Block* dst, const spvtools::opt::BasicBlock& src) {
++    void EmitBlockParent(core::ir::Block* dst, const spvc::BasicBlock& src) {
+         TINT_ASSERT(!InBlock(dst));
+ 
+         id_stack_.emplace_back();
+@@ -910,7 +839,7 @@ class Parser {
+     /// Emit the contents of SPIR-V block @p src into Tint IR block @p dst.
+     /// @param dst the Tint IR block to append to
+     /// @param src the SPIR-V block to emit
+-    void EmitBlock(core::ir::Block* dst, const spvtools::opt::BasicBlock& src) {
++    void EmitBlock(core::ir::Block* dst, const spvc::BasicBlock& src) {
+         TINT_SCOPED_ASSIGNMENT(current_block_, dst);
+ 
+         auto* loop_merge_inst = src.GetLoopMergeInst();
+@@ -1322,7 +1251,7 @@ class Parser {
+         }
+     }
+ 
+-    void EmitArrayLength(const spvtools::opt::Instruction& inst) {
++    void EmitArrayLength(const spvc::Instruction& inst) {
+         auto strct = Value(inst.GetSingleWordInOperand(0));
+         auto field_index = inst.GetSingleWordInOperand(1);
+ 
+@@ -1341,11 +1270,11 @@ class Parser {
+              inst.result_id());
+     }
+ 
+-    void EmitControlBarrier(const spvtools::opt::Instruction& inst) {
++    void EmitControlBarrier(const spvc::Instruction& inst) {
+         auto get_constant = [&](uint32_t idx) {
+             uint32_t id = inst.GetSingleWordOperand(idx);
+-            if (auto* constant = spirv_context_->get_constant_mgr()->FindDeclaredConstant(id)) {
+-                return constant->GetU32();
++            if (auto constant = module_->FindDeclaredConstant(id)) {
++                return constant->bits;
+             }
+             TINT_ICE() << "invalid or missing operands for control barrier";
+         };
+@@ -1388,14 +1317,14 @@ class Parser {
+         }
+     }
+ 
+-    void CheckAtomicNotFloat(const spvtools::opt::Instruction& inst) {
++    void CheckAtomicNotFloat(const spvc::Instruction& inst) {
+         auto* ty = Type(inst.type_id());
+         if (ty->IsFloatScalar()) {
+             TINT_ICE() << "Atomic operations on floating point values not supported.";
+         }
+     }
+ 
+-    void EmitAtomicStore(const spvtools::opt::Instruction& inst) {
++    void EmitAtomicStore(const spvc::Instruction& inst) {
+         auto* v = Value(inst.GetSingleWordInOperand(0));
+         auto* ty = v->Type()->UnwrapPtr();
+         if (ty->IsFloatScalar()) {
+@@ -1406,7 +1335,7 @@ class Parser {
+             ty_.void_(), spirv::BuiltinFn::kAtomicStore, Args(inst, 0)));
+     }
+ 
+-    void EmitBitcast(const spvtools::opt::Instruction& inst) {
++    void EmitBitcast(const spvc::Instruction& inst) {
+         auto val = Value(inst.GetSingleWordInOperand(0));
+         auto ty = Type(inst.type_id());
+         Emit(b_.Bitcast(ty, val), inst.result_id());
+@@ -1428,7 +1357,7 @@ class Parser {
+         return nullptr;
+     }
+ 
+-    void EmitBranch(const spvtools::opt::Instruction& inst) {
++    void EmitBranch(const spvc::Instruction& inst) {
+         auto dest_id = inst.GetSingleWordInOperand(0);
+ 
+         // Disallow fallthrough
+@@ -1468,7 +1397,7 @@ class Parser {
+     std::optional<uint32_t> FindPremergeId(uint32_t true_id,
+                                            uint32_t false_id,
+                                            std::optional<uint32_t> merge_id) {
+-        auto* cfg = spirv_context_->cfg();
++        auto* cfg = module_->cfg();
+ 
+         // We need a merge block, the true and false to be unique and the true and false to not be
+         // the merge.
+@@ -1477,13 +1406,13 @@ class Parser {
+         }
+ 
+         // Get the list of blocks from the true branch to the merge
+-        std::list<spvtools::opt::BasicBlock*> true_blocks;
++        std::list<const spvc::BasicBlock*> true_blocks;
+         cfg->ComputeStructuredOrder(
+             current_spirv_function_, &*(current_spirv_function_->FindBlock(true_id)),
+             &*(current_spirv_function_->FindBlock(merge_id.value())), &true_blocks);
+ 
+         // Get the list of blocks from the false branch to the merge
+-        std::list<spvtools::opt::BasicBlock*> false_blocks;
++        std::list<const spvc::BasicBlock*> false_blocks;
+         cfg->ComputeStructuredOrder(
+             current_spirv_function_, &*(current_spirv_function_->FindBlock(false_id)),
+             &*(current_spirv_function_->FindBlock(merge_id.value())), &false_blocks);
+@@ -1645,8 +1574,8 @@ class Parser {
+         }
+     }
+ 
+-    void EmitBranchConditional(const spvtools::opt::BasicBlock& bb,
+-                               const spvtools::opt::Instruction& inst) {
++    void EmitBranchConditional(const spvc::BasicBlock& bb,
++                               const spvc::Instruction& inst) {
+         auto cond = Value(inst.GetSingleWordInOperand(0));
+         auto true_id = inst.GetSingleWordInOperand(1);
+         auto false_id = inst.GetSingleWordInOperand(2);
+@@ -1724,7 +1653,7 @@ class Parser {
+         }
+     }
+ 
+-    void EmitLoop(const spvtools::opt::BasicBlock& bb) {
++    void EmitLoop(const spvc::BasicBlock& bb) {
+         // This just handles creating the loop itself, the rest of the processing
+         // of the continue and merge blocks will be handled when we deal with the
+         // LoopMerge instruction itself. We have to setup the loop early in order
+@@ -1738,8 +1667,8 @@ class Parser {
+         walk_stop_blocks_[bb.id()] = loop;
+     }
+ 
+-    void EmitLoopMerge(const spvtools::opt::BasicBlock& bb,
+-                       const spvtools::opt::Instruction& inst) {
++    void EmitLoopMerge(const spvc::BasicBlock& bb,
++                       const spvc::Instruction& inst) {
+         auto merge_id = inst.GetSingleWordInOperand(0);
+         auto continue_id = inst.GetSingleWordInOperand(1);
+         auto header_id = bb.id();
+@@ -1776,7 +1705,7 @@ class Parser {
+         // instructions in the loop header are emitted.
+     }
+ 
+-    void EmitSwitch(const spvtools::opt::BasicBlock& bb, const spvtools::opt::Instruction& inst) {
++    void EmitSwitch(const spvc::BasicBlock& bb, const spvc::Instruction& inst) {
+         auto* selector = Value(inst.GetSingleWordInOperand(0));
+         auto default_id = inst.GetSingleWordInOperand(1);
+ 
+@@ -1850,7 +1779,7 @@ class Parser {
+         EmitBlock(current_block_, *bb_merge);
+     }
+ 
+-    Vector<core::ir::Value*, 4> Args(const spvtools::opt::Instruction& inst, uint32_t start) {
++    Vector<core::ir::Value*, 4> Args(const spvc::Instruction& inst, uint32_t start) {
+         Vector<core::ir::Value*, 4> args;
+         for (uint32_t i = start; i < inst.NumOperandWords(); i++) {
+             args.Push(Value(inst.GetSingleWordOperand(i)));
+@@ -1858,23 +1787,23 @@ class Parser {
+         return args;
+     }
+ 
+-    void EmitBuiltinCall(const spvtools::opt::Instruction& inst, core::BuiltinFn fn) {
++    void EmitBuiltinCall(const spvc::Instruction& inst, core::BuiltinFn fn) {
+         Emit(b_.Call(Type(inst.type_id()), fn, Args(inst, 2)), inst.result_id());
+     }
+ 
+-    void EmitSpirvExplicitBuiltinCall(const spvtools::opt::Instruction& inst, spirv::BuiltinFn fn) {
++    void EmitSpirvExplicitBuiltinCall(const spvc::Instruction& inst, spirv::BuiltinFn fn) {
+         Emit(b_.CallExplicit<spirv::ir::BuiltinCall>(Type(inst.type_id()), fn,
+                                                      Vector{Type(inst.type_id())->DeepestElement()},
+                                                      Args(inst, 2)),
+              inst.result_id());
+     }
+ 
+-    void EmitSpirvBuiltinCall(const spvtools::opt::Instruction& inst, spirv::BuiltinFn fn) {
++    void EmitSpirvBuiltinCall(const spvc::Instruction& inst, spirv::BuiltinFn fn) {
+         Emit(b_.Call<spirv::ir::BuiltinCall>(Type(inst.type_id()), fn, Args(inst, 2)),
+              inst.result_id());
+     }
+ 
+-    void EmitBitCount(const spvtools::opt::Instruction& inst) {
++    void EmitBitCount(const spvc::Instruction& inst) {
+         auto* res_ty = Type(inst.type_id());
+         Emit(b_.CallExplicit<spirv::ir::BuiltinCall>(res_ty, spirv::BuiltinFn::kBitCount,
+                                                      Vector{res_ty->DeepestElement()},
+@@ -1885,7 +1814,7 @@ class Parser {
+     /// @param inst the SPIR-V instruction
+     /// Note: This isn't technically correct, but there is no `kill` equivalent in WGSL. The closets
+     /// we have is `discard` which maps to `OpDemoteToHelperInvocation` in SPIR-V.
+-    void EmitKill([[maybe_unused]] const spvtools::opt::Instruction& inst) {
++    void EmitKill([[maybe_unused]] const spvc::Instruction& inst) {
+         EmitWithoutResult(b_.Discard());
+ 
+         // An `OpKill` is a terminator in SPIR-V. `discard` is not a terminator in WGSL. After the
+@@ -1904,21 +1833,21 @@ class Parser {
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpCopyObject
+-    void EmitCopyObject(const spvtools::opt::Instruction& inst) {
++    void EmitCopyObject(const spvc::Instruction& inst) {
+         // Make the result Id a pointer to the original copied value.
+         auto* l = b_.Let(Value(inst.GetSingleWordOperand(2)));
+         Emit(l, inst.result_id());
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpCopyMemory
+-    void EmitCopyMemory(const spvtools::opt::Instruction& inst) {
++    void EmitCopyMemory(const spvc::Instruction& inst) {
+         auto load = b_.Load(Value(inst.GetSingleWordOperand(1)));
+         EmitWithoutSpvResult(load);
+         EmitWithoutResult(b_.Store(Value(inst.GetSingleWordOperand(0)), load));
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpExtInst
+-    void EmitExtInst(const spvtools::opt::Instruction& inst) {
++    void EmitExtInst(const spvc::Instruction& inst) {
+         auto inst_set = inst.GetSingleWordInOperand(0);
+         if (ignored_imports_.count(inst_set) > 0) {
+             // Ignore it but don't error out.
+@@ -2113,7 +2042,7 @@ class Parser {
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpAccessChain
+-    void EmitGlslStd450ExtInst(const spvtools::opt::Instruction& inst) {
++    void EmitGlslStd450ExtInst(const spvc::Instruction& inst) {
+         const auto ext_opcode = inst.GetSingleWordInOperand(1);
+         auto* spv_ty = Type(inst.type_id());
+ 
+@@ -2196,7 +2125,7 @@ class Parser {
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpAccessChain
+-    void EmitAccess(const spvtools::opt::Instruction& inst) {
++    void EmitAccess(const spvc::Instruction& inst) {
+         Vector indices = Args(inst, 3);
+         auto* base = Value(inst.GetSingleWordOperand(2));
+ 
+@@ -2218,7 +2147,7 @@ class Parser {
+ 
+     /// @param inst the SPIR-V instruction
+     /// @param op the unary operator to use
+-    void EmitUnary(const spvtools::opt::Instruction& inst, core::UnaryOp op) {
++    void EmitUnary(const spvc::Instruction& inst, core::UnaryOp op) {
+         auto* val = Value(inst.GetSingleWordOperand(2));
+         auto* unary = b_.Unary(op, Type(inst.type_id()), val);
+         Emit(unary, inst.result_id());
+@@ -2226,7 +2155,7 @@ class Parser {
+ 
+     /// @param inst the SPIR-V instruction
+     /// @param op the binary operator to use
+-    void EmitBinary(const spvtools::opt::Instruction& inst,
++    void EmitBinary(const spvc::Instruction& inst,
+                     core::BinaryOp op,
+                     uint32_t first_operand_idx = 2) {
+         auto* lhs = Value(inst.GetSingleWordOperand(first_operand_idx));
+@@ -2237,7 +2166,7 @@ class Parser {
+ 
+     /// @param inst the SPIR-V instruction
+     /// @param op the binary operator to use
+-    void EmitInvertedBinary(const spvtools::opt::Instruction& inst, core::BinaryOp op) {
++    void EmitInvertedBinary(const spvc::Instruction& inst, core::BinaryOp op) {
+         auto* lhs = Value(inst.GetSingleWordOperand(2));
+         auto* rhs = Value(inst.GetSingleWordOperand(3));
+         auto* binary = b_.Binary(op, Type(inst.type_id()), lhs, rhs);
+@@ -2248,7 +2177,7 @@ class Parser {
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpCompositeExtract
+-    void EmitCompositeExtract(const spvtools::opt::Instruction& inst) {
++    void EmitCompositeExtract(const spvc::Instruction& inst) {
+         Vector<core::ir::Value*, 4> indices;
+         for (uint32_t i = 3; i < inst.NumOperandWords(); i++) {
+             indices.Push(b_.Constant(u32(inst.GetSingleWordOperand(i))));
+@@ -2259,7 +2188,7 @@ class Parser {
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpCompositeInsert
+-    void EmitCompositeInsert(const spvtools::opt::Instruction& inst) {
++    void EmitCompositeInsert(const spvc::Instruction& inst) {
+         auto* object = Value(inst.GetSingleWordOperand(2));
+         auto* composite = Value(inst.GetSingleWordOperand(3));
+         Vector<core::ir::Value*, 4> indices;
+@@ -2279,13 +2208,13 @@ class Parser {
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpCompositeConstruct
+-    void EmitConstruct(const spvtools::opt::Instruction& inst) {
++    void EmitConstruct(const spvc::Instruction& inst) {
+         auto* construct = b_.Construct(Type(inst.type_id()), Args(inst, 2));
+         Emit(construct, inst.result_id());
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpVectorInsertDynamic
+-    void EmitVectorInsertDynamic(const spvtools::opt::Instruction& inst) {
++    void EmitVectorInsertDynamic(const spvc::Instruction& inst) {
+         auto vector = Value(inst.GetSingleWordOperand(2));
+         auto component = Value(inst.GetSingleWordOperand(3));
+         auto index = Value(inst.GetSingleWordOperand(4));
+@@ -2298,7 +2227,7 @@ class Parser {
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpVectorShuffle
+-    void EmitVectorShuffle(const spvtools::opt::Instruction& inst) {
++    void EmitVectorShuffle(const spvc::Instruction& inst) {
+         auto* vector1 = Value(inst.GetSingleWordOperand(2));
+         auto* vector2 = Value(inst.GetSingleWordOperand(3));
+         auto* result_ty = Type(inst.type_id());
+@@ -2368,12 +2297,12 @@ class Parser {
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpFunctionCall
+-    void EmitFunctionCall(const spvtools::opt::Instruction& inst) {
++    void EmitFunctionCall(const spvc::Instruction& inst) {
+         Emit(b_.Call(Function(inst.GetSingleWordInOperand(0)), Args(inst, 3)), inst.result_id());
+     }
+ 
+     /// @param inst the SPIR-V instruction for OpVariable
+-    void EmitVar(const spvtools::opt::Instruction& inst) {
++    void EmitVar(const spvc::Instruction& inst) {
+         // Handle decorations.
+         std::optional<uint32_t> group;
+         std::optional<uint32_t> binding;
+@@ -2387,27 +2316,26 @@ class Parser {
+             }
+             return io_attributes.interpolation.value();
+         };
+-        for (auto* deco :
+-             spirv_context_->get_decoration_mgr()->GetDecorationsFor(inst.result_id(), false)) {
+-            auto d = deco->GetSingleWordOperand(1);
++        for (auto& deco : module_->GetDecorationsFor(inst.result_id())) {
++            auto d = deco.kind;
+             switch (spv::Decoration(d)) {
+                 case spv::Decoration::NonWritable:
+                     access_mode = core::Access::kRead;
+                     break;
+                 case spv::Decoration::DescriptorSet:
+-                    group = deco->GetSingleWordOperand(2);
++                    group = deco.value;
+                     break;
+                 case spv::Decoration::Binding:
+-                    binding = deco->GetSingleWordOperand(2);
++                    binding = deco.value;
+                     break;
+                 case spv::Decoration::BuiltIn:
+-                    io_attributes.builtin = Builtin(spv::BuiltIn(deco->GetSingleWordOperand(2)));
++                    io_attributes.builtin = Builtin(spv::BuiltIn(deco.value));
+                     break;
+                 case spv::Decoration::Invariant:
+                     io_attributes.invariant = true;
+                     break;
+                 case spv::Decoration::Location:
+-                    io_attributes.location = deco->GetSingleWordOperand(2);
++                    io_attributes.location = deco.value;
+                     break;
+                 case spv::Decoration::NoPerspective:
+                     interpolation().type = core::InterpolationType::kLinear;
+@@ -2422,7 +2350,7 @@ class Parser {
+                     interpolation().sampling = core::InterpolationSampling::kSample;
+                     break;
+                 case spv::Decoration::Index:
+-                    io_attributes.blend_src = deco->GetSingleWordOperand(2);
++                    io_attributes.blend_src = deco.value;
+                     break;
+                 default:
+                     TINT_UNIMPLEMENTED() << "unhandled decoration " << d;
+@@ -2447,7 +2375,7 @@ class Parser {
+     /// TypeKey describes a SPIR-V type with an access mode.
+     struct TypeKey {
+         /// The SPIR-V type object.
+-        const spvtools::opt::analysis::Type* type;
++        const spvc::Type* type;
+         /// The access mode.
+         core::Access access_mode;
+ 
+@@ -2478,10 +2406,10 @@ class Parser {
+     /// A map from a SPIR-V result ID to the corresponding Tint value object.
+     Hashmap<uint32_t, core::ir::Value*, 8> values_;
+ 
+-    /// The SPIR-V context containing the SPIR-V tools intermediate representation.
+-    std::unique_ptr<spvtools::opt::IRContext> spirv_context_;
++    /// The SPIR-V module, read with SPIRV-Cross.
++    std::unique_ptr<spvc::Module> module_;
+     /// The current SPIR-V function being emitted
+-    spvtools::opt::Function* current_spirv_function_ = nullptr;
++    const spvc::Function* current_spirv_function_ = nullptr;
+ 
+     // The set of IDs that are imports of the GLSL.std.450 extended instruction sets.
+     std::unordered_set<uint32_t> glsl_std_450_imports_;
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.cc b/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.cc
+new file mode 100644
+index 0000000000..f88c659515
+--- /dev/null
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.cc
+@@ -0,0 +1,660 @@
++// Copyright 2026 The Dawn & Tint Authors
++//
++// Redistribution and use in source and binary forms, with or without
++// modification, are permitted provided that the following conditions are met:
++//
++// 1. Redistributions of source code must retain the above copyright notice, this
++//    list of conditions and the following disclaimer.
++//
++// 2. Redistributions in binary form must reproduce the above copyright notice,
++//    this list of conditions and the following disclaimer in the documentation
++//    and/or other materials provided with the distribution.
++//
++// 3. Neither the name of the copyright holder nor the names of its
++//    contributors may be used to endorse or promote products derived from
++//    this software without specific prior written permission.
++//
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
++// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
++// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
++// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++
++// Builds the reader's SPIR-V model from spirv_cross::ParsedIR.
++//
++// SPIRV-Cross keeps the non-control instructions of each block as offsets into the module words,
++// and stores the merge and terminator instructions as fields of SPIRBlock, OpPhi as
++// SPIRBlock::phi_variables and function-scope OpVariable as SPIRFunction::local_variables. This
++// file turns those back into instruction lists in the order SPIR-V requires.
++
++#define TINT_SPIRV_CROSS_MODULE_IMPL
++#include "src/tint/lang/spirv/reader/parser/spirv_cross_module.h"
++
++#include <algorithm>
++#include <cstring>
++#include <exception>
++#include <unordered_set>
++#include <utility>
++
++#include "spirv_parser.hpp"
++
++namespace tint::spirv::reader::spvc {
++
++namespace sc = SPIRV_CROSS_NAMESPACE;
++
++namespace {
++
++Instruction Make(spv::Op op, std::vector<uint32_t> operands) {
++    operands.insert(operands.begin(),
++                    (static_cast<uint32_t>(operands.size() + 1) << 16) | static_cast<uint32_t>(op));
++    return Instruction(std::move(operands));
++}
++
++uint32_t DecorationValue(uint32_t kind, const sc::Meta::Decoration& d) {
++    switch (static_cast<spv::Decoration>(kind)) {
++        case spv::DecorationBuiltIn:
++            return static_cast<uint32_t>(d.builtin_type);
++        case spv::DecorationLocation:
++            return d.location;
++        case spv::DecorationComponent:
++            return d.component;
++        case spv::DecorationDescriptorSet:
++            return d.set;
++        case spv::DecorationBinding:
++            return d.binding;
++        case spv::DecorationOffset:
++            return d.offset;
++        case spv::DecorationSpecId:
++            return d.spec_id;
++        case spv::DecorationIndex:
++            return d.index;
++        case spv::DecorationArrayStride:
++            return d.array_stride;
++        case spv::DecorationMatrixStride:
++            return d.matrix_stride;
++        case spv::DecorationInputAttachmentIndex:
++            return d.input_attachment;
++        case spv::DecorationXfbBuffer:
++            return d.xfb_buffer;
++        case spv::DecorationXfbStride:
++            return d.xfb_stride;
++        case spv::DecorationStream:
++            return d.stream;
++        default:
++            return 0;
++    }
++}
++
++std::vector<Decoration> DecorationsOf(const sc::Meta::Decoration& d) {
++    std::vector<Decoration> out;
++    d.decoration_flags.for_each_bit(
++        [&](uint32_t kind) { out.push_back(Decoration{kind, DecorationValue(kind, d)}); });
++    return out;
++}
++
++}  // namespace
++
++Instruction::Instruction(std::vector<uint32_t> words) : words_(std::move(words)) {
++    opcode_ = words_.empty() ? 0u : (words_[0] & 0xffffu);
++    spv::HasResultAndType(static_cast<spv::Op>(opcode_), &has_result_, &has_type_);
++}
++
++const Instruction* BasicBlock::GetMergeInst() const {
++    if (insts_.size() < 2) {
++        return nullptr;
++    }
++    const auto& inst = insts_[insts_.size() - 2];
++    auto op = static_cast<spv::Op>(inst.OpcodeWord());
++    if (op == spv::OpSelectionMerge || op == spv::OpLoopMerge) {
++        return &inst;
++    }
++    return nullptr;
++}
++
++const Instruction* BasicBlock::GetLoopMergeInst() const {
++    auto* inst = GetMergeInst();
++    if (inst && static_cast<spv::Op>(inst->OpcodeWord()) == spv::OpLoopMerge) {
++        return inst;
++    }
++    return nullptr;
++}
++
++uint32_t BasicBlock::MergeBlockIdIfAny() const {
++    auto* inst = GetMergeInst();
++    return inst ? inst->GetSingleWordInOperand(0) : 0u;
++}
++
++uint32_t BasicBlock::ContinueBlockIdIfAny() const {
++    auto* inst = GetLoopMergeInst();
++    return inst ? inst->GetSingleWordInOperand(1) : 0u;
++}
++
++bool BasicBlock::IsReturn() const {
++    if (insts_.empty()) {
++        return false;
++    }
++    auto op = static_cast<spv::Op>(insts_.back().OpcodeWord());
++    return op == spv::OpReturn || op == spv::OpReturnValue;
++}
++
++void BasicBlock::ForEachSuccessorLabel(const std::function<void(uint32_t)>& f) const {
++    if (insts_.empty()) {
++        return;
++    }
++    const auto& term = insts_.back();
++    switch (static_cast<spv::Op>(term.OpcodeWord())) {
++        case spv::OpBranch:
++            f(term.GetSingleWordInOperand(0));
++            break;
++        case spv::OpBranchConditional:
++            f(term.GetSingleWordInOperand(1));
++            f(term.GetSingleWordInOperand(2));
++            break;
++        case spv::OpSwitch:
++            f(term.GetSingleWordInOperand(1));
++            for (uint32_t i = 3; i < term.NumInOperands(); i += 2) {
++                f(term.GetSingleWordInOperand(i));
++            }
++            break;
++        default:
++            break;
++    }
++}
++
++void Function::ForEachParam(const std::function<void(const Instruction*)>& f) const {
++    for (const auto& param : params_) {
++        f(&param);
++    }
++}
++
++const BasicBlock* Function::FindBlock(uint32_t id) const {
++    auto iter = block_by_id_.find(id);
++    return iter != block_by_id_.end() ? iter->second : nullptr;
++}
++
++void CFG::ComputeStructuredOrder(const Function* func,
++                                 const BasicBlock* root,
++                                 const BasicBlock* end,
++                                 std::list<const BasicBlock*>* order) const {
++    (void)module_;
++    // Structured successors: the merge block, then the continue target, then the branch targets.
++    auto successors = [&](const BasicBlock* b) {
++        std::vector<const BasicBlock*> out;
++        auto add = [&](uint32_t id) {
++            if (auto* s = func->FindBlock(id)) {
++                out.push_back(s);
++            }
++        };
++        if (uint32_t merge = b->MergeBlockIdIfAny()) {
++            add(merge);
++            if (uint32_t cont = b->ContinueBlockIdIfAny()) {
++                add(cont);
++            }
++        }
++        b->ForEachSuccessorLabel(add);
++        return out;
++    };
++
++    // Depth-first traversal, recording the reverse post-order, not walking past `end`.
++    struct Entry {
++        const BasicBlock* block;
++        std::vector<const BasicBlock*> succs;
++        size_t next;
++    };
++    std::unordered_set<const BasicBlock*> visited{root};
++    std::vector<Entry> stack;
++    stack.push_back({root, successors(root), 0});
++    while (!stack.empty()) {
++        auto& top = stack.back();
++        if (top.block == end || top.next == top.succs.size()) {
++            order->push_front(top.block);
++            stack.pop_back();
++            continue;
++        }
++        const BasicBlock* child = top.succs[top.next++];
++        if (visited.insert(child).second) {
++            stack.push_back({child, successors(child), 0});
++        }
++    }
++}
++
++struct Module::Impl {
++    sc::ParsedIR ir;
++
++    template <typename T>
++    const T* Get(uint32_t id) const {
++        if (id >= ir.ids.size() || ir.ids[id].get_type() != static_cast<sc::Types>(T::type)) {
++            return nullptr;
++        }
++        return &ir.ids[id].get<T>();
++    }
++
++    /// Reads the OpExtInstImport names straight from the module words, as SPIRV-Cross only keeps
++    /// an enum for the instruction sets it knows.
++    void ReadExtInstImports(Module& m) const {
++        const auto& w = ir.spirv;
++        for (size_t offset = 5; offset < w.size();) {
++            uint32_t count = w[offset] >> 16;
++            auto op = static_cast<spv::Op>(w[offset] & 0xffffu);
++            if (count == 0) {
++                break;
++            }
++            if (op == spv::OpExtInstImport && count >= 3) {
++                const char* str = reinterpret_cast<const char*>(&w[offset + 2]);
++                size_t max_len = (count - 2) * sizeof(uint32_t);
++                m.ext_inst_imports_.push_back(
++                    ExtInstImport{w[offset + 1], std::string(str, strnlen(str, max_len))});
++            }
++            if (op == spv::OpFunction) {
++                break;  // No more module-level declarations.
++            }
++            offset += count;
++        }
++    }
++
++    void Populate(Module& m) const {
++        m.extensions_.assign(ir.declared_extensions.begin(), ir.declared_extensions.end());
++        ReadExtInstImports(m);
++
++        for (const auto& [id, meta] : ir.meta) {
++            if (!meta.decoration.alias.empty()) {
++                m.names_[id] = meta.decoration.alias;
++            }
++            for (size_t i = 0; i < meta.members.size(); i++) {
++                if (!meta.members[i].alias.empty()) {
++                    auto& names = m.member_names_[id];
++                    names.resize(std::max(names.size(), i + 1));
++                    names[i] = meta.members[i].alias;
++                }
++            }
++        }
++
++        // Function-scope OpUndef also appear in the module-wide list; keep them in their blocks.
++        std::unordered_set<uint32_t> function_undefs;
++
++        for (uint32_t fid : ir.ids_for_type[sc::TypeFunction]) {
++            const auto* f = Get<sc::SPIRFunction>(fid);
++            if (!f) {
++                continue;
++            }
++            auto func = std::make_unique<Function>();
++            func->id_ = fid;
++            func->return_type_ = f->return_type;
++            for (const auto& arg : f->arguments) {
++                func->params_.push_back(Make(spv::OpFunctionParameter, {arg.type, arg.id}));
++            }
++            for (uint32_t bid : f->blocks) {
++                const auto* blk = Get<sc::SPIRBlock>(bid);
++                if (!blk) {
++                    throw sc::CompilerError("missing block " + std::to_string(bid));
++                }
++                auto bb = std::make_unique<BasicBlock>();
++                bb->id_ = bid;
++                auto& insts = bb->insts_;
++
++                // Function-scope variables live at the start of the entry block.
++                if (bid == f->entry_block) {
++                    for (uint32_t vid : f->local_variables) {
++                        const auto* var = Get<sc::SPIRVariable>(vid);
++                        if (!var || var->phi_variable) {
++                            continue;
++                        }
++                        std::vector<uint32_t> ops{var->basetype, vid,
++                                                  static_cast<uint32_t>(var->storage)};
++                        if (var->initializer) {
++                            ops.push_back(var->initializer);
++                        }
++                        insts.push_back(Make(spv::OpVariable, std::move(ops)));
++                    }
++                }
++
++                // OpPhi instructions, in declaration order.
++                std::vector<uint32_t> phi_order;
++                std::unordered_map<uint32_t, std::vector<uint32_t>> phi_ops;
++                for (const auto& phi : blk->phi_variables) {
++                    uint32_t pid = phi.function_variable;
++                    auto [iter, added] = phi_ops.insert({pid, {}});
++                    if (added) {
++                        phi_order.push_back(pid);
++                        const auto* var = Get<sc::SPIRVariable>(pid);
++                        iter->second = {var ? uint32_t(var->basetype) : 0u, pid};
++                    }
++                    iter->second.push_back(phi.local_variable);
++                    iter->second.push_back(phi.parent);
++                }
++                for (uint32_t pid : phi_order) {
++                    insts.push_back(Make(spv::OpPhi, std::move(phi_ops[pid])));
++                }
++
++                for (const auto& op : blk->ops) {
++                    auto opcode = static_cast<spv::Op>(op.op);
++                    if (opcode == spv::OpLine || opcode == spv::OpNoLine) {
++                        continue;  // Debug line info is not part of the instruction stream.
++                    }
++                    std::vector<uint32_t> words(ir.spirv.begin() + op.offset - 1,
++                                                ir.spirv.begin() + op.offset + op.length);
++                    Instruction inst(std::move(words));
++                    if (opcode == spv::OpUndef) {
++                        function_undefs.insert(inst.result_id());
++                    }
++                    insts.push_back(std::move(inst));
++                }
++
++                // Merge instruction.
++                if (blk->merge == sc::SPIRBlock::MergeSelection) {
++                    insts.push_back(Make(spv::OpSelectionMerge, {blk->next_block, 0u}));
++                } else if (blk->merge == sc::SPIRBlock::MergeLoop) {
++                    insts.push_back(
++                        Make(spv::OpLoopMerge, {blk->merge_block, blk->continue_block, 0u}));
++                }
++
++                // Terminator.
++                switch (blk->terminator) {
++                    case sc::SPIRBlock::Direct:
++                        insts.push_back(Make(spv::OpBranch, {blk->next_block}));
++                        break;
++                    case sc::SPIRBlock::Select:
++                        insts.push_back(Make(spv::OpBranchConditional,
++                                             {blk->condition, blk->true_block, blk->false_block}));
++                        break;
++                    case sc::SPIRBlock::MultiSelect: {
++                        // SPIRV-Cross fills both case lists when the operand count allows
++                        // either reading; the selector width decides which one is real.
++                        uint32_t width = 32;
++                        auto width_iter = ir.load_type_width.find(blk->condition);
++                        if (width_iter != ir.load_type_width.end()) {
++                            width = width_iter->second;
++                        } else if (const auto* c = Get<sc::SPIRConstant>(blk->condition)) {
++                            if (const auto* ct = Get<sc::SPIRType>(c->constant_type)) {
++                                width = ct->width;
++                            }
++                        }
++                        if (width > 32) {
++                            throw sc::CompilerError("64-bit switch selectors are not supported");
++                        }
++                        std::vector<uint32_t> ops{blk->condition, blk->default_block};
++                        for (const auto& c : blk->cases_32bit) {
++                            ops.push_back(static_cast<uint32_t>(c.value));
++                            ops.push_back(c.block);
++                        }
++                        insts.push_back(Make(spv::OpSwitch, std::move(ops)));
++                        break;
++                    }
++                    case sc::SPIRBlock::Return:
++                        if (blk->return_value) {
++                            insts.push_back(Make(spv::OpReturnValue, {blk->return_value}));
++                        } else {
++                            insts.push_back(Make(spv::OpReturn, {}));
++                        }
++                        break;
++                    case sc::SPIRBlock::Unreachable:
++                        insts.push_back(Make(spv::OpUnreachable, {}));
++                        break;
++                    case sc::SPIRBlock::Kill:
++                        insts.push_back(Make(spv::OpKill, {}));
++                        break;
++                    default:
++                        throw sc::CompilerError("unsupported block terminator in block " +
++                                          std::to_string(bid));
++                }
++
++                func->block_by_id_[bid] = bb.get();
++                func->blocks_.push_back(std::move(bb));
++            }
++            m.functions_.push_back(std::move(func));
++        }
++
++        // Module-scope specialization constants and undefs, in declaration order.
++        for (uint32_t id : ir.ids_for_constant_undef_or_type) {
++            if (const auto* c = Get<sc::SPIRConstant>(id)) {
++                if (!c->specialization) {
++                    continue;
++                }
++                const auto* ty = Get<sc::SPIRType>(c->constant_type);
++                bool scalar = ty && ty->vecsize == 1 && ty->columns == 1 && ty->array.empty() &&
++                              ty->basetype != sc::SPIRType::Struct;
++                if (scalar && ty->basetype == sc::SPIRType::Boolean) {
++                    m.types_values_.push_back(Make(
++                        c->scalar() ? spv::OpSpecConstantTrue : spv::OpSpecConstantFalse,
++                        {c->constant_type, id}));
++                } else if (scalar) {
++                    m.types_values_.push_back(
++                        Make(spv::OpSpecConstant, {c->constant_type, id, c->scalar()}));
++                } else {
++                    std::vector<uint32_t> ops{c->constant_type, id};
++                    for (auto sub : c->subconstants) {
++                        ops.push_back(sub);
++                    }
++                    m.types_values_.push_back(Make(spv::OpSpecConstantComposite, std::move(ops)));
++                }
++            } else if (const auto* op = Get<sc::SPIRConstantOp>(id)) {
++                std::vector<uint32_t> ops{op->basetype, id, static_cast<uint32_t>(op->opcode)};
++                ops.insert(ops.end(), op->arguments.begin(), op->arguments.end());
++                m.types_values_.push_back(Make(spv::OpSpecConstantOp, std::move(ops)));
++            } else if (const auto* undef = Get<sc::SPIRUndef>(id)) {
++                if (!function_undefs.count(id)) {
++                    m.types_values_.push_back(Make(spv::OpUndef, {undef->basetype, id}));
++                }
++            }
++        }
++
++        // Module-scope variables, in declaration order.
++        for (uint32_t id : ir.ids_for_type[sc::TypeVariable]) {
++            const auto* var = Get<sc::SPIRVariable>(id);
++            if (!var || var->storage == spv::StorageClassFunction) {
++                continue;
++            }
++            std::vector<uint32_t> ops{var->basetype, id, static_cast<uint32_t>(var->storage)};
++            if (var->initializer) {
++                ops.push_back(var->initializer);
++            }
++            m.types_values_.push_back(Make(spv::OpVariable, std::move(ops)));
++        }
++
++        // Entry points and execution modes, ordered by function ID.
++        std::vector<uint32_t> ep_ids;
++        for (const auto& [fid, ep] : ir.entry_points) {
++            ep_ids.push_back(fid);
++        }
++        std::sort(ep_ids.begin(), ep_ids.end());
++        for (uint32_t fid : ep_ids) {
++            const auto& ep = ir.entry_points.at(fid);
++            m.entry_points_.push_back(
++                EntryPoint{static_cast<uint32_t>(ep.model), fid, ep.orig_name});
++            ep.flags.for_each_bit([&](uint32_t mode) {
++                std::vector<uint32_t> ops{fid, mode};
++                if (mode == spv::ExecutionModeLocalSize) {
++                    ops.insert(ops.end(),
++                               {ep.workgroup_size.x, ep.workgroup_size.y, ep.workgroup_size.z});
++                } else if (mode == spv::ExecutionModeLocalSizeId) {
++                    ops.insert(ops.end(), {ep.workgroup_size.id_x, ep.workgroup_size.id_y,
++                                           ep.workgroup_size.id_z});
++                }
++                m.execution_modes_.push_back(Make(spv::OpExecutionMode, std::move(ops)));
++            });
++        }
++    }
++
++    Constant BuildConstant(const sc::SPIRConstant& c, uint32_t type_id) const {
++        Constant out;
++        out.type_id = type_id;
++        const auto* ty = Get<sc::SPIRType>(type_id);
++        if (!ty) {
++            return out;
++        }
++        if (!ty->array.empty() || ty->basetype == sc::SPIRType::Struct) {
++            for (auto sub_id : c.subconstants) {
++                if (const auto* sub = Get<sc::SPIRConstant>(sub_id)) {
++                    out.components.push_back(BuildConstant(*sub, sub->constant_type));
++                }
++            }
++        } else if (ty->columns > 1) {
++            uint32_t col_ty = ty->parent_type;
++            const auto* col = Get<sc::SPIRType>(col_ty);
++            uint32_t elem_ty = col ? uint32_t(col->parent_type) : 0u;
++            for (uint32_t i = 0; i < ty->columns; i++) {
++                Constant column;
++                column.type_id = col_ty;
++                for (uint32_t j = 0; j < ty->vecsize; j++) {
++                    Constant el;
++                    el.type_id = elem_ty;
++                    el.bits = c.scalar(i, j);
++                    column.components.push_back(el);
++                }
++                out.components.push_back(std::move(column));
++            }
++        } else if (ty->vecsize > 1) {
++            for (uint32_t j = 0; j < ty->vecsize; j++) {
++                Constant el;
++                el.type_id = ty->parent_type;
++                el.bits = c.scalar(0, j);
++                out.components.push_back(el);
++            }
++        } else {
++            out.bits = c.scalar();
++        }
++        return out;
++    }
++};
++
++Module::Module() : impl_(std::make_unique<Impl>()) {}
++Module::~Module() = default;
++
++std::unique_ptr<Module> Module::Build(const uint32_t* words, size_t count, std::string* error) {
++    std::unique_ptr<Module> m(new Module());
++    try {
++        sc::Parser parser(words, count);
++        parser.parse();
++        m->impl_->ir = std::move(parser.get_parsed_ir());
++        m->impl_->Populate(*m);
++    } catch (const std::exception& e) {
++        *error = std::string("SPIRV-Cross failed to parse the module: ") + e.what();
++        return nullptr;
++    }
++    return m;
++}
++
++std::vector<Decoration> Module::GetDecorationsFor(uint32_t id) const {
++    const auto* meta = impl_->ir.find_meta(id);
++    if (!meta) {
++        return {};
++    }
++    return DecorationsOf(meta->decoration);
++}
++
++const Type* Module::GetType(uint32_t id) const {
++    auto iter = types_.find(id);
++    if (iter != types_.end()) {
++        return iter->second.get();
++    }
++    const auto* t = impl_->Get<sc::SPIRType>(id);
++    if (!t) {
++        return nullptr;
++    }
++    auto out = std::make_unique<Type>();
++    out->id = id;
++    out->description =
++        "type %" + std::to_string(id) + " (opcode " + std::to_string(uint32_t(t->op)) + ")";
++    auto image = [&] {
++        out->image.sampled_type = t->image.type;
++        out->image.dim = static_cast<uint32_t>(t->image.dim);
++        out->image.depth = t->image.depth ? 1u : 0u;
++        out->image.arrayed = t->image.arrayed;
++        out->image.multisampled = t->image.ms;
++        out->image.sampled = t->image.sampled;
++        out->image.format = static_cast<uint32_t>(t->image.format);
++        // Like spvtools::opt::analysis::Image, an absent access qualifier reads as ReadOnly.
++        out->image.access = t->image.access == spv::AccessQualifierMax
++                                ? static_cast<uint32_t>(spv::AccessQualifierReadOnly)
++                                : static_cast<uint32_t>(t->image.access);
++    };
++    if (t->basetype == sc::SPIRType::SampledImage && !t->pointer && t->array.empty()) {
++        out->kind = Type::kSampledImage;
++        image();
++    } else {
++        switch (t->op) {
++            case spv::OpTypeVoid:
++                out->kind = Type::kVoid;
++                break;
++            case spv::OpTypeBool:
++                out->kind = Type::kBool;
++                break;
++            case spv::OpTypeInt:
++                out->kind = Type::kInteger;
++                out->width = t->width;
++                out->is_signed = t->basetype == sc::SPIRType::SByte ||
++                                 t->basetype == sc::SPIRType::Short ||
++                                 t->basetype == sc::SPIRType::Int ||
++                                 t->basetype == sc::SPIRType::Int64;
++                break;
++            case spv::OpTypeFloat:
++                out->kind = Type::kFloat;
++                out->width = t->width;
++                break;
++            case spv::OpTypeVector:
++                out->kind = Type::kVector;
++                out->element_type = t->parent_type;
++                out->count = t->vecsize;
++                break;
++            case spv::OpTypeMatrix:
++                out->kind = Type::kMatrix;
++                out->element_type = t->parent_type;
++                out->count = t->columns;
++                break;
++            case spv::OpTypeArray:
++                out->kind = Type::kArray;
++                out->element_type = t->parent_type;
++                out->count = t->array.back();
++                out->count_is_spec_constant = !t->array_size_literal.back();
++                break;
++            case spv::OpTypeRuntimeArray:
++                out->kind = Type::kRuntimeArray;
++                out->element_type = t->parent_type;
++                break;
++            case spv::OpTypeStruct: {
++                out->kind = Type::kStruct;
++                out->members.assign(t->member_types.begin(), t->member_types.end());
++                out->member_decorations.resize(out->members.size());
++                if (const auto* meta = impl_->ir.find_meta(id)) {
++                    for (size_t i = 0; i < meta->members.size() && i < out->members.size(); i++) {
++                        out->member_decorations[i] = DecorationsOf(meta->members[i]);
++                    }
++                }
++                break;
++            }
++            case spv::OpTypePointer:
++                out->kind = Type::kPointer;
++                out->element_type = t->parent_type;
++                out->storage_class = static_cast<uint32_t>(t->storage);
++                break;
++            case spv::OpTypeSampler:
++                out->kind = Type::kSampler;
++                break;
++            case spv::OpTypeImage:
++                out->kind = Type::kImage;
++                image();
++                break;
++            default:
++                out->kind = Type::kUnsupported;
++                break;
++        }
++    }
++    auto* result = out.get();
++    types_[id] = std::move(out);
++    return result;
++}
++
++std::optional<Constant> Module::FindDeclaredConstant(uint32_t id) const {
++    const auto* c = impl_->Get<sc::SPIRConstant>(id);
++    if (!c || c->specialization) {
++        return std::nullopt;
++    }
++    return impl_->BuildConstant(*c, c->constant_type);
++}
++
++}  // namespace tint::spirv::reader::spvc
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.h b/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.h
+new file mode 100644
+index 0000000000..7beac8bcb8
+--- /dev/null
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.h
+@@ -0,0 +1,327 @@
++// Copyright 2026 The Dawn & Tint Authors
++//
++// Redistribution and use in source and binary forms, with or without
++// modification, are permitted provided that the following conditions are met:
++//
++// 1. Redistributions of source code must retain the above copyright notice, this
++//    list of conditions and the following disclaimer.
++//
++// 2. Redistributions in binary form must reproduce the above copyright notice,
++//    this list of conditions and the following disclaimer in the documentation
++//    and/or other materials provided with the distribution.
++//
++// 3. Neither the name of the copyright holder nor the names of its
++//    contributors may be used to endorse or promote products derived from
++//    this software without specific prior written permission.
++//
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
++// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
++// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
++// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
++// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++
++// A small in-memory SPIR-V model for the SPIR-V reader, built from SPIRV-Cross'
++// spirv_cross::Parser / spirv_cross::ParsedIR. It mirrors the subset of the SPIRV-Tools
++// `spvtools::opt` API that parser.cc used, so the parser does not depend on SPIRV-Tools.
++//
++// This header deliberately does not include any SPIRV-Cross header: SPIRV-Cross uses the C++03
++// `spirv.hpp` header, the parser uses the C++11 `spirv.hpp11` header, and both define
++// `namespace spv` behind the same include guard. Only spirv_cross_module.cc sees SPIRV-Cross.
++
++#ifndef SRC_TINT_LANG_SPIRV_READER_PARSER_SPIRV_CROSS_MODULE_H_
++#define SRC_TINT_LANG_SPIRV_READER_PARSER_SPIRV_CROSS_MODULE_H_
++
++#include <cstddef>
++#include <cstdint>
++#include <functional>
++#include <list>
++#include <memory>
++#include <optional>
++#include <string>
++#include <unordered_map>
++#include <vector>
++
++#ifndef TINT_SPIRV_CROSS_MODULE_IMPL
++#include "spirv/unified1/spirv.hpp11"
++#endif
++
++namespace tint::spirv::reader::spvc {
++
++/// A SPIR-V instruction, stored as its raw words. Every operand is one word; the reader only
++/// builds instructions that have no literal string operands.
++class Instruction {
++  public:
++    Instruction() = default;
++    /// @param words the full instruction, including the leading word count / opcode word
++    explicit Instruction(std::vector<uint32_t> words);
++
++#ifndef TINT_SPIRV_CROSS_MODULE_IMPL
++    /// @returns the opcode
++    spv::Op opcode() const { return static_cast<spv::Op>(opcode_); }
++#endif
++    /// @returns the opcode as a raw word
++    uint32_t OpcodeWord() const { return opcode_; }
++    /// @returns the result type ID, or 0
++    uint32_t type_id() const { return has_type_ ? words_[1] : 0; }
++    /// @returns the result ID, or 0
++    uint32_t result_id() const { return has_result_ ? words_[has_type_ ? 2 : 1] : 0; }
++    /// @returns the number of operands, including the result type and result ID
++    uint32_t NumOperands() const { return static_cast<uint32_t>(words_.size() - 1); }
++    /// @returns the number of operand words, including the result type and result ID
++    uint32_t NumOperandWords() const { return NumOperands(); }
++    /// @returns the number of operands, excluding the result type and result ID
++    uint32_t NumInOperands() const { return NumOperands() - FirstInOperand(); }
++    /// @returns the number of operand words, excluding the result type and result ID
++    uint32_t NumInOperandWords() const { return NumInOperands(); }
++    /// @param i the operand index, counting the result type and result ID
++    /// @returns the operand word
++    uint32_t GetSingleWordOperand(uint32_t i) const { return words_[1 + i]; }
++    /// @param i the operand index, not counting the result type and result ID
++    /// @returns the operand word
++    uint32_t GetSingleWordInOperand(uint32_t i) const {
++        return words_[1 + FirstInOperand() + i];
++    }
++
++  private:
++    uint32_t FirstInOperand() const { return (has_type_ ? 1u : 0u) + (has_result_ ? 1u : 0u); }
++
++    std::vector<uint32_t> words_;
++    uint32_t opcode_ = 0;
++    bool has_type_ = false;
++    bool has_result_ = false;
++};
++
++/// A SPIR-V basic block. The OpLabel is not part of the instruction list; the merge instruction
++/// (if any) and the terminator are.
++class BasicBlock {
++  public:
++    /// @returns the block label ID
++    uint32_t id() const { return id_; }
++    /// @returns the first instruction
++    std::vector<Instruction>::const_iterator begin() const { return insts_.begin(); }
++    /// @returns the end of the instruction list
++    std::vector<Instruction>::const_iterator end() const { return insts_.end(); }
++    /// @returns the OpSelectionMerge or OpLoopMerge instruction, or nullptr
++    const Instruction* GetMergeInst() const;
++    /// @returns the OpLoopMerge instruction, or nullptr
++    const Instruction* GetLoopMergeInst() const;
++    /// @returns the merge block ID of the merge instruction, or 0
++    uint32_t MergeBlockIdIfAny() const;
++    /// @returns the continue target ID of the OpLoopMerge instruction, or 0
++    uint32_t ContinueBlockIdIfAny() const;
++    /// @returns true if the block ends with OpReturn or OpReturnValue
++    bool IsReturn() const;
++    /// Calls @p f for each successor label of the terminator.
++    void ForEachSuccessorLabel(const std::function<void(uint32_t)>& f) const;
++
++  private:
++    friend class Module;
++    uint32_t id_ = 0;
++    std::vector<Instruction> insts_;
++};
++
++/// A SPIR-V function definition.
++class Function {
++  public:
++    /// @returns the function result ID
++    uint32_t result_id() const { return id_; }
++    /// @returns the function return type ID
++    uint32_t type_id() const { return return_type_; }
++    /// Calls @p f with each OpFunctionParameter instruction.
++    void ForEachParam(const std::function<void(const Instruction*)>& f) const;
++    /// @returns the entry block
++    const BasicBlock* entry() const { return blocks_.empty() ? nullptr : blocks_.front().get(); }
++    /// @param id a block label ID
++    /// @returns the block with label @p id, or nullptr
++    const BasicBlock* FindBlock(uint32_t id) const;
++
++  private:
++    friend class Module;
++    uint32_t id_ = 0;
++    uint32_t return_type_ = 0;
++    std::vector<Instruction> params_;
++    std::vector<std::unique_ptr<BasicBlock>> blocks_;
++    std::unordered_map<uint32_t, const BasicBlock*> block_by_id_;
++};
++
++/// A decoration with its first literal operand (0 if there is none).
++struct Decoration {
++    /// The spv::Decoration value
++    uint32_t kind = 0;
++    /// The first operand of the decoration
++    uint32_t value = 0;
++};
++
++/// A SPIR-V type declaration.
++struct Type {
++    /// The kind of type
++    enum Kind {
++        kVoid,
++        kBool,
++        kInteger,
++        kFloat,
++        kVector,
++        kMatrix,
++        kArray,
++        kRuntimeArray,
++        kStruct,
++        kPointer,
++        kSampler,
++        kImage,
++        kSampledImage,
++        kUnsupported,
++    };
++    /// The image operands of an OpTypeImage, also used for OpTypeSampledImage
++    struct ImageInfo {
++        uint32_t sampled_type = 0;
++        uint32_t dim = 0;
++        uint32_t depth = 0;
++        bool arrayed = false;
++        bool multisampled = false;
++        uint32_t sampled = 0;
++        uint32_t format = 0;
++        /// The access qualifier (ReadOnly if absent)
++        uint32_t access = 0;
++    };
++
++    Kind kind = kUnsupported;
++    /// The type ID
++    uint32_t id = 0;
++    /// Bit width of integer and float types
++    uint32_t width = 0;
++    /// Signedness of integer types
++    bool is_signed = false;
++    /// Element type of vectors, matrices and arrays, pointee type of pointers
++    uint32_t element_type = 0;
++    /// Element count of vectors, column count of matrices, length of arrays
++    uint32_t count = 0;
++    /// For arrays, true if the length is a specialization constant (`count` is then its ID)
++    bool count_is_spec_constant = false;
++    /// Storage class of pointers
++    uint32_t storage_class = 0;
++    /// Member types of structures
++    std::vector<uint32_t> members;
++    /// Member decorations of structures
++    std::vector<std::vector<Decoration>> member_decorations;
++    /// Image information
++    ImageInfo image;
++    /// A description of the type, for diagnostics
++    std::string description;
++};
++
++/// A SPIR-V constant value (non-specialization constants only).
++struct Constant {
++    /// The constant type ID
++    uint32_t type_id = 0;
++    /// The scalar bits for bool, integer and float constants
++    uint32_t bits = 0;
++    /// The components of vector, matrix, array and structure constants
++    std::vector<Constant> components;
++};
++
++/// An entry point declaration.
++struct EntryPoint {
++    /// The spv::ExecutionModel
++    uint32_t model = 0;
++    /// The entry point function ID
++    uint32_t function = 0;
++    /// The entry point name
++    std::string name;
++};
++
++/// An OpExtInstImport declaration.
++struct ExtInstImport {
++    /// The result ID
++    uint32_t id = 0;
++    /// The instruction set name
++    std::string name;
++};
++
++class Module;
++
++/// Structured control flow queries over a function.
++class CFG {
++  public:
++    /// @param module the module
++    explicit CFG(const Module* module) : module_(module) {}
++    /// Computes the structured order of the blocks reachable from @p root, stopping at @p end.
++    /// Matches spvtools::opt::CFG::ComputeStructuredOrder.
++    void ComputeStructuredOrder(const Function* func,
++                                const BasicBlock* root,
++                                const BasicBlock* end,
++                                std::list<const BasicBlock*>* order) const;
++
++  private:
++    const Module* module_;
++};
++
++/// The SPIR-V module, built from SPIRV-Cross' parsed IR.
++class Module {
++  public:
++    ~Module();
++
++    /// Parses @p words with spirv_cross::Parser.
++    /// @param words the SPIR-V binary
++    /// @param count the number of words
++    /// @param error set to the error message on failure
++    /// @returns the module, or nullptr on failure
++    static std::unique_ptr<Module> Build(const uint32_t* words, size_t count, std::string* error);
++
++    /// @returns the names of the OpExtension declarations
++    const std::vector<std::string>& extensions() const { return extensions_; }
++    /// @returns the OpExtInstImport declarations
++    const std::vector<ExtInstImport>& ext_inst_imports() const { return ext_inst_imports_; }
++    /// @returns the OpName names, keyed by ID
++    const std::unordered_map<uint32_t, std::string>& names() const { return names_; }
++    /// @returns the OpMemberName names, keyed by structure ID
++    const std::unordered_map<uint32_t, std::vector<std::string>>& member_names() const {
++        return member_names_;
++    }
++    /// @returns the module-scope OpSpecConstantTrue, OpSpecConstantFalse, OpSpecConstant,
++    /// OpSpecConstantComposite, OpSpecConstantOp, OpUndef and OpVariable instructions, in
++    /// declaration order within each group
++    const std::vector<Instruction>& types_values() const { return types_values_; }
++    /// @returns the function definitions in declaration order
++    const std::vector<std::unique_ptr<Function>>& functions() const { return functions_; }
++    /// @returns the entry points
++    const std::vector<EntryPoint>& entry_points() const { return entry_points_; }
++    /// @returns OpExecutionMode instructions (function, mode, literals...)
++    const std::vector<Instruction>& execution_modes() const { return execution_modes_; }
++
++    /// @param id a result ID
++    /// @returns the decorations on @p id
++    std::vector<Decoration> GetDecorationsFor(uint32_t id) const;
++    /// @param id a type ID
++    /// @returns the type, or nullptr
++    const Type* GetType(uint32_t id) const;
++    /// @param id a result ID
++    /// @returns the constant if @p id is a non-specialization constant
++    std::optional<Constant> FindDeclaredConstant(uint32_t id) const;
++    /// @returns the control flow graph helper
++    const CFG* cfg() const { return &cfg_; }
++
++  private:
++    struct Impl;
++    Module();
++
++    std::unique_ptr<Impl> impl_;
++    CFG cfg_{this};
++    std::vector<std::string> extensions_;
++    std::vector<ExtInstImport> ext_inst_imports_;
++    std::unordered_map<uint32_t, std::string> names_;
++    std::unordered_map<uint32_t, std::vector<std::string>> member_names_;
++    std::vector<Instruction> types_values_;
++    std::vector<std::unique_ptr<Function>> functions_;
++    std::vector<EntryPoint> entry_points_;
++    std::vector<Instruction> execution_modes_;
++    mutable std::unordered_map<uint32_t, std::unique_ptr<Type>> types_;
++};
++
++}  // namespace tint::spirv::reader::spvc
++
++#endif  // SRC_TINT_LANG_SPIRV_READER_PARSER_SPIRV_CROSS_MODULE_H_
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc b/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
+index d70c16c04a..a7a68ba8f7 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
+@@ -30,9 +30,10 @@
+ #include <utility>
+ 
+ #include "src/tint/lang/core/ir/module.h"
+-#include "src/tint/lang/spirv/reader/ast_parser/parse.h"
+ #include "src/tint/lang/spirv/reader/lower/lower.h"
+ #include "src/tint/lang/spirv/reader/parser/parser.h"
++#include "src/tint/lang/wgsl/program/program_builder.h"
++#include "src/tint/lang/wgsl/writer/writer.h"
+ 
+ namespace tint::spirv::reader {
+ 
+@@ -51,8 +52,28 @@ Result<core::ir::Module> ReadIR(const std::vector<uint32_t>& input) {
+     return mod;
+ }
+ 
++// Godot: the AST parser (and its SPIRV-Tools dependency) has been removed. Read the SPIR-V to
++// core IR, then raise the IR to a WGSL program.
+ Program Read(const std::vector<uint32_t>& input, const Options& options) {
+-    return ast_parser::Parse(input, options);
++    auto failed = [](const std::string& reason) {
++        ProgramBuilder b;
++        b.Diagnostics().AddError(Source{}) << reason;
++        return Program(std::move(b));
++    };
++
++    auto ir = ReadIR(input);
++    if (ir != Success) {
++        return failed(ir.Failure().reason);
++    }
++
++    wgsl::writer::ProgramOptions program_options;
++    program_options.allow_non_uniform_derivatives = options.allow_non_uniform_derivatives;
++    program_options.allowed_features = options.allowed_features;
++    auto program = wgsl::writer::ProgramFromIR(ir.Get(), program_options);
++    if (program != Success) {
++        return failed(program.Failure().reason);
++    }
++    return program.Move();
+ }
+ 
+ }  // namespace tint::spirv::reader
