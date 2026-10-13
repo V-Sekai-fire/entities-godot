@@ -373,10 +373,13 @@ RendererCompositorRD::RendererCompositorRD() {
 
 	String rendering_method = OS::get_singleton()->get_current_rendering_method();
 	uint64_t textures_per_stage = RD::get_singleton()->limit_get(RD::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE);
+	// The Clustered renderer's own shaders read at most 29 textures in a stage. WebGPU on Safari,
+	// iOS and most Macs reports 44, which leaves room for material textures.
+	const uint64_t required_textures_per_stage = OS::get_singleton()->get_current_rendering_driver_name() == "webgpu" ? 44 : 48;
 
-	if (rendering_method == "mobile" || textures_per_stage < 48) {
+	if (rendering_method == "mobile" || textures_per_stage < required_textures_per_stage) {
 		if (rendering_method == "forward_plus") {
-			WARN_PRINT_ONCE("Platform supports less than 48 textures per stage which is less than required by the Clustered renderer. Attempting to fallback to the Mobile renderer.");
+			WARN_PRINT_ONCE(vformat("Platform supports %d textures per stage, less than the %d required by the Clustered renderer. Attempting to fallback to the Mobile renderer.", textures_per_stage, required_textures_per_stage));
 		}
 #ifdef MOBILE_RD_ENABLED
 		scene = memnew(RendererSceneRenderImplementation::RenderForwardMobile());
