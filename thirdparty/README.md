@@ -1137,8 +1137,8 @@ Files extracted from upstream source:
 - Not built (still needs SPIRV-Tools): `src/tint/lang/spirv/writer/`
 
 The SPIR-V reader reads modules with SPIRV-Cross (`thirdparty/spirv-cross`: `spirv_parser.cpp`,
-`spirv_cross_parsed_ir.cpp`) instead of SPIRV-Tools. Build the reader with `-fexceptions` like
-`drivers/metal`, as SPIRV-Cross reports parse errors with exceptions. `src/utils` needs the
+`spirv_cross_parsed_ir.cpp`) instead of SPIRV-Tools. With `disable_exceptions`, build it with
+`SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS`, so SPIRV-Cross aborts on a malformed module (patch 0007). `src/utils` needs the
 global define `DAWN_HAVE_UTILS_BUILD_CONFIG` (and `NDEBUG` or `DAWN_ENABLE_ASSERTS`).
 
 Patches:
@@ -1164,6 +1164,8 @@ Patches:
   depth-texture-parameter error from 0003)
 - `0006-spirv-reader-isnan-isinf.patch` (read `OpIsNan` and `OpIsInf` as tests on the float's
   bits, as WGSL has no NaN or infinity tests; f16 is widened to f32 first)
+- `0007-spirv-reader-no-exceptions.patch` (parse without `try` when SPIRV-Cross is built with
+  `SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS`, as Godot builds with exceptions disabled)
 
 ## tinyexr
 

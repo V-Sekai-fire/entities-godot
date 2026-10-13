@@ -1071,6 +1071,13 @@ BasicBlock* IRContext::get_instr_block(uint32_t id) const {
 
 std::unique_ptr<IRContext> IRContext::Build(const uint32_t* data, size_t count, std::string* error) {
     std::vector<uint32_t> words(data, data + count);
+#ifdef SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS
+    // Built without exceptions: SPIRV-Cross aborts on a malformed module instead of throwing.
+    {
+        sc::Parser parser(data, count);
+        parser.parse();
+    }
+#else
     try {
         // Let SPIRV-Cross check the module structure.
         sc::Parser parser(data, count);
@@ -1079,6 +1086,7 @@ std::unique_ptr<IRContext> IRContext::Build(const uint32_t* data, size_t count, 
         *error = std::string("SPIRV-Cross failed to parse the module: ") + e.what();
         return nullptr;
     }
+#endif
     std::vector<std::vector<uint32_t>> groups;
     if (!SplitHandleArrays(words, &groups, error)) {
         return nullptr;
