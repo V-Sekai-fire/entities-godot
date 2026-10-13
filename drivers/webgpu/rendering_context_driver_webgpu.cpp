@@ -51,6 +51,14 @@ static void handle_request_adapter(WGPURequestAdapterStatus p_status,
 
 	RenderingContextDriver::Device device;
 	device.name = String::utf8(info.device.data, info.device.length);
+	// Browsers leave `device` (and often `description`) empty for privacy, but give the vendor and
+	// architecture, such as "apple metal-3".
+	if (device.name.is_empty()) {
+		device.name = String::utf8(info.description.data, info.description.length);
+	}
+	if (device.name.is_empty()) {
+		device.name = (String::utf8(info.vendor.data, info.vendor.length) + " " + String::utf8(info.architecture.data, info.architecture.length)).strip_edges();
+	}
 	device.vendor = info.vendorID;
 	device.type = (RenderingContextDriver::DeviceType)info.adapterType;
 
