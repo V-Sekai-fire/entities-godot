@@ -59,6 +59,10 @@ struct Options {
     std::optional<BindingPoint> push_constant_binding;
     /// Godot: the largest push constant block accepted, in bytes. 0 means no limit.
     uint32_t push_constant_max_size = 0;
+
+    /// Negate the y of the vertex position output. SPIR-V for Vulkan has y pointing down in clip
+    /// space, WGSL has it pointing up, like SPIRV-Cross's flip_vert_y for Metal.
+    bool flip_vertex_y = false;
     /// Godot: the WGSL binding of each texture, sampler and buffer, chosen by the embedder from the
     /// layout of the whole shader (all stages), so every stage numbers bindings the same way.
     /// Called with the SPIR-V descriptor set and binding, the element of a handle array (0 if not

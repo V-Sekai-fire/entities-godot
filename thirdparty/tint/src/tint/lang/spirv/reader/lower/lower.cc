@@ -43,12 +43,12 @@
 
 namespace tint::spirv::reader {
 
-Result<SuccessType> Lower(core::ir::Module& mod) {
+Result<SuccessType> Lower(core::ir::Module& mod, bool flip_vertex_y) {
     TINT_CHECK_RESULT(core::ir::transform::DeadCodeElimination(mod));
     // Godot: texture and sampler parameters become the variables passed to them.
     TINT_CHECK_RESULT(lower::HandleParams(mod));
     TINT_CHECK_RESULT(lower::VectorElementPointer(mod));
-    TINT_CHECK_RESULT(lower::ShaderIO(mod));
+    TINT_CHECK_RESULT(lower::ShaderIO(mod, flip_vertex_y));
     TINT_CHECK_RESULT(lower::Builtins(mod));
 
     // TransposeRowMajor must come before DecomposeStridedMatrix as we need to convert the matrices

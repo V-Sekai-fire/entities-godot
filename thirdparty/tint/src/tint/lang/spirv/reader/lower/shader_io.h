@@ -41,7 +41,7 @@ namespace tint::spirv::reader::lower {
 /// the form expected by Tint's core IR (using function parameters and return values).
 /// @param module the module to transform
 /// @returns success or failure
-Result<SuccessType> ShaderIO(core::ir::Module& module);
+Result<SuccessType> ShaderIO(core::ir::Module& module, bool flip_vertex_y = false);
 
 }  // namespace tint::spirv::reader::lower
 

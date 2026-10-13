@@ -53,6 +53,9 @@ struct State {
     /// The type manager.
     core::type::Manager& ty{ir.Types()};
 
+    /// Negate the y of the vertex position output (see Options::flip_vertex_y).
+    bool flip_vertex_y = false;
+
     /// A map from block to its containing function.
     Hashmap<core::ir::Block*, core::ir::Function*, 64> block_to_function{};
 
@@ -180,6 +183,12 @@ struct State {
                    core::IOAttributes& attributes) {
         if (!name) {
             name = ir.symbols.New();
+        }
+
+        if (flip_vertex_y && attributes.builtin == core::BuiltinValue::kPosition) {
+            auto* f32 = ty.f32();
+            from = b.Construct(type, b.Access(f32, from, 0_u), b.Negation(b.Access(f32, from, 1_u)),
+                               b.Access(f32, from, 2_u), b.Access(f32, from, 3_u));
         }
 
         if ((type->Is<core::type::Vector>() || type->IsScalar()) ||
@@ -740,10 +749,12 @@ struct State {
 
 }  // namespace
 
-Result<SuccessType> ShaderIO(core::ir::Module& ir) {
+Result<SuccessType> ShaderIO(core::ir::Module& ir, bool flip_vertex_y) {
     AssertValid(ir, "before spirv.ShaderIO");
 
-    TINT_CHECK_RESULT(State{ir}.Process());
+    State state{ir};
+    state.flip_vertex_y = flip_vertex_y;
+    TINT_CHECK_RESULT(state.Process());
 
     ir.properties.Remove(core::ir::Property::kAllowBackendSpecificShaderIO);
     ir.properties.Remove(core::ir::Property::kAllowLocationForNumericComposites);

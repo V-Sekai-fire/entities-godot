@@ -1174,6 +1174,9 @@ Patches:
   with filtering samplers; Godot reads its shadow atlases with a linear sampler)
 - `0010-spirv-reader-point-coord.patch` (read `gl_PointCoord` as `vec2(0.5)`: WebGPU draws only
   1-pixel points, whose one fragment is at the point's center, and WGSL has no such builtin)
+- `0011-spirv-reader-flip-vertex-y.patch` (`flip_vertex_y` option: negate the y of the vertex
+  position output, as Vulkan clip space has y down and WebGPU has it up; without it every
+  triangle faces the other way and is culled. Godot's Metal and D3D12 drivers flip the same way)
 
 ## tinyexr
 
