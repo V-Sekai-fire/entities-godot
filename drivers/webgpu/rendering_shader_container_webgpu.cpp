@@ -43,7 +43,7 @@
 
 #include <thirdparty/spirv-reflect/spirv_reflect.h>
 
-#define DEBUG_SHADERS
+// #define DEBUG_SHADERS
 
 #ifdef DEBUG_SHADERS
 #define DEBUG_SHADERS_RAW_LOCATION "/tmp/shader"
