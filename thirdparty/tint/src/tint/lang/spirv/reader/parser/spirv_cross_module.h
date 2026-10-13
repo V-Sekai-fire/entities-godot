@@ -590,6 +590,13 @@ class IRContext {
     /// free binding, like spvtools::opt::ResolveBindingConflictsPass.
     void ResolveBindingConflicts();
 
+    /// Godot: sets the binding of every resource variable from @p plan (see
+    /// Options::binding_plan) instead of resolving conflicts per stage.
+    /// @returns false with @p error set if the plan has no binding for a variable
+    bool ApplyBindingPlan(
+        const std::function<std::optional<uint32_t>(uint32_t, uint32_t, uint32_t, bool)>& plan,
+        std::string* error);
+
     /// @returns the module
     Module* module() { return &module_; }
     /// @returns OpExtension instructions

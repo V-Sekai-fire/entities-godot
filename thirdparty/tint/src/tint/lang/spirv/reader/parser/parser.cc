@@ -115,7 +115,12 @@ class Parser {
         if (!spirv_context_) {
             return Failure(build_error);
         }
-        if (options_.sampler_mappings.empty()) {
+        if (options_.binding_plan) {
+            // Godot: bindings from the embedder's layout of the whole shader.
+            if (!spirv_context_->ApplyBindingPlan(options_.binding_plan, &build_error)) {
+                return Failure(build_error);
+            }
+        } else if (options_.sampler_mappings.empty()) {
             // Godot: as SPIRV-Tools' ResolveBindingConflictsPass.
             spirv_context_->ResolveBindingConflicts();
         }

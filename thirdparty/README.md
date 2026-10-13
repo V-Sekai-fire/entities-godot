@@ -1166,6 +1166,9 @@ Patches:
   bits, as WGSL has no NaN or infinity tests; f16 is widened to f32 first)
 - `0007-spirv-reader-no-exceptions.patch` (parse without `try` when SPIRV-Cross is built with
   `SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS`, as Godot builds with exceptions disabled)
+- `0008-spirv-reader-binding-plan.patch` (reader option that takes every texture, sampler and
+  buffer binding from the embedder, so all stages of a shader number split arrays and combined
+  image samplers the same way; the driver builds the plan from the whole shader's uniforms)
 
 ## tinyexr
 

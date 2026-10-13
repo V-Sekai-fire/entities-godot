@@ -1670,4 +1670,63 @@ void IRContext::ResolveBindingConflicts() {
     } while (changed);
 }
 
+bool IRContext::ApplyBindingPlan(
+    const std::function<std::optional<uint32_t>(uint32_t, uint32_t, uint32_t, bool)>& plan,
+    std::string* error) {
+    std::unordered_map<uint32_t, uint32_t> element_of;
+    for (const auto& g : handle_array_groups_) {
+        for (uint32_t i = 0; i < g.size(); i++) {
+            element_of[g[i]] = i;
+        }
+    }
+    auto is_sampler = [&](uint32_t type_id) {
+        Instruction* ty = def_use_.GetDef(type_id);
+        while (ty) {
+            auto op = static_cast<spv::Op>(ty->OpcodeWord());
+            if (op == spv::OpTypePointer) {
+                ty = def_use_.GetDef(ty->GetSingleWordInOperand(1));
+            } else if (op == spv::OpTypeArray || op == spv::OpTypeRuntimeArray) {
+                ty = def_use_.GetDef(ty->GetSingleWordInOperand(0));
+            } else {
+                break;
+            }
+        }
+        return ty && ty->OpcodeWord() == spv::OpTypeSampler;
+    };
+    for (auto& inst : module_.types_values_) {
+        if (inst.OpcodeWord() != spv::OpVariable) {
+            continue;
+        }
+        Instruction* set = nullptr;
+        Instruction* binding = nullptr;
+        for (auto* d : decorations_.GetDecorationsFor(inst.result_id(), false)) {
+            if (d->OpcodeWord() != spv::OpDecorate) {
+                continue;
+            }
+            if (d->GetSingleWordInOperand(1) == spv::DecorationDescriptorSet) {
+                set = d;
+            } else if (d->GetSingleWordInOperand(1) == spv::DecorationBinding) {
+                binding = d;
+            }
+        }
+        if (!set || !binding) {
+            continue;
+        }
+        uint32_t g = set->GetSingleWordInOperand(2);
+        uint32_t b = binding->GetSingleWordInOperand(2);
+        auto it = element_of.find(inst.result_id());
+        uint32_t element = it != element_of.end() ? it->second : 0;
+        bool sampler = is_sampler(inst.type_id());
+        std::optional<uint32_t> to = plan(g, b, element, sampler);
+        if (!to) {
+            *error = "the binding plan has no binding for set " + std::to_string(g) + " binding " +
+                     std::to_string(b) + " element " + std::to_string(element) +
+                     (sampler ? " (sampler)" : "");
+            return false;
+        }
+        binding->SetInOperandWord(2, *to);
+    }
+    return true;
+}
+
 }  // namespace tint::spirv::reader::spvc

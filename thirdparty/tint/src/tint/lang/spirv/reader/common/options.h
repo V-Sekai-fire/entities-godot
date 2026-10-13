@@ -29,6 +29,7 @@
 #define SRC_TINT_LANG_SPIRV_READER_COMMON_OPTIONS_H_
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <unordered_map>
 
@@ -58,6 +59,15 @@ struct Options {
     std::optional<BindingPoint> push_constant_binding;
     /// Godot: the largest push constant block accepted, in bytes. 0 means no limit.
     uint32_t push_constant_max_size = 0;
+    /// Godot: the WGSL binding of each texture, sampler and buffer, chosen by the embedder from the
+    /// layout of the whole shader (all stages), so every stage numbers bindings the same way.
+    /// Called with the SPIR-V descriptor set and binding, the element of a handle array (0 if not
+    /// an array) and whether the variable is a sampler (the sampler half of a combined image
+    /// sampler, or a plain sampler). Returns the WGSL binding, or nullopt if the embedder has none,
+    /// which fails the read. When not set, conflicts are resolved by moving later bindings up,
+    /// per stage.
+    std::function<std::optional<uint32_t>(uint32_t group, uint32_t binding, uint32_t element, bool sampler)>
+        binding_plan;
 };
 
 }  // namespace tint::spirv::reader
