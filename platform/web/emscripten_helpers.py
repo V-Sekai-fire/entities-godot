@@ -24,13 +24,16 @@ def run_closure_compiler(target, source, env, for_signature):
 
 
 def create_engine_file(env, target, source, externs, threads_enabled, webgpu_enabled=False):
-    if env["use_closure_compiler"]:
-        return env.BuildJS(target, source, JSEXTERNS=externs)
     subst_dict = {
         "___GODOT_THREADS_ENABLED": "true" if threads_enabled else "false",
         "___GODOT_WEBGPU_ENABLED": "true" if webgpu_enabled else "false",
     }
-    return env.Substfile(target=target, source=[env.File(s) for s in source], SUBST_DICT=subst_dict)
+    sources = [env.File(s) for s in source]
+    if env["use_closure_compiler"]:
+        # Closure Compiler sees the placeholders as undeclared variables, so substitute first.
+        substituted = env.Substfile(target=target + ".subst.js", source=sources, SUBST_DICT=subst_dict)
+        return env.BuildJS(target, substituted, JSEXTERNS=externs)
+    return env.Substfile(target=target, source=sources, SUBST_DICT=subst_dict)
 
 
 def create_template_zip(env, js, wasm, side):
