@@ -482,7 +482,8 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 		usage_bits |= WGPUTextureUsage_CopySrc;
 	}
 	if (p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT) {
-		usage_bits |= WGPUTextureUsage_StorageBinding;
+		// Read-only storage images are read as sampled textures (tint's read_only_storage_as_sampled).
+		usage_bits |= WGPUTextureUsage_StorageBinding | WGPUTextureUsage_TextureBinding;
 	}
 
 	WGPUTextureFormat texture_format = webgpu_texture_format_from_rd(p_format.format);
@@ -1793,6 +1794,18 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					}
 				} break;
 				case UNIFORM_TYPE_IMAGE: {
+					if (u.base_hint.type == WebGpuBindingHintType::TEXTURE) {
+						// A read-only image that the shader reads as a sampled texture.
+						WGPUTextureViewDimension view_dimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type);
+						if (view_dimension == WGPUTextureViewDimension_Cube) {
+							view_dimension = WGPUTextureViewDimension_2DArray;
+						}
+						layout_entry.texture = WGPU_TEXTURE_BINDING_LAYOUT_INIT;
+						layout_entry.texture.sampleType = (WGPUTextureSampleType)u.base_hint.texture.sample_type;
+						layout_entry.texture.viewDimension = view_dimension;
+						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+						break;
+					}
 					WGPUStorageTextureAccess access;
 					switch (info.image_access) {
 						case ShaderUniform::ImageAccess::ReadWrite:

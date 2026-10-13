@@ -102,6 +102,7 @@ bool webgpu_tint_spirv_to_wgsl(const uint32_t *p_words, size_t p_word_count, con
 	options.push_constant_max_size = p_push_constant_max_size;
 	// Vulkan clip space has y down, WebGPU has it up; flip like the Metal and D3D12 drivers do.
 	options.flip_vertex_y = true;
+	options.read_only_storage_as_sampled = true;
 	std::map<std::tuple<uint32_t, uint32_t, uint32_t, bool>, uint32_t> plan;
 	for (const WebGpuTintPlanEntry &e : p_plan) {
 		plan[{ e.group, e.binding, e.element, e.sampler }] = e.wgsl_binding;
