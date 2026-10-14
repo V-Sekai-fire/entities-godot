@@ -361,7 +361,8 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 	}
 
 	uint64_t offset = 0;
-	uint64_t size = buffer_info->size;
+	// WebGPU maps whole multiples of 4 bytes; the buffer is allocated in multiples of 256.
+	uint64_t size = STEPIFY(buffer_info->size, 4);
 
 	if (!buffer_info->is_transfer_first_map) {
 		if (buffer_info->map_mode == WGPUMapMode_Write) {
