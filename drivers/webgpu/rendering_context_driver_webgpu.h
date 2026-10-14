@@ -88,7 +88,6 @@ public:
 
 	WGPUInstance instance_get() const;
 	WGPUAdapter adapter_get(uint32_t p_adapter_index) const;
-	// A WebGPU adapter creates one device, so each device driver takes its own reference.
 	WGPUAdapter adapter_acquire(uint32_t p_adapter_index);
 	void adapter_push_back(WGPUAdapter p_adapter, Device p_device);
 };

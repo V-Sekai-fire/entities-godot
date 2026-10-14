@@ -373,8 +373,6 @@ RendererCompositorRD::RendererCompositorRD() {
 
 	String rendering_method = OS::get_singleton()->get_current_rendering_method();
 	uint64_t textures_per_stage = RD::get_singleton()->limit_get(RD::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE);
-	// The Clustered renderer's own shaders read at most 29 textures in a stage. WebGPU on Safari,
-	// iOS and most Macs reports 44, which leaves room for material textures.
 	const uint64_t required_textures_per_stage = OS::get_singleton()->get_current_rendering_driver_name() == "webgpu" ? 44 : 48;
 
 	// The Clustered renderer also writes R8, R16UI and RG16F storage images and uses subgroup

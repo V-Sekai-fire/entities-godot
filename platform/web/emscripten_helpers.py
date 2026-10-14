@@ -30,7 +30,6 @@ def create_engine_file(env, target, source, externs, threads_enabled, webgpu_ena
     }
     sources = [env.File(s) for s in source]
     if env["use_closure_compiler"]:
-        # Closure Compiler sees the placeholders as undeclared variables, so substitute first.
         substituted = env.Substfile(target=target + ".subst.js", source=sources, SUBST_DICT=subst_dict)
         return env.BuildJS(target, substituted, JSEXTERNS=externs)
     return env.Substfile(target=target, source=sources, SUBST_DICT=subst_dict)

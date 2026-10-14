@@ -194,8 +194,6 @@ inline bool find_varyings(const std::vector<uint32_t> &p_words, StageVaryings &r
 	return true;
 }
 
-// Renumbers the varyings of all stages of one shader together, so a vertex output and the fragment
-// input that reads it get the same new number. Returns false on malformed SPIR-V (words untouched).
 inline bool compact(std::vector<std::vector<uint32_t>> &r_stages) {
 	std::vector<StageVaryings> found(r_stages.size());
 	std::set<uint32_t> occupied;

@@ -128,9 +128,6 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		WGPUFeatureName_Subgroups,
 		WGPUFeatureName_TextureComponentSwizzle,
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
-		// `wgpu` needs to add support for "texture-formats-tier1", "texture-formats-tier2", and "subgroups", see:
-		// - https://github.com/gfx-rs/wgpu/issues/5555
-		// - https://github.com/gfx-rs/wgpu/issues/8122
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
 		(WGPUFeatureName)WGPUNativeFeature_Subgroup,
@@ -152,12 +149,6 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	texture_formats_tier1_supported = true;
 	subgroups_supported = true;
 #endif
-	// Features listed for reference only; enabling them needs matching runtime paths.
-	//   WGPUNativeFeature_Immediates — currently emulated via push constants.
-	//   Binding-array features (TextureBindingArray, StorageResourceBindingArray,
-	//   BufferBindingArray, and the two NonUniformIndexing variants) — currently
-	//   worked around via binding-array splitting.
-	//   VertexWritableStorage, MultiDrawIndirect, MultiDrawIndirectCount — unused.
 
 	// Clamp requested limits to what the adapter reports. Firefox's stable
 	// WebGPU exposes lower ceilings than Chromium's Dawn; requesting more
@@ -173,7 +164,6 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	required_limits.maxSampledTexturesPerShaderStage = pick_limit(48, adapter_limits.maxSampledTexturesPerShaderStage);
 	required_limits.maxStorageBuffersPerShaderStage = pick_limit(16, adapter_limits.maxStorageBuffersPerShaderStage);
 	required_limits.maxStorageTexturesPerShaderStage = pick_limit(16, adapter_limits.maxStorageTexturesPerShaderStage);
-	// Godot pins material varyings from location 15, so every location the adapter has is used.
 	required_limits.maxInterStageShaderVariables = adapter_limits.maxInterStageShaderVariables;
 
 	WGPUDeviceDescriptor device_desc = WGPU_DEVICE_DESCRIPTOR_INIT;
@@ -225,7 +215,6 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	ERR_FAIL_COND_V(!this->queue, FAILED);
 
 	capabilities = (Capabilities){
-		// TODO: This information is not accurate, see modules/glslang/register_types.cpp:78.
 		.device_family = DEVICE_WEBGPU,
 		.version_major = 28,
 		.version_minor = 0,
@@ -233,11 +222,9 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	multiview_capabilities = (MultiviewCapabilities){
 		.is_supported = false,
 	};
-	// Defaults: no fragment density map, no fragment shading rate.
 	fdm_capabilities = FragmentDensityMapCapabilities();
 	fsr_capabilities = FragmentShadingRateCapabilities();
 
-	// Initialize push constant emulation buffer.
 	WGPUBufferDescriptor push_constant_buffer_desc = WGPU_BUFFER_DESCRIPTOR_INIT;
 	push_constant_buffer_desc.nextInChain = nullptr;
 	push_constant_buffer_desc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform;
@@ -247,10 +234,6 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 	return OK;
 }
-
-/*****************/
-/**** BUFFERS ****/
-/*****************/
 
 RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t p_frames_drawn) {
 	WGPUBufferUsage usage = webgpu_buffer_usage_from_rd(p_usage);
@@ -323,7 +306,6 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 }
 
 bool RenderingDeviceDriverWebGpu::buffer_set_texel_format(BufferID p_buffer, DataFormat p_format) {
-	// TODO
 	return true;
 }
 
@@ -363,12 +345,10 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 	}
 
 	uint64_t offset = 0;
-	// WebGPU maps whole multiples of 4 bytes; the buffer is allocated in multiples of 256.
 	uint64_t size = STEPIFY(buffer_info->size, 4);
 
 	if (!buffer_info->is_transfer_first_map) {
 		if (buffer_info->map_mode == WGPUMapMode_Write) {
-			// TODO TODO TODO
 			wgpuBufferRelease(buffer_info->buffer);
 			WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
 			desc.usage = buffer_info->usage;
@@ -429,7 +409,6 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_persistent_map_advance(BufferID p_b
 }
 
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_dynamic_offsets(Span<BufferID> p_buffers) {
-	// Pretty much what Vulkan does.
 	uint64_t mask = 0u;
 	uint64_t shift = 0u;
 	for (const BufferID &b : p_buffers) {
@@ -462,13 +441,8 @@ void RenderingDeviceDriverWebGpu::_flush_pending_dynamic_buffers() {
 }
 
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_device_address(BufferID p_buffer) {
-	// TODO: impl
 	CRASH_NOW_MSG("TODO --> buffer_get_device_address");
 }
-
-/*****************/
-/**** TEXTURE ****/
-/*****************/
 
 WGPUTextureView RenderingDeviceDriverWebGpu::TextureInfo::get_view_with_format() const {
 	if (webgpu_texture_format_is_depth_stencil(texture_view_desc.format)) {
@@ -556,7 +530,6 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	uint32_t mip_level_count = p_format.mipmaps ? p_format.mipmaps : 1;
 
-	// TODO: Assert that p_format.samples follows this behavior.
 	uint32_t sample_count = pow(2, (uint32_t)p_format.samples);
 
 	Vector<WGPUTextureFormat> view_formats;
@@ -626,7 +599,6 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 }
 
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_from_extension(uint64_t p_native_texture, TextureType p_type, DataFormat p_format, uint32_t p_array_layers, bool p_depth_stencil, uint32_t p_mipmaps) {
-	// TODO: impl
 	CRASH_NOW_MSG("TODO --> texture_create_from_extension");
 }
 
@@ -770,7 +742,6 @@ void RenderingDeviceDriverWebGpu::texture_free(TextureID p_texture) {
 }
 
 uint64_t RenderingDeviceDriverWebGpu::texture_get_allocation_size(TextureID p_texture) {
-	// TODO
 	return 1;
 }
 
@@ -807,7 +778,6 @@ void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(
 }
 
 Vector<uint8_t> RenderingDeviceDriverWebGpu::texture_get_data(TextureID p_texture, uint32_t p_layer) {
-	// TODO: impl
 	CRASH_NOW_MSG("TODO --> texture_get_data");
 }
 
@@ -837,7 +807,6 @@ static bool webgpu_storage_format_is_core(WGPUTextureFormat p_format) {
 	}
 }
 
-// The same table: formats that become storage formats with "texture-formats-tier1".
 static bool webgpu_storage_format_is_tier1(WGPUTextureFormat p_format) {
 	switch (p_format) {
 		case WGPUTextureFormat_R8Unorm:
@@ -885,10 +854,6 @@ bool RenderingDeviceDriverWebGpu::texture_can_make_shared_with_format(TextureID 
 	// CRASH_NOW_MSG("TODO --> texture_can_make_shared_with_format");
 	return true;
 }
-
-/*****************/
-/**** SAMPLER ****/
-/*****************/
 
 RenderingDeviceDriver::SamplerID RenderingDeviceDriverWebGpu::sampler_create(const SamplerState &p_state) {
 	// STUB: Samplers with anisotropy enabled cannot support nearest filtering.
@@ -948,10 +913,6 @@ bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFor
 	return p_filter == SamplerFilter::SAMPLER_FILTER_LINEAR;
 }
 
-/**********************/
-/**** VERTEX ARRAY ****/
-/**********************/
-
 // NOTE: The attributes in `p_vertex_attribs` must be in order.
 RenderingDeviceDriverWebGpu::VertexFormatID RenderingDeviceDriverWebGpu::vertex_format_create(Span<VertexAttribute> p_vertex_attribs, const VertexAttributeBindingsMap &p_vertex_bindings) {
 	VertexFormatInfo *vertex_format_info = memnew(VertexFormatInfo);
@@ -1007,10 +968,6 @@ void RenderingDeviceDriverWebGpu::vertex_format_free(VertexFormatID p_vertex_for
 	memdelete(vertex_format_info);
 }
 
-/******************/
-/**** BARRIERS ****/
-/******************/
-
 void RenderingDeviceDriverWebGpu::command_pipeline_barrier(
 		CommandBufferID p_cmd_buffer,
 		BitField<PipelineStageBits> p_src_stages,
@@ -1019,15 +976,9 @@ void RenderingDeviceDriverWebGpu::command_pipeline_barrier(
 		VectorView<BufferBarrier> p_buffer_barriers,
 		VectorView<TextureBarrier> p_texture_barriers,
 		VectorView<AccelerationStructureBarrier> p_acceleration_structure_barriers) {
-	// Empty.
 }
 
-/****************/
-/**** FENCES ****/
-/****************/
-
 RenderingDeviceDriver::FenceID RenderingDeviceDriverWebGpu::fence_create() {
-	// The usage of fences in godot to sync frames is already handled by WebGpu.
 	return FenceID(1);
 }
 
@@ -1036,34 +987,18 @@ Error RenderingDeviceDriverWebGpu::fence_wait(FenceID _p_fence) {
 }
 
 void RenderingDeviceDriverWebGpu::fence_free(FenceID p_fence) {
-	// Empty.
 }
 
-/********************/
-/**** SEMAPHORES ****/
-/********************/
-
 RenderingDeviceDriver::SemaphoreID RenderingDeviceDriverWebGpu::semaphore_create() {
-	// The usage of fences in godot to sync frames is already handled by WebGpu.
 	return SemaphoreID(1);
 }
 
 void RenderingDeviceDriverWebGpu::semaphore_free(SemaphoreID _p_semaphore) {
-	// Empty.
 }
-
-/******************/
-/**** COMMANDS ****/
-/******************/
-
-// ----- QUEUE FAMILY -----
 
 RenderingDeviceDriver::CommandQueueFamilyID RenderingDeviceDriverWebGpu::command_queue_family_get(BitField<CommandQueueFamilyBits> _p_cmd_queue_family_bits, RenderingContextDriver::SurfaceID _p_surface) {
-	// WebGpu has no concept of queue families, so this value is unused.
 	return CommandQueueFamilyID(1);
 }
-
-// ----- QUEUE -----
 
 RenderingDeviceDriver::CommandQueueID RenderingDeviceDriverWebGpu::command_queue_create(CommandQueueFamilyID _p_cmd_queue_family, bool _p_identify_as_main_queue) {
 	// WebGpu has only one queue, so this value is unused.
@@ -1089,7 +1024,6 @@ Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueu
 	_flush_pending_dynamic_buffers();
 	wgpuQueueSubmit(queue, commands.size(), commands.ptr());
 
-	// Flush push constant emulation buffer for the next command buffer.
 	push_constant_emulation_head = 0;
 
 	for (uint32_t i = 0; i < commands.size(); i++) {
@@ -1097,9 +1031,6 @@ Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueu
 		wgpuCommandBufferRelease(command_buffer);
 	}
 
-	// TODO: IMPL
-	// Q: Will we get multiple surfaces?
-	// Only needed for desktop.
 #if !defined(WEBGPU_BACKEND_EMDAWN)
 	for (uint32_t i = 0; i < p_swap_chains.size(); i++) {
 		SwapChainInfo *swapchain = (SwapChainInfo *)p_swap_chains[i].id;
@@ -1113,10 +1044,7 @@ Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueu
 }
 
 void RenderingDeviceDriverWebGpu::command_queue_free(CommandQueueID _p_cmd_queue) {
-	// Empty.
 }
-
-// ----- POOL -----
 
 RenderingDeviceDriver::CommandPoolID RenderingDeviceDriverWebGpu::command_pool_create(CommandQueueFamilyID _p_cmd_queue_family, CommandBufferType _p_cmd_buffer_type) {
 	TightLocalVector<CommandBufferInfo *> *command_pool = memnew(TightLocalVector<CommandBufferInfo *>);
@@ -1124,7 +1052,6 @@ RenderingDeviceDriver::CommandPoolID RenderingDeviceDriverWebGpu::command_pool_c
 }
 
 bool RenderingDeviceDriverWebGpu::command_pool_reset(CommandPoolID p_cmd_pool) {
-	// TODO: impl
 	return true;
 }
 
@@ -1135,8 +1062,6 @@ void RenderingDeviceDriverWebGpu::command_pool_free(CommandPoolID p_cmd_pool) {
 	}
 	memfree(command_pool);
 }
-
-// ----- BUFFER -----
 
 uint32_t RenderingDeviceDriverWebGpu::_push_constant_emulation_alloc() {
 	const uint32_t capacity = WEBGPU_MAX_IMMEDIATE_SIZE * WEBGPU_PUSH_CONSTANT_EMULATION_BUFFER_ENTRIES;
@@ -1150,7 +1075,6 @@ uint32_t RenderingDeviceDriverWebGpu::_push_constant_emulation_alloc() {
 }
 
 void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &p_command_buffer_info) {
-	// State tracking relating to push constant emulation
 	struct PushConstantBindState {
 		ShaderInfo *shader = nullptr;
 		uint32_t current_offset = 0;
@@ -1221,7 +1145,6 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 			bound_offset = current_offset;
 		}
 
-		// Returns the group to re-bind before a draw, or nullptr when what is bound is already right.
 		WGPUBindGroup take_rebind(uint32_t &r_set_index) {
 			if (!has_push_constant() || bound_offset == current_offset || group == nullptr) {
 				return nullptr;
@@ -1260,10 +1183,6 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 		p_command_buffer_info.has_compute_commands = false;
 	}
 
-	// `wgpu` skips binding most bind groups if one is missing.
-	// To remedy this, we need to bind missing bind groups after setting the pipeline but before an "effective" command.
-	// Additionally, we need to preserve previously bound groups on compatible bind group layouts across pipelines.
-
 	PipelineInfo *current_pipeline = nullptr;
 	HashMap<uint32_t, Vector<Pair<uint32_t, WGPUBindGroup>>> render_mock_bind_groups;
 	HashMap<uint32_t, Vector<Pair<uint32_t, WGPUBindGroup>>> compute_mock_bind_groups;
@@ -1273,8 +1192,6 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 		const PassEncoderCommand &command = p_command_buffer_info.commands[i];
 
 		if (command.type == PassEncoderCommand::CommandType::RENDER_SET_PIPELINE || command.type == PassEncoderCommand::CommandType::COMPUTE_SET_PIPELINE) {
-			// Check if this pipeline has a compatible set of bind group layouts.
-			// We want to keep the pipeline if so.
 			bool clear = false;
 			for (KeyValue<uint32_t, WGPUBindGroupLayout> &kv : bound_layouts) {
 				ShaderInfo *shader_info = (ShaderInfo *)command.set_pipeline.pipeline_info->shader_id.id;
@@ -1329,7 +1246,6 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 		}
 	}
 
-	// Fill up our push constant emulation buffer in our render order (compute then render).
 	for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
 		PassEncoderCommand &command = p_command_buffer_info.commands.write[i];
 		const Vector<uint8_t> *payload = nullptr;
@@ -1565,7 +1481,6 @@ bool RenderingDeviceDriverWebGpu::command_buffer_begin(CommandBufferID p_cmd_buf
 }
 
 bool RenderingDeviceDriverWebGpu::command_buffer_begin_secondary(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, uint32_t p_subpass, FramebufferID p_framebuffer) {
-	// TODO: impl
 	CRASH_NOW_MSG("TODO --> command_buffer_begin_secondary");
 }
 
@@ -1580,13 +1495,8 @@ void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffe
 }
 
 void RenderingDeviceDriverWebGpu::command_buffer_execute_secondary(CommandBufferID p_cmd_buffer, VectorView<CommandBufferID> p_secondary_cmd_buffers) {
-	// TODO: impl
 	CRASH_NOW_MSG("TODO --> command_buffer_execute_secondary");
 }
-
-/********************/
-/**** SWAP CHAIN ****/
-/********************/
 
 RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_create(RenderingContextDriver::SurfaceID p_surface) {
 	RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)p_surface;
@@ -1604,7 +1514,6 @@ RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_creat
 			.stencil_load_op = WGPULoadOp_Undefined,
 			.stencil_store_op = WGPUStoreOp_Undefined,
 	} });
-	// TODO: The multiview feature is currently disabled, so I will ignore this.
 	render_pass_info->view_count = 1;
 
 	SwapChainInfo *swapchain_info = memnew(SwapChainInfo);
@@ -1650,7 +1559,6 @@ RenderingDeviceDriver::DataFormat RenderingDeviceDriverWebGpu::swap_chain_get_fo
 }
 
 RenderingDeviceDriver::ColorSpace RenderingDeviceDriverWebGpu::swap_chain_get_color_space(SwapChainID p_swap_chain) {
-	// TODO: Look into this.
 	return ColorSpace::COLOR_SPACE_REC709_NONLINEAR_SRGB;
 	;
 }
@@ -1665,10 +1573,6 @@ void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {
 	memdelete((RenderPassInfo *)swapchain_info->render_pass.id);
 	memdelete(swapchain_info);
 }
-
-/*********************/
-/**** FRAMEBUFFER ****/
-/*********************/
 
 RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t _p_width, uint32_t _p_height) {
 	FramebufferInfo *framebuffer_info = memnew(FramebufferInfo);
@@ -1693,7 +1597,6 @@ RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_cr
 		framebuffer_info->owned_attachment = attachments[0];
 	}
 	framebuffer_info->attachments = attachments;
-	// The render area is the attachments' size, which can be smaller than the size asked for.
 	if (!attachments.is_empty()) {
 		const TextureInfo *texture_info = (const TextureInfo *)attachments[0].id;
 		const uint32_t mip = texture_info->texture_view_desc.baseMipLevel;
@@ -1711,10 +1614,6 @@ void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) 
 	memdelete(framebuffer_info);
 }
 
-/****************/
-/**** SHADER ****/
-/****************/
-
 RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) {
 	WEBGPU_ON_MAIN_THREAD(ShaderID, shader_create_from_container(p_shader_container, p_immutable_samplers));
 	Ref<RenderingShaderContainerWebGpu> container = p_shader_container;
@@ -1730,12 +1629,10 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	Vector<Vector<WGPUBindGroupLayoutEntry>> &bind_group_layout_entries = shader_info->bind_group_layout_entries;
 	bind_group_layout_entries.resize_initialized(refl.uniform_sets.size());
 
-	// Used to index `webgpu_uniform_data` which is a flattened
 	uint32_t global_idx = 0;
 	for (uint32_t set_idx = 0; set_idx < refl.uniform_sets.size(); set_idx++) {
 		const Vector<ShaderUniform> &uniforms = refl.uniform_sets[set_idx];
 
-		// Build corrections and other useful information
 		HashMap<uint32_t, Vector<uint32_t>> binding_remaps;
 		uint32_t saved_global_idx = global_idx;
 		for (uint32_t binding_idx = 0; binding_idx < (uint32_t)uniforms.size(); binding_idx++) {
@@ -1745,7 +1642,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		}
 		global_idx = saved_global_idx;
 
-		// Build binding hints
 		HashMap<uint32_t, WebGpuBindingHint> binding_hints;
 		for (uint32_t binding_idx = 0; binding_idx < (uint32_t)uniforms.size(); binding_idx++) {
 			const ShaderUniform &refl_uniform = uniforms[binding_idx];
@@ -1756,7 +1652,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		}
 		global_idx = saved_global_idx;
 
-		// Run unified correction index splitting logic.
 		Vector<Pair<uint32_t, UniformType>> index_bindings_input;
 		for (uint32_t uniform_idx = 0; uniform_idx < uniforms.size(); uniform_idx++) {
 			const ShaderUniform &uniform = uniforms.ptr()[uniform_idx];
@@ -1765,10 +1660,8 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		// We do not supply `p_binding_mask` because we prune bind group layout entries right after.
 		Vector<RemappedBinding> corrected_bindings = _remap_binding_indices(index_bindings_input, binding_remaps, nullptr, BindingIndexType::CORRECTED);
 
-		// Build bind group layouts
 		HashMap<uint32_t, UniformType> used_original_bindings_map;
 
-		// Keep track of texture / sampler index pairs
 		bool is_texture_turn = true;
 
 		for (uint32_t corrected_binding_idx = 0; corrected_binding_idx < (uint32_t)corrected_bindings.size(); corrected_binding_idx++) {
@@ -1801,7 +1694,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			layout_entry.binding = corrected_binding.corrected_binding_idx;
 			layout_entry.visibility = shader_stage;
 
-			// Used to build `used_original_bindings`.
 			int set_original_entry_count = bind_group_layout_entries[set_idx].size();
 
 			switch (corrected_binding.original_type) {
@@ -1868,8 +1760,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						sampleType = WGPUTextureSampleType_UnfilterableFloat;
 					}
 
-					// Dref textures are always depth or unfilterable-float rather than float.
-					// TODO: We can try to memoize these.
 					bool is_dref_split = false;
 					for (int i = 0; i < u.corrections.size(); i++) {
 						if (u.corrections[i] == WEBGPU_BINDING_REMAP_SPLIT_DREF_REGULAR ||
@@ -2098,7 +1988,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				vformat("Shader %s uses too many uniform sets: %d / %d.",
 						shader_info->shader_name, bind_group_layout_entries.size(), WEBGPU_MAX_BIND_GROUPS));
 
-		// Same rule as the SPIR-V to WGSL step uses for the push constant binding point.
 		const uint32_t immediates_set = webgpu_immediates_set((uint32_t)bind_group_layout_entries.size());
 		shader_info->push_constant_set_index = (int32_t)immediates_set;
 
@@ -2167,16 +2056,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		shader_info->standalone_push_constant_group = push_constant_group;
 	}
 
-	// Superseded by immediates patching.
-	// Though maybe this will come back in the future.
-	//
-	// WGPUPipelineLayoutExtras wgpu_pipeline_extras = (WGPUPipelineLayoutExtras){
-	// 	.chain = (WGPUChainedStruct){
-	// 			.sType = (WGPUSType)WGPUSType_PipelineLayoutExtras,
-	// 	},
-	// 	.immediateDataSize = refl.push_constant_size,
-	// };
-
 	WGPUPipelineLayoutDescriptor pipeline_layout_descriptor = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
 	pipeline_layout_descriptor.bindGroupLayoutCount = (size_t)shader_info->bind_group_layouts.size();
 	pipeline_layout_descriptor.bindGroupLayouts = shader_info->bind_group_layouts.ptr();
@@ -2189,7 +2068,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 }
 
 void RenderingDeviceDriverWebGpu::shader_free(ShaderID p_shader) {
-	// TODO: impl
 }
 
 void RenderingDeviceDriverWebGpu::shader_destroy_modules(ShaderID p_shader) {
@@ -2197,16 +2075,11 @@ void RenderingDeviceDriverWebGpu::shader_destroy_modules(ShaderID p_shader) {
 	// CRASH_NOW_MSG("TODO --> shader_destroy_modules");
 }
 
-/*********************/
-/**** UNIFORM SET ****/
-/*********************/
-
 Vector<RenderingDeviceDriverWebGpu::RemappedBinding> RenderingDeviceDriverWebGpu::_remap_binding_indices(const Vector<Pair<uint32_t, UniformType>> &p_bindings, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_remaps, const HashSet<uint32_t> *p_binding_mask, const BindingIndexType p_mask_type) {
 	Vector<RemappedBinding> corrected_bindings;
 
 	uint32_t binding_offset = 0;
 
-	// It is important we check for corrections that fall before our first binding.
 	if (p_bindings.size() > 0) {
 		uint32_t first_binding = p_bindings[0].first;
 		for (uint32_t b = 0; b < first_binding; b++) {
@@ -2265,12 +2138,10 @@ Vector<RenderingDeviceDriverWebGpu::RemappedBinding> RenderingDeviceDriverWebGpu
 						}
 					}
 
-					// This is the texture.
 					corrected_bindings.push_back((RemappedBinding){
 							.input_idx = uniform_idx,
 							.corrected_binding_idx = binding_idx + binding_offset,
 							.original_array_idx = uniform_idx,
-							// Godot provides uniform ids in a (sampler, texture) pair.
 							.binding_id_idx = array_index * 2 + 1,
 							.original_type = binding_type,
 							.remap = { WEBGPU_BINDING_REMAP_SPLIT_COMBINED, i != -1 },
@@ -2278,12 +2149,10 @@ Vector<RenderingDeviceDriverWebGpu::RemappedBinding> RenderingDeviceDriverWebGpu
 
 					binding_offset += 1;
 
-					// This is the sampler.
 					corrected_bindings.push_back((RemappedBinding){
 							.input_idx = uniform_idx,
 							.corrected_binding_idx = binding_idx + binding_offset,
 							.original_array_idx = uniform_idx,
-							// Godot provides uniform ids in (sampler, texture) pair.
 							.binding_id_idx = array_index * 2 + 0,
 							.original_type = binding_type,
 							.remap = { WEBGPU_BINDING_REMAP_SPLIT_COMBINED, i != -1 },
@@ -2302,7 +2171,6 @@ Vector<RenderingDeviceDriverWebGpu::RemappedBinding> RenderingDeviceDriverWebGpu
 				break;
 		}
 
-		// It is important we check for corrections between bindings that we previously left out.
 		if (uniform_idx + 1 < p_bindings.size()) {
 			uint32_t next_binding_idx = p_bindings[uniform_idx + 1].first;
 			for (uint32_t b = binding_idx + 1; b < next_binding_idx; b++) {
@@ -2361,7 +2229,6 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 				entries.push_back(entry);
 			} break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
-				// Skip the sampler coming next, we can handle the next entry ourselves.
 				corrected_bindings_idx += 1;
 
 				WGPUBindGroupEntry texture_entry = {};
@@ -2373,7 +2240,6 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 
 				WGPUBindGroupEntry sampler_entry = {};
 				sampler_entry.binding = corrected_binding.corrected_binding_idx + 1;
-				// Godot provides uniform ids in (sampler, texture) pair.
 				sampler_entry.sampler = (WGPUSampler)uniform.ids[corrected_binding.binding_id_idx - 1].id;
 				entries.push_back(sampler_entry);
 			} break;
@@ -2417,9 +2283,6 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 
 				BufferInfo *buffer_info = (BufferInfo *)uniform.ids[corrected_binding.binding_id_idx].id;
 				entry.buffer = buffer_info->buffer;
-				// For dynamic bindings the per-slice byte offset is applied via the
-				// dynamicOffsets array on wgpuRenderPassEncoderSetBindGroup, so the
-				// entry itself stays at offset 0 with the slice size.
 				entry.offset = 0;
 				entry.size = buffer_info->size;
 
@@ -2504,7 +2367,6 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBin
 		entry_by_binding.insert(p_descriptor.entries[i].binding, &p_descriptor.entries[i]);
 	}
 
-	// _bind_group_create assumes ascending binding order.
 	Vector<OriginalBindingIndex> sorted_bindings;
 	for (const KeyValue<uint32_t, UniformType> &kv : p_used_original_bindings_map) {
 		sorted_bindings.push_back(kv.key);
@@ -2577,7 +2439,6 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBin
 		last_binding = type;
 	}
 
-	// Flush the last uniform.
 	if (last_original_binding != (OriginalBindingIndex)-1 && ids.size() > 0) {
 		uniforms.push_back((RDD::BoundUniform){
 				.type = last_binding,
@@ -2799,14 +2660,9 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 }
 
 void RenderingDeviceDriverWebGpu::uniform_set_free(UniformSetID p_uniform_set) {
-	// TODO: This is old stuff.
-	// WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
-	// wgpuBindGroupRelease(bind_group);
 }
 
 uint32_t RenderingDeviceDriverWebGpu::uniform_sets_get_dynamic_offsets(VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) const {
-	// TODO: Include those related to push constant emulation.
-	// Pretty much what Vulkan does.
 	uint32_t mask = 0u;
 	uint32_t shift = 0u;
 	for (uint32_t i = 0; i < p_set_count; i++) {
@@ -2820,15 +2676,8 @@ uint32_t RenderingDeviceDriverWebGpu::uniform_sets_get_dynamic_offsets(VectorVie
 	return mask;
 }
 
-// ----- COMMANDS -----
-
 void RenderingDeviceDriverWebGpu::command_uniform_set_prepare_for_use(CommandBufferID _p_cmd_buffer, UniformSetID _p_uniform_set, ShaderID _p_shader, uint32_t _p_set_index) {
-	// Empty.
 }
-
-/******************/
-/**** TRANSFER ****/
-/******************/
 
 void RenderingDeviceDriverWebGpu::command_clear_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, uint64_t p_offset, uint64_t p_size) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
@@ -3040,15 +2889,8 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 	}
 }
 
-/******************/
-/**** PIPELINE ****/
-/******************/
-
 void RenderingDeviceDriverWebGpu::pipeline_free(PipelineID p_pipeline) {
-	// TODO: impl
 }
-
-// ----- BINDING -----
 
 void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
@@ -3089,14 +2931,11 @@ void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID p_
 	}
 }
 
-// ----- CACHE -----
-
 bool RenderingDeviceDriverWebGpu::pipeline_cache_create(const Vector<uint8_t> &_p_data) {
 	// WebGpu does not have pipeline caches.
 	return false;
 }
 void RenderingDeviceDriverWebGpu::pipeline_cache_free() {
-	// Empty.
 }
 size_t RenderingDeviceDriverWebGpu::pipeline_cache_query_size() {
 	return 0;
@@ -3105,16 +2944,9 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::pipeline_cache_serialize() {
 	return Vector<uint8_t>();
 }
 
-/*******************/
-/**** RENDERING ****/
-/*******************/
-
-// ----- SUBPASS -----
-
 RenderingDeviceDriverWebGpu::RenderPassAttachmentInfo RenderingDeviceDriverWebGpu::_empty_render_pass_attachment_create() {
 	return (RenderPassAttachmentInfo){
 		.format = WGPUTextureFormat_Depth32Float,
-		// TODO: HELLO WHY IS THIS FOUR???
 		.sample_count = 4,
 		.load_op = WGPULoadOp_Undefined,
 		.store_op = WGPUStoreOp_Undefined,
@@ -3145,7 +2977,6 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 
 		RenderPassAttachmentInfo attachment_info = (RenderPassAttachmentInfo){
 			.format = webgpu_texture_format_from_rd(attachment.format),
-			// TODO: Assert that p_format.samples follows this behavior.
 			.sample_count = (uint32_t)pow(2, (uint32_t)attachment.samples),
 			.load_op = webgpu_load_op_from_rd(attachment.load_op),
 			.store_op = webgpu_store_op_from_rd(attachment.store_op),
@@ -3157,7 +2988,6 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 		render_pass_info->attachments.push_back(attachment_info);
 	}
 
-	// WebGPU has one subpass per pass; its resolve references become resolveTarget views.
 	if (_p_subpasses.size() > 0) {
 		const Subpass &subpass = _p_subpasses[0];
 		for (uint32_t i = 0; i < subpass.resolve_references.size() && i < subpass.color_references.size(); i++) {
@@ -3196,8 +3026,6 @@ void RenderingDeviceDriverWebGpu::render_pass_free(RenderPassID p_render_pass) {
 	memdelete(render_pass_info);
 }
 
-// ----- COMMANDS -----
-
 void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, FramebufferID p_framebuffer, CommandBufferType p_cmd_buffer_type, const Rect2i &p_rect, VectorView<RenderPassClearValue> p_clear_values) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
@@ -3208,8 +3036,6 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 	RenderPassInfo *render_pass_info = (RenderPassInfo *)p_render_pass.id;
 	FramebufferInfo *framebuffer_info = (FramebufferInfo *)p_framebuffer.id;
 	command_buffer_info->render_area = framebuffer_info->size;
-
-	// DEV_ASSERT(render_pass_info->attachments.size() == framebuffer_info->attachments.size());
 
 	WGPUTextureView maybe_surface_texture_view = nullptr;
 	Pair<WGPURenderPassDepthStencilAttachment, bool> maybe_depth_stencil_attachment = Pair((WGPURenderPassDepthStencilAttachment){}, false);
@@ -3295,12 +3121,10 @@ void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
-	// Flush compute pass to preserve ordering.
 	_flush_active_command_pass(*command_buffer_info);
 }
 
 void RenderingDeviceDriverWebGpu::command_next_render_subpass(CommandBufferID _p_cmd_buffer, CommandBufferType _p_cmd_buffer_type) {
-	// Empty.
 }
 
 void RenderingDeviceDriverWebGpu::command_render_set_viewport(CommandBufferID p_cmd_buffer, VectorView<Rect2i> p_viewports) {
@@ -3335,7 +3159,6 @@ void RenderingDeviceDriverWebGpu::command_render_set_scissor(CommandBufferID p_c
 	ERR_FAIL_COND_MSG(p_scissors.size() != 1, "WebGpu cannot set multiple scissors.");
 
 	for (uint32_t i = 0; i < p_scissors.size(); i++) {
-		// Vulkan clips a scissor to the render area; WebGPU rejects one that reaches outside it.
 		Rect2i scissor = p_scissors[i];
 		if (command_buffer_info->render_area != Size2i()) {
 			scissor = scissor.intersection(Rect2i(Point2i(), command_buffer_info->render_area));
@@ -3357,7 +3180,6 @@ void RenderingDeviceDriverWebGpu::command_render_clear_attachments(CommandBuffer
 	// CRASH_NOW_MSG("NOT SUPPORTED?");
 }
 
-// Binding.
 void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
@@ -3394,7 +3216,6 @@ void RenderingDeviceDriverWebGpu::command_bind_render_uniform_sets(CommandBuffer
 					.shader_info = shader_info,
 			},
 		};
-		// Peel one slot per dynamic binding and convert frame_idx -> byte offset.
 		for (const BufferDynamicInfo *dyn : uniform_set_info->dynamic_buffers) {
 			uint32_t frame_idx = (p_dynamic_offsets >> shift) & UNIFORM_DYN_MASK;
 			shift += UNIFORM_DYN_BITS;
@@ -3404,7 +3225,6 @@ void RenderingDeviceDriverWebGpu::command_bind_render_uniform_sets(CommandBuffer
 	}
 }
 
-// Drawing.
 void RenderingDeviceDriverWebGpu::command_render_draw(CommandBufferID p_cmd_buffer, uint32_t p_vertex_count, uint32_t p_instance_count, uint32_t p_base_vertex, uint32_t p_first_instance) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
@@ -3515,7 +3335,6 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect_count(Com
 			} }));
 }
 
-// Buffer binding.
 void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBufferID p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets, uint64_t p_dynamic_offsets) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
@@ -3571,7 +3390,6 @@ void RenderingDeviceDriverWebGpu::command_render_bind_index_buffer(CommandBuffer
 			} }));
 }
 
-// Dynamic state.
 void RenderingDeviceDriverWebGpu::command_render_set_blend_constants(CommandBufferID p_cmd_buffer, const Color &p_constants) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
@@ -3586,11 +3404,7 @@ void RenderingDeviceDriverWebGpu::command_render_set_blend_constants(CommandBuff
 }
 
 void RenderingDeviceDriverWebGpu::command_render_set_line_width(CommandBufferID p_cmd_buffer, float p_width) {
-	// Note: This functionality is unsupported.
-	// Empty.
 }
-
-// ----- PIPELINE -----
 
 Vector<WGPUConstantEntry> RenderingDeviceDriverWebGpu::_get_specialization_constant_entries(const VectorView<PipelineSpecializationConstant> &p_specialization_constants, const HashMap<uint32_t, CharString> &p_override_layout) {
 	Vector<WGPUConstantEntry> overrides;
@@ -3637,10 +3451,8 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	pipeline_descriptor.label.data = pipeline_label.ptr();
 	pipeline_descriptor.label.length = (size_t)pipeline_label.length();
 
-	// pipeline_descriptor.layout
 	pipeline_descriptor.layout = shader_info->pipeline_layout;
 
-	// pipeline_descriptor.vertex
 	Vector<WGPUConstantEntry> vertex_overrides = _get_specialization_constant_entries(p_specialization_constants, shader_info->vertex_override_layout);
 	WGPUVertexState vertex_state = WGPU_VERTEX_STATE_INIT;
 	vertex_state.module = shader_info->vertex_shader;
@@ -3649,7 +3461,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	vertex_state.constants = vertex_overrides.ptr();
 	vertex_state.bufferCount = 0;
 
-	// NOTE: I'm not sure dynamic vertex state is supported.
 	if (p_vertex_format) {
 		VertexFormatInfo *format_info = (VertexFormatInfo *)p_vertex_format.id;
 		vertex_state.buffers = format_info->layouts.ptr();
@@ -3658,7 +3469,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 
 	pipeline_descriptor.vertex = vertex_state;
 
-	// pipeline_descriptor.fragment
 	WGPUColorTargetState *targets = ALLOCA_ARRAY(WGPUColorTargetState, p_color_attachments.size());
 	size_t targets_count = 0;
 
@@ -3692,7 +3502,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 			}
 
 			targets[targets_count] = WGPU_COLOR_TARGET_STATE_INIT;
-			// TODO: We do not have info on color target format.
 			targets[targets_count].format = render_pass_info->attachments[i + render_pass_attachments_offset].format;
 			targets[targets_count].blend = attachment.enable_blend ? blend_state : nullptr;
 			targets[targets_count].writeMask = write_mask;
@@ -3712,8 +3521,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	fragment_state.targets = targets;
 	pipeline_descriptor.fragment = &fragment_state;
 
-	// pipeline_descriptor.primitive
-	// NOTE: We will default to `WGPUPrimitiveTopology_PointList` since not all topologies are supported.
 	WGPUPrimitiveTopology topology;
 	switch (p_render_primitive) {
 		case RenderingDeviceCommons::RENDER_PRIMITIVE_POINTS:
@@ -3769,7 +3576,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	// TODO Consider implementing `p_rasterization_state.enable_depth_clamp` (required native feature).
 	pipeline_descriptor.primitive = primitive_state;
 
-	// pipeline_descriptor.depth_stencil
 	WGPUDepthStencilState depth_stencil_state;
 
 	const RenderPassAttachmentInfo *depth_attachment = render_pass_info->get_depth_attachment();
@@ -3803,8 +3609,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		depth_stencil_state.depthCompare = use_depth ? webgpu_compare_mode_from_rd(p_depth_stencil_state.depth_compare_operator) : WGPUCompareFunction_Always;
 		depth_stencil_state.stencilFront = stencil_front;
 		depth_stencil_state.stencilBack = stencil_back;
-		// NOTE: We assume stencil read masks are the same for both front and back.
-		// This is how wgpu does it, see https://github.com/gfx-rs/wgpu/blob/6405dcf611a336eb7d3bf9de7b78d7d0b3d3b48d/wgpu-hal/src/vulkan/device.rs#L1778
 		depth_stencil_state.stencilReadMask = use_stencil ? p_depth_stencil_state.front_op.compare_mask : 0;
 		depth_stencil_state.stencilWriteMask = use_stencil ? p_depth_stencil_state.front_op.write_mask : 0;
 		depth_stencil_state.depthBias = (int32_t)p_rasterization_state.depth_bias_constant_factor;
@@ -3815,16 +3619,11 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		pipeline_descriptor.depthStencil = nullptr;
 	}
 
-	// pipeline_descriptor.multisample
-	// TODO: Assert that p_format.samples follows this behavior.
 	uint32_t sample_count = pow(2, (uint32_t)p_multisample_state.sample_count);
 	pipeline_descriptor.multisample = WGPU_MULTISAMPLE_STATE_INIT;
 	pipeline_descriptor.multisample.count = sample_count;
 	pipeline_descriptor.multisample.mask = p_multisample_state.sample_mask.size() ? *p_multisample_state.sample_mask.ptr() : ~0;
 	pipeline_descriptor.multisample.alphaToCoverageEnabled = p_multisample_state.enable_alpha_to_coverage;
-
-	// pipeline_descriptor.multiview
-	// TODO: Implement render pipeline multiview.
 
 	WGPURenderPipeline render_pipeline = wgpuDeviceCreateRenderPipeline(device, &pipeline_descriptor);
 	ERR_FAIL_COND_V(!render_pipeline, PipelineID());
@@ -3838,13 +3637,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	return PipelineID(pipeline_info);
 }
 
-/*****************/
-/**** COMPUTE ****/
-/*****************/
-
-// ----- COMMANDS -----
-
-// Binding.
 void RenderingDeviceDriverWebGpu::command_bind_compute_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
@@ -3889,7 +3681,6 @@ void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_sets(CommandBuffe
 	}
 }
 
-// Dispatching.
 void RenderingDeviceDriverWebGpu::command_compute_dispatch(CommandBufferID p_cmd_buffer, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
@@ -3921,8 +3712,6 @@ void RenderingDeviceDriverWebGpu::command_compute_dispatch_indirect(CommandBuffe
 			},
 	});
 }
-
-// ----- PIPELINE -----
 
 RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_create(ShaderID p_shader, VectorView<PipelineSpecializationConstant> p_specialization_constants) {
 	WEBGPU_ON_MAIN_THREAD(PipelineID, compute_pipeline_create(p_shader, p_specialization_constants));
@@ -3957,15 +3746,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_
 
 	return PipelineID(pipeline_info);
 }
-
-/********************/
-/**** RAYTRACING ****/
-/********************/
-
-// ----- ACCELERATION STRUCTURE -----
-
-// NOTE: Pay attention to WebRTX and [acceleration extension](https://github.com/gfx-rs/wgpu/issues/6762).
-// But realistically this is not coming for a long long time.
 
 RenderingDeviceDriver::AccelerationStructureID RenderingDeviceDriverWebGpu::blas_create(VectorView<AccelerationStructureGeometry> p_geometries, BitField<AccelerationStructureFlagBits> p_flags) {
 	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
@@ -4024,75 +3804,44 @@ void RenderingDeviceDriverWebGpu::command_trace_rays(CommandBufferID p_cmd_buffe
 	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
 }
 
-/*****************/
-/**** QUERIES ****/
-/*****************/
-
-// ----- TIMESTAMP -----
-
-// Basic.
 RenderingDeviceDriver::QueryPoolID RenderingDeviceDriverWebGpu::timestamp_query_pool_create(uint32_t p_query_count) {
-	// TODO
 	return QueryPoolID(1);
 }
 
 void RenderingDeviceDriverWebGpu::timestamp_query_pool_free(QueryPoolID p_pool_id) {
-	// TODO
 }
 
 void RenderingDeviceDriverWebGpu::timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) {
-	// TODO
 }
 
 uint64_t RenderingDeviceDriverWebGpu::timestamp_query_result_to_time(uint64_t p_result) {
-	// TODO
 	return 1;
 }
 
-// Commands.
 void RenderingDeviceDriverWebGpu::command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) {}
 void RenderingDeviceDriverWebGpu::command_timestamp_write(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_index) {}
 
-/****************/
-/**** LABELS ****/
-/****************/
-
 void RenderingDeviceDriverWebGpu::command_begin_label(CommandBufferID p_cmd_buffer, const char *p_label_name, const Color &p_color) {}
 void RenderingDeviceDriverWebGpu::command_end_label(CommandBufferID p_cmd_buffer) {}
-
-/****************/
-/**** DEBUG *****/
-/****************/
 
 void RenderingDeviceDriverWebGpu::command_insert_breadcrumb(CommandBufferID p_cmd_buffer, uint32_t p_data) {
 	// TODO: impl
 	// CRASH_NOW_MSG("TODO --> command_insert_breadcrumb");
 }
 
-/********************/
-/**** SUBMISSION ****/
-/********************/
-
 void RenderingDeviceDriverWebGpu::begin_segment(uint32_t p_frame_index, uint32_t p_frames_drawn) {}
 void RenderingDeviceDriverWebGpu::end_segment() {}
 
-/**************/
-/**** MISC ****/
-/**************/
-
 void RenderingDeviceDriverWebGpu::set_object_name(ObjectType p_type, ID p_driver_id, const String &p_name) {}
 uint64_t RenderingDeviceDriverWebGpu::get_resource_native_handle(DriverResource p_type, ID p_driver_id) {
-	// TODO: impl
 	return 0;
 }
 
 uint64_t RenderingDeviceDriverWebGpu::get_total_memory_used() {
-	// TODO: impl
 	return 0;
 }
 
 uint64_t RenderingDeviceDriverWebGpu::get_lazily_memory_used() {
-	// TODO: impl
 	return 0;
 }
 
@@ -4172,7 +3921,6 @@ String RenderingDeviceDriverWebGpu::get_api_version() const {
 }
 
 String RenderingDeviceDriverWebGpu::get_pipeline_cache_uuid() const {
-	// TODO: impl
 	return "webgpu";
 }
 

@@ -63,21 +63,13 @@ public:
 	Error initialize(uint32_t p_device_index, uint32_t p_frame_count) override final;
 
 private:
-	/*****************/
-	/**** BUFFERS ****/
-	/*****************/
-
 	struct BufferInfo {
 		WGPUBuffer buffer = nullptr;
 		WGPUBufferUsage usage = WGPUBufferUsage_None;
 		WGPUMapMode map_mode = (WGPUMapMode)0;
-		// For dynamic buffers, this is the slice size
-		// the underlying allocation is frame_count * size.
 		uint64_t size = 0;
 
-		// Transfer buffers will be mapped on creation.
 		bool is_transfer_first_map = false;
-		// Tracks the actual GPU-side map state.
 		bool is_mapped = false;
 		// Upload buffers: the memory buffer_map() returns. Godot keeps writing through a mapped
 		// pointer while it records copies, as with Vulkan's persistent mapping, but WebGPU only
@@ -114,13 +106,7 @@ public:
 	virtual void buffer_unmap(BufferID p_buffer) override final;
 	virtual uint8_t *buffer_persistent_map_advance(BufferID p_buffer, uint64_t p_frames_drawn) override final;
 	virtual uint64_t buffer_get_dynamic_offsets(Span<BufferID> p_buffers) override final;
-	// TODO: hmm we could use this v4.6
-	// virtual void buffer_flush(BufferID p_buffer) {}
 	virtual uint64_t buffer_get_device_address(BufferID p_buffer) override final;
-
-	/*****************/
-	/**** TEXTURE ****/
-	/*****************/
 
 private:
 	struct TextureInfo {
@@ -133,8 +119,6 @@ private:
 		};
 
 		Vector<WGPUTextureView> views;
-		// WGSL has no cube storage textures (Godot's imageCube becomes a 2D array), so a cube view
-		// bound as a storage image goes through this 2D array view, made on first use.
 		WGPUTextureView storage_view = nullptr;
 
 		WGPUTextureView get_default_view() const { return views[(long)ViewIndex::DEFAULT]; }
@@ -143,7 +127,6 @@ private:
 		// Depth Stencil => DEPTH_ONLY, _ => DEFAULT
 		WGPUTextureView get_view_with_format() const;
 
-		// TODO: nextInChain is not preserved.
 		WGPUTextureDescriptor texture_desc;
 		WGPUTextureViewDescriptor texture_view_desc;
 
@@ -165,25 +148,14 @@ public:
 	virtual void texture_free(TextureID p_texture) override final;
 	virtual uint64_t texture_get_allocation_size(TextureID p_texture) override final;
 	virtual void texture_get_copyable_layout(TextureID p_texture, const TextureSubresource &p_subresource, TextureCopyableLayout *r_layout) override final;
-	// TODO: Ummm where did texture mapping go? v4.6
-	// virtual uint8_t *texture_map(TextureID p_texture, const TextureSubresource &p_subresource) override final;
-	// virtual void texture_unmap(TextureID p_texture) override final;
 	virtual Vector<uint8_t> texture_get_data(TextureID p_texture, uint32_t p_layer) override final;
 	virtual BitField<TextureUsageBits> texture_get_usages_supported_by_format(DataFormat p_format, bool p_cpu_readable) override final;
 	virtual bool texture_can_make_shared_with_format(TextureID p_texture, DataFormat p_format, bool &r_raw_reinterpretation) override final;
-
-	/*****************/
-	/**** SAMPLER ****/
-	/*****************/
 
 public:
 	virtual SamplerID sampler_create(const SamplerState &p_state) override final;
 	virtual void sampler_free(SamplerID p_sampler) override final;
 	virtual bool sampler_is_format_supported_for_filter(DataFormat p_format, SamplerFilter p_filter) override final;
-
-	/**********************/
-	/**** VERTEX ARRAY ****/
-	/**********************/
 
 private:
 	struct VertexFormatInfo {
@@ -195,10 +167,6 @@ public:
 	virtual VertexFormatID vertex_format_create(Span<VertexAttribute> p_vertex_attribs, const VertexAttributeBindingsMap &p_vertex_bindings) override final;
 	virtual void vertex_format_free(VertexFormatID p_vertex_format) override final;
 
-	/******************/
-	/**** BARRIERS ****/
-	/******************/
-
 public:
 	virtual void command_pipeline_barrier(
 			CommandBufferID p_cmd_buffer,
@@ -209,44 +177,25 @@ public:
 			VectorView<TextureBarrier> p_texture_barriers,
 			VectorView<AccelerationStructureBarrier> p_acceleration_structure_barriers) override final;
 
-	/****************/
-	/**** FENCES ****/
-	/****************/
-
 public:
 	virtual FenceID fence_create() override final;
 	virtual Error fence_wait(FenceID p_fence) override final;
 	virtual void fence_free(FenceID p_fence) override final;
 
-	/********************/
-	/**** SEMAPHORES ****/
-	/********************/
-
 	virtual SemaphoreID semaphore_create() override final;
 	virtual void semaphore_free(SemaphoreID p_semaphore) override final;
 
-	/******************/
-	/**** COMMANDS ****/
-	/******************/
-
-	// ----- QUEUE FAMILY -----
-
 	virtual CommandQueueFamilyID command_queue_family_get(BitField<CommandQueueFamilyBits> p_cmd_queue_family_bits, RenderingContextDriver::SurfaceID p_surface = 0) override final;
 
-	// ----- QUEUE -----
 public:
 	virtual CommandQueueID command_queue_create(CommandQueueFamilyID p_cmd_queue_family, bool p_identify_as_main_queue = false) override final;
 	virtual Error command_queue_execute_and_present(CommandQueueID p_cmd_queue, VectorView<SemaphoreID> p_wait_semaphores, VectorView<CommandBufferID> p_cmd_buffers, VectorView<SemaphoreID> p_cmd_semaphores, FenceID p_cmd_fence, VectorView<SwapChainID> p_swap_chains) override final;
 	virtual void command_queue_free(CommandQueueID p_cmd_queue) override final;
 
-	// ----- POOL -----
-
 public:
 	virtual CommandPoolID command_pool_create(CommandQueueFamilyID p_cmd_queue_family, CommandBufferType p_cmd_buffer_type) override final;
 	virtual bool command_pool_reset(CommandPoolID p_cmd_pool) override final;
 	virtual void command_pool_free(CommandPoolID p_cmd_pool) override final;
-
-	// ----- BUFFER -----
 
 private:
 	// We store and defer commands because we do not have enough information at the beginning of a pass.
@@ -374,7 +323,6 @@ private:
 		};
 
 		struct SetPipeline {
-			// We need additional information for mock bind groups.
 			PipelineInfo *pipeline_info;
 		};
 
@@ -449,10 +397,6 @@ public:
 	virtual void command_buffer_end(CommandBufferID p_cmd_buffer) override final;
 	virtual void command_buffer_execute_secondary(CommandBufferID p_cmd_buffer, VectorView<CommandBufferID> p_secondary_cmd_buffers) override final;
 
-	/********************/
-	/**** SWAP CHAIN ****/
-	/********************/
-
 private:
 	struct SwapChainInfo {
 		RenderingContextDriver::SurfaceID surface;
@@ -469,10 +413,6 @@ public:
 	virtual bool swap_chain_get_hdr_output_supported(SwapChainID p_swap_chain) override final;
 	virtual void swap_chain_free(SwapChainID p_swap_chain) override final;
 
-	/*********************/
-	/**** FRAMEBUFFER ****/
-	/*********************/
-
 private:
 	struct FramebufferInfo {
 		SwapChainID maybe_swapchain;
@@ -485,10 +425,6 @@ private:
 public:
 	virtual FramebufferID framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t p_width, uint32_t p_height) override final;
 	virtual void framebuffer_free(FramebufferID p_framebuffer) override final;
-
-	/****************/
-	/**** SHADER ****/
-	/****************/
 
 private:
 	// Much of this data is debug related.
@@ -506,22 +442,18 @@ private:
 		WGPUBindGroupLayout standalone_push_constant_layout = nullptr;
 		WGPUBindGroup standalone_push_constant_group = nullptr;
 
-		// Used for flushing mock bind groups with push constant emulation.
 		Vector<uint32_t> set_dynamic_offset_counts;
 
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
 		Vector<WGPUBindGroupLayoutDescriptor> bind_group_layout_descs;
 		Vector<Vector<WGPUBindGroupLayoutEntry>> bind_group_layout_entries;
 
-		// It is crucially important that we save ALL corrections, even of pruned bindings.
-		// Pruned bindings can still affect the offset of our bindings.
 		HashMap<uint32_t, HashMap<OriginalBindingIndex, Vector<uint32_t>>> set_binding_remaps;
 		HashMap<uint32_t, HashMap<RemappedBindingIndex, WebGpuBindingHint>> set_binding_hints;
 
 		// TODO: Should we actually store both original and corrected indices? There must be a better abstraction here.
 		// Used to mask out pruned bindings in _mock_bind_group_create.
 		HashMap<uint32_t, HashSet<RemappedBindingIndex>> used_set_bindings;
-		// Used to accurately recreate a set of resources in _mock_bind_group_create.
 		HashMap<uint32_t, HashMap<OriginalBindingIndex, UniformType>> used_original_bindings_map;
 
 		// I have found these crucial for debugging.
@@ -542,24 +474,14 @@ private:
 
 public:
 	virtual ShaderID shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) override final;
-	// NOTE: We could explore this
-	// virtual uint32_t shader_get_layout_hash(ShaderID p_shader) override final;
 	virtual void shader_free(ShaderID p_shader) override final;
 	virtual void shader_destroy_modules(ShaderID p_shader) override final;
 
-	/*********************/
-	/**** UNIFORM SET ****/
-	/*********************/
-
 	class RemappedBinding {
 	public:
-		// Used to index the `p_bindings` passed in.
 		uint32_t input_idx;
-		// Binding indices as seen from a WGSL shader.
 		RemappedBindingIndex corrected_binding_idx;
-		// Index of uniforms[_].
 		uint32_t original_array_idx;
-		// Index of uniform.ids[_].
 		uint32_t binding_id_idx;
 		UniformType original_type;
 		Pair<BindingRemapKind, bool> remap;
@@ -571,7 +493,6 @@ private:
 		ORIGINAL,
 		CORRECTED,
 	};
-	// Unified logic for index correction.
 	Vector<RemappedBinding> _remap_binding_indices(
 			const Vector<Pair<uint32_t, UniformType>> &p_bindings,
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_remaps,
@@ -594,8 +515,6 @@ private:
 			const HashSet<RemappedBindingIndex> *p_binding_mask,
 			uint32_t p_push_constant_size);
 
-	// When comparison textures are unused, they are incorrectly translated as non-comparison textures.
-	// We prune these using SPIRV transformations, but still need to remove them from the bound uniform list.
 	LocalVector<BoundUniform> _prune_bind_group_uniforms(
 			const VectorView<BoundUniform> &p_uniforms,
 			uint32_t p_set_idx,
@@ -619,15 +538,12 @@ private:
 			const HashMap<OriginalBindingIndex, UniformType> &p_used_original_bindings_map,
 			uint32_t p_push_constant_size);
 
-	// When Godot skips a bind group, create and cache a "mock" bind group we can use for binding.
-	// TODO: deallocate these
 	HashMap<WGPUBindGroupLayout, WGPUBindGroup> mock_bind_groups;
 
 	WGPUBuffer push_constant_emulation_buffer;
 	uint32_t push_constant_emulation_head = 0;
 	uint32_t _push_constant_emulation_alloc();
 
-	// TODO: Hey, how are we freeing these resources?
 	SamplerID _sampler_mock_binding_create(WGPUSamplerBindingLayout p_layout);
 	TextureID _texture_mock_binding_create(WGPUTextureBindingLayout p_layout);
 	TextureID _storage_texture_mock_binding_create(WGPUStorageTextureBindingLayout p_layout);
@@ -638,13 +554,7 @@ public:
 	virtual void uniform_set_free(UniformSetID p_uniform_set) override final;
 	virtual uint32_t uniform_sets_get_dynamic_offsets(VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) const override final;
 
-	// ----- COMMANDS -----
-
 	virtual void command_uniform_set_prepare_for_use(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) override final;
-
-	/******************/
-	/**** TRANSFER ****/
-	/******************/
 
 	virtual void command_clear_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, uint64_t p_offset, uint64_t p_size) override final;
 	virtual void command_copy_buffer(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, BufferID p_dst_buffer, VectorView<BufferCopyRegion> p_regions) override final;
@@ -657,9 +567,6 @@ public:
 	virtual void command_copy_buffer_to_texture(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, TextureID p_dst_texture, TextureLayout p_dst_texture_layout, VectorView<BufferTextureCopyRegion> p_regions) override final;
 	virtual void command_copy_texture_to_buffer(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, BufferID p_dst_buffer, VectorView<BufferTextureCopyRegion> p_regions) override final;
 
-	/******************/
-	/**** PIPELINE ****/
-	/******************/
 private:
 	struct PipelineInfo {
 		enum class PipelineType {
@@ -682,22 +589,12 @@ private:
 public:
 	virtual void pipeline_free(PipelineID p_pipeline) override final;
 
-	// ----- BINDING -----
-
 	virtual void command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) override final;
-
-	// ----- CACHE -----
 
 	virtual bool pipeline_cache_create(const Vector<uint8_t> &p_data) override final;
 	virtual void pipeline_cache_free() override final;
 	virtual size_t pipeline_cache_query_size() override final;
 	virtual Vector<uint8_t> pipeline_cache_serialize() override final;
-
-	/*******************/
-	/**** RENDERING ****/
-	/*******************/
-
-	// ----- SUBPASS -----
 
 private:
 	struct RenderPassAttachmentInfo {
@@ -709,9 +606,6 @@ private:
 		WGPUStoreOp stencil_store_op;
 		bool is_depth_stencil = false;
 		bool is_depth_stencil_read_only = false;
-		// A multisample resolve target of the first subpass: the index of the color attachment it
-		// resolves (it becomes that attachment's resolveTarget, not a color attachment of its own),
-		// or -2 for a depth resolve, which WebGPU does not have.
 		int32_t resolve_of = -1;
 	};
 
@@ -720,8 +614,6 @@ private:
 		uint32_t depth_attachment_index = UINT32_MAX;
 		uint32_t view_count;
 
-		// The pass has no attachments; each framebuffer gets a placeholder depth attachment of its
-		// size (`_empty_render_pass_attachment_create`), as a WebGPU render pass needs one.
 		bool empty_attachment = false;
 
 		const RenderPassAttachmentInfo *get_depth_attachment() const {
@@ -737,8 +629,6 @@ public:
 	virtual RenderPassID render_pass_create(VectorView<Attachment> p_attachments, VectorView<Subpass> p_subpasses, VectorView<SubpassDependency> p_subpass_dependencies, uint32_t p_view_count, AttachmentReference p_fragment_density_map_attachment) override final;
 	virtual void render_pass_free(RenderPassID p_render_pass) override final;
 
-	// ----- COMMANDS -----
-
 	virtual void command_begin_render_pass(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, FramebufferID p_framebuffer, CommandBufferType p_cmd_buffer_type, const Rect2i &p_rect, VectorView<RenderPassClearValue> p_clear_values) override final;
 	virtual void command_end_render_pass(CommandBufferID p_cmd_buffer) override final;
 	virtual void command_next_render_subpass(CommandBufferID p_cmd_buffer, CommandBufferType p_cmd_buffer_type) override final;
@@ -746,11 +636,9 @@ public:
 	virtual void command_render_set_scissor(CommandBufferID p_cmd_buffer, VectorView<Rect2i> p_scissors) override final;
 	virtual void command_render_clear_attachments(CommandBufferID p_cmd_buffer, VectorView<AttachmentClear> p_attachment_clears, VectorView<Rect2i> p_rects) override final;
 
-	// Binding.
 	virtual void command_bind_render_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) override final;
 	virtual void command_bind_render_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count, uint32_t p_dynamic_offsets) override final;
 
-	// Drawing.
 	virtual void command_render_draw(CommandBufferID p_cmd_buffer, uint32_t p_vertex_count, uint32_t p_instance_count, uint32_t p_base_vertex, uint32_t p_first_instance) override final;
 	virtual void command_render_draw_indexed(CommandBufferID p_cmd_buffer, uint32_t p_index_count, uint32_t p_instance_count, uint32_t p_first_index, int32_t p_vertex_offset, uint32_t p_first_instance) override final;
 	virtual void command_render_draw_indexed_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride) override final;
@@ -758,15 +646,11 @@ public:
 	virtual void command_render_draw_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride) override final;
 	virtual void command_render_draw_indirect_count(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, BufferID p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride) override final;
 
-	// Buffer binding.
 	virtual void command_render_bind_vertex_buffers(CommandBufferID p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets, uint64_t p_dynamic_offsets) override final;
 	virtual void command_render_bind_index_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, IndexBufferFormat p_format, uint64_t p_offset) override final;
 
-	// Dynamic state.
 	virtual void command_render_set_blend_constants(CommandBufferID p_cmd_buffer, const Color &p_constants) override final;
 	virtual void command_render_set_line_width(CommandBufferID p_cmd_buffer, float p_width) override final;
-
-	// ----- PIPELINE -----
 
 	Vector<WGPUConstantEntry> _get_specialization_constant_entries(const VectorView<PipelineSpecializationConstant> &p_specialization_constants, const HashMap<uint32_t, CharString> &p_override_layout);
 
@@ -784,30 +668,14 @@ public:
 			uint32_t p_render_subpass,
 			VectorView<PipelineSpecializationConstant> p_specialization_constants) override final;
 
-	/*****************/
-	/**** COMPUTE ****/
-	/*****************/
-
-	// ----- COMMANDS -----
-
 public:
-	// Binding.
 	virtual void command_bind_compute_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) override final;
 	virtual void command_bind_compute_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count, uint32_t p_dynamic_offsets) override final;
 
-	// Dispatching.
 	virtual void command_compute_dispatch(CommandBufferID p_cmd_buffer, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups) override final;
 	virtual void command_compute_dispatch_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset) override final;
 
-	// ----- PIPELINE -----
-
 	virtual PipelineID compute_pipeline_create(ShaderID p_shader, VectorView<PipelineSpecializationConstant> p_specialization_constants) override final;
-
-	/********************/
-	/**** RAYTRACING ****/
-	/********************/
-
-	// ----- ACCELERATION STRUCTURE -----
 
 	virtual AccelerationStructureID blas_create(VectorView<AccelerationStructureGeometry> p_geometries, BitField<AccelerationStructureFlagBits> p_flags) override final;
 
@@ -817,14 +685,10 @@ public:
 	virtual void acceleration_structure_free(AccelerationStructureID p_acceleration_structure) override final;
 	virtual uint32_t acceleration_structure_get_scratch_size_bytes(AccelerationStructureID p_acceleration_structure) override final;
 
-	// ----- PIPELINE -----
-
 	virtual RaytracingPipelineID raytracing_pipeline_create(VectorView<PipelineShader> p_shaders, VectorView<uint32_t> p_raygen_shader_indices, VectorView<uint32_t> p_miss_shader_indices, VectorView<HitGroup> p_hit_groups, uint32_t p_max_trace_recursion_depth, ShaderID p_layout_defining_shader) override final;
 	virtual void raytracing_pipeline_free(RaytracingPipelineID p_pipeline) override final;
 
 	virtual bool raytracing_pipeline_get_shader_group_handles(RaytracingPipelineID p_pipeline, uint32_t p_group_index_offset, VectorView<uint32_t> p_group_indices, uint8_t *r_data, uint32_t p_data_stride_bytes) override final;
-
-	// ----- COMMANDS -----
 
 	virtual void command_build_blas(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_scratch_buffer) override final;
 	virtual void command_build_tlas(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_scratch_buffer, BufferID p_instance_buffer, uint32_t p_instance_offset, uint32_t p_instance_count) override final;
@@ -832,45 +696,21 @@ public:
 	virtual void command_bind_raytracing_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) override final;
 	virtual void command_trace_rays(CommandBufferID p_cmd_buffer, const ShaderBindingTable &p_raygen_sbt, const ShaderBindingTable &p_miss_sbt, const ShaderBindingTable &p_hit_sbt, uint32_t p_width, uint32_t p_height, uint32_t p_depth) override final;
 
-	/*****************/
-	/**** QUERIES ****/
-	/*****************/
-
-	// ----- TIMESTAMP -----
-
-	// Basic.
 	virtual QueryPoolID timestamp_query_pool_create(uint32_t p_query_count) override final;
 	virtual void timestamp_query_pool_free(QueryPoolID p_pool_id) override final;
 	virtual void timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) override final;
 	virtual uint64_t timestamp_query_result_to_time(uint64_t p_result) override final;
 
-	// Commands.
 	virtual void command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) override final;
 	virtual void command_timestamp_write(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_index) override final;
-
-	/****************/
-	/**** LABELS ****/
-	/****************/
 
 	virtual void command_begin_label(CommandBufferID p_cmd_buffer, const char *p_label_name, const Color &p_color) override final;
 	virtual void command_end_label(CommandBufferID p_cmd_buffer) override final;
 
-	/****************/
-	/**** DEBUG *****/
-	/****************/
-
 	virtual void command_insert_breadcrumb(CommandBufferID p_cmd_buffer, uint32_t p_data) override final;
-
-	/********************/
-	/**** SUBMISSION ****/
-	/********************/
 
 	virtual void begin_segment(uint32_t p_frame_index, uint32_t p_frames_drawn) override final;
 	virtual void end_segment() override final;
-
-	/**************/
-	/**** MISC ****/
-	/**************/
 
 	virtual void set_object_name(ObjectType p_type, ID p_driver_id, const String &p_name) override final;
 	virtual uint64_t get_resource_native_handle(DriverResource p_type, ID p_driver_id) override final;

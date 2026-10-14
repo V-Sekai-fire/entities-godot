@@ -103,9 +103,6 @@ if env["dlink_enabled"]:
     sys_env.Append(CCFLAGS=["-fwasm-exceptions"])
     sys_env.Append(LINKFLAGS=["-fwasm-exceptions"])
     if env["webgpu"]:
-        # main() reaches godot_web_main in the side module through a JavaScript stub, and JSPI
-        # cannot suspend across a JavaScript frame. Make the stub a suspending import that waits
-        # for godot_web_main, a promising export, so WebGPU waits during setup can suspend.
         sys_env.Append(
             LINKFLAGS=["-sJSPI_IMPORTS=_Z14godot_web_mainiPPc", "-sJSPI_EXPORTS=main,_Z14godot_web_mainiPPc"]
         )

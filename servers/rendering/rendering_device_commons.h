@@ -1038,7 +1038,6 @@ public:
 		SUPPORTS_HDR_OUTPUT,
 		SUPPORTS_RASTERIZATION_RATE_MAP,
 		SUPPORTS_GPU_MAPPABLE_BUFFER,
-		// If not supported, texture views ignore their component swizzle (WebGPU without texture-component-swizzle).
 		SUPPORTS_TEXTURE_SWIZZLE,
 	};
 
@@ -1126,17 +1125,12 @@ public:
 		TextureType texture_type = TEXTURE_TYPE_MAX;
 		DataFormat texture_format = DATA_FORMAT_MAX;
 
-		// Applies for UNIFORM_TYPE_TEXTURE and UNIFORM_TYPE_SAMPLER_WITH_TEXTURE.
 		bool texture_is_multisample = false;
 
-		// Applies for UNIFORM_TYPE_IMAGE.
 		DataFormat image_format = DATA_FORMAT_MAX;
 
-		// For texture and image uniform types.
 		TextureType texture_image_type = TEXTURE_TYPE_2D;
 
-		// For texture and image uniform types
-		// NOTE: This is only used in WebGpu and roughly corresponds with [`TextureSampleType`](https://docs.rs/wgpu/latest/wgpu/enum.TextureSampleType.html)
 		enum TextureSampleType {
 			Float,
 			Int,

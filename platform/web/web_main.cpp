@@ -79,7 +79,6 @@ void cleanup_after_sync() {
 	shutdown_complete = true;
 }
 
-// Runs one frame. Returns true when the engine asks to quit.
 static bool frame_iterate() {
 #ifndef PROXY_TO_PTHREAD_ENABLED
 	uint64_t current_ticks = os->get_ticks_usec();
@@ -140,10 +139,6 @@ void print_web_header() {
 extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
 	godot_init_profiler();
 #ifdef WEBGPU_ENABLED
-	// WebGPU waits suspend main with JSPI, from setup onwards (a scene's _ready can read back
-	// before the first frame). While main is suspended, a call proxied from a worker returns
-	// through Emscripten's maybeExit, which exits the runtime under the suspended engine unless
-	// something holds it alive. Hold a keepalive reference until main is done.
 	emscripten_runtime_keepalive_push();
 #endif
 

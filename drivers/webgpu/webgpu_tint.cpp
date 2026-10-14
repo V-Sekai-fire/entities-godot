@@ -28,8 +28,6 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-// Compiled as C++20 on its own (see SCsub); includes no Godot headers.
-
 #include "webgpu_tint.h"
 
 #include "src/tint/api/tint.h"
@@ -55,7 +53,6 @@
 
 namespace {
 
-// The module-scope variable a texture or sampler value is loaded from, or nullptr.
 const tint::core::ir::Var *root_var(const tint::core::ir::Value *p_value) {
 	for (int depth = 0; depth < 16 && p_value; depth++) {
 		auto *res = p_value->As<tint::core::ir::InstructionResult>();
@@ -100,7 +97,6 @@ bool webgpu_tint_spirv_to_wgsl(const uint32_t *p_words, size_t p_word_count, con
 	tint::spirv::reader::Options options;
 	options.push_constant_binding = tint::BindingPoint{ p_push_constant_group, p_push_constant_binding };
 	options.push_constant_max_size = p_push_constant_max_size;
-	// Vulkan clip space has y down, WebGPU has it up; flip like the Metal and D3D12 drivers do.
 	options.flip_vertex_y = true;
 	options.read_only_storage_as_sampled = true;
 	std::map<std::tuple<uint32_t, uint32_t, uint32_t, bool>, uint32_t> plan;
@@ -122,8 +118,6 @@ bool webgpu_tint_spirv_to_wgsl(const uint32_t *p_words, size_t p_word_count, con
 		return false;
 	}
 
-	// Textures and samplers the module uses, then how they pair up in texture builtin calls.
-	// Every binding the module reads, as (group << 32) | binding, for the layout's stage visibility.
 	std::map<const tint::core::ir::Var *, WebGpuTintBinding> handles;
 	r_read.clear();
 	for (auto *inst : *ir->root_block) {
@@ -149,7 +143,6 @@ bool webgpu_tint_spirv_to_wgsl(const uint32_t *p_words, size_t p_word_count, con
 		} else if (auto *sampled = type ? type->As<tint::core::type::SampledTexture>() : nullptr) {
 			b.kind = WebGpuTintBinding::KIND_TEXTURE;
 			const tint::core::type::Type *el = sampled->Type();
-			// f32 textures are unfilterable unless a sampling call pairs them with a sampler below.
 			b.sample_type = el->IsSignedIntegerScalar() ? WebGpuTintBinding::SAMPLE_SINT
 					: el->IsUnsignedIntegerScalar()		? WebGpuTintBinding::SAMPLE_UINT
 														: WebGpuTintBinding::SAMPLE_UNFILTERABLE_FLOAT;

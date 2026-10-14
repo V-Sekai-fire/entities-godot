@@ -40,8 +40,6 @@
 #endif
 
 #ifdef WEBGPU_SHADER_BAKER_ONLY
-// The editor bakes WebGPU shader containers without a WebGPU implementation; the container needs
-// only these binding-type values, which match webgpu.h.
 typedef enum WGPUSamplerBindingType {
 	WGPUSamplerBindingType_Filtering = 0x00000002,
 	WGPUSamplerBindingType_NonFiltering = 0x00000003,

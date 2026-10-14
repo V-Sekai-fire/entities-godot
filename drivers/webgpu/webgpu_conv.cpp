@@ -63,8 +63,6 @@ WGPUBufferUsage webgpu_buffer_usage_from_rd(BitField<RDD::BufferUsageBits> p_buf
 WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 	WGPUTextureFormat ret = WGPUTextureFormat_Undefined;
 
-	// See https://www.w3.org/TR/webgpu/#enumdef-gputextureformat
-	// NOTE: Please also update `webgpu_bytes_per_row_from_format` and `rd_texture_format_from_webgpu` alongside this.
 	switch (p_data_format) {
 		case RDD::DataFormat::DATA_FORMAT_R8_UNORM:
 			ret = WGPUTextureFormat_R8Unorm;
@@ -417,8 +415,6 @@ WGPUMipmapFilterMode webgpu_mipmap_filter_mode_from_rd(RDD::SamplerFilter p_samp
 }
 
 WGPUAddressMode webgpu_address_mode_from_rd(RDD::SamplerRepeatMode p_sampler_repeat_mode) {
-	// Not all of these exist, so we'll default to clamp to edge.
-	// See https://gpuweb.github.io/gpuweb/#enumdef-gpuaddressmode
 	switch (p_sampler_repeat_mode) {
 		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_REPEAT:
 			return WGPUAddressMode_Repeat;
@@ -459,7 +455,6 @@ WGPUCompareFunction webgpu_compare_mode_from_rd(RDD::CompareOperator p_compare_o
 }
 
 WGPUVertexFormat webgpu_vertex_format_from_rd(RDD::DataFormat p_data_format) {
-	// There is no longer a `WGPUVertexFormat_Undefined` value.
 	WGPUVertexFormat ret = WGPUVertexFormat_Uint8;
 
 	switch (p_data_format) {
@@ -648,7 +643,6 @@ WGPUTextureAspect webgpu_texture_aspect_from_rd(BitField<RDD::TextureAspectBits>
 	}
 }
 
-// See https://github.com/gfx-rs/wgpu/blob/03ab3a27d8a2b35cc0afd7cfe418f74a2498ff20/wgpu-hal/src/lib.rs#L1689
 WGPUTextureAspect webgpu_texture_aspect_from_rd_format(RDD::DataFormat p_data_format) {
 	switch (p_data_format) {
 		case RDD::DataFormat::DATA_FORMAT_S8_UINT:
@@ -679,7 +673,6 @@ WGPUBlendOperation webgpu_blend_operation_from_rd(RDD::BlendOperation p_blend_op
 }
 
 WGPUBlendFactor webgpu_blend_factor_from_rd(RDD::BlendFactor p_blend_factor) {
-	// NOTE: Some of these blend factors are not supported, so we default to `WGPUBlendFactor_Zero`
 	switch (p_blend_factor) {
 		case RenderingDeviceCommons::BLEND_FACTOR_ZERO:
 			return WGPUBlendFactor_Zero;
@@ -1096,7 +1089,6 @@ RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format) {
 }
 
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) {
-	// NOTE: For limits that aren't supported, I've put the max uint64 value. This may cause issues.
 	switch (p_selected_limit) {
 		case RenderingDeviceCommons::LIMIT_MAX_BOUND_UNIFORM_SETS:
 			return p_limits.maxBindGroups;
@@ -1168,8 +1160,6 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) 
 			return p_limits.maxComputeWorkgroupSizeY;
 		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Z:
 			return p_limits.maxComputeWorkgroupSizeZ;
-		// HACK: These need to be defined to get a working window.
-		// I'm not sure what this number should be.
 		case RenderingDeviceCommons::LIMIT_MAX_VIEWPORT_DIMENSIONS_X:
 			return 99999;
 		case RenderingDeviceCommons::LIMIT_MAX_VIEWPORT_DIMENSIONS_Y:
@@ -1340,7 +1330,6 @@ uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTex
 		case WGPUTextureFormat_RGBA16Uint:
 		case WGPUTextureFormat_RGBA16Sint:
 		case WGPUTextureFormat_RGBA16Float:
-		// case WGPUTextureFormat_R64Uint:
 		case WGPUTextureFormat_RG32Uint:
 		case WGPUTextureFormat_RG32Sint:
 		case WGPUTextureFormat_RG32Float:
@@ -1464,7 +1453,6 @@ FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat fo
 		case WGPUTextureFormat_RGB10A2Uint:
 		case WGPUTextureFormat_RGB10A2Unorm:
 		case WGPUTextureFormat_RG11B10Ufloat:
-		// case WGPUTextureFormat_R64Uint:
 		case WGPUTextureFormat_RG32Uint:
 		case WGPUTextureFormat_RG32Sint:
 		case WGPUTextureFormat_RG32Float:
@@ -1480,7 +1468,6 @@ FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat fo
 		case WGPUTextureFormat_Depth16Unorm:
 		case WGPUTextureFormat_Depth24Plus:
 		case WGPUTextureFormat_Depth24PlusStencil8:
-		// case WGPUTextureFormat_NV12:
 		case WGPUTextureFormat_Depth32Float:
 		case WGPUTextureFormat_Depth32FloatStencil8:
 			return (FormatBlockDimension){ 1, 1 };

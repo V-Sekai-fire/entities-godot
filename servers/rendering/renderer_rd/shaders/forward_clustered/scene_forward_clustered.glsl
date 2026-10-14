@@ -947,7 +947,6 @@ layout(location = 9) in float dp_clip;
 layout(location = 10) in flat uint instance_index_interp;
 
 #ifdef USE_LIGHTMAP
-// w0, w1, w2, and w3 are the four cubic B-spline basis functions
 float w0(float a) {
 	return (1.0 / 6.0) * (a * (a * (-a + 3.0) - 3.0) + 1.0);
 }
@@ -964,7 +963,6 @@ float w3(float a) {
 	return (1.0 / 6.0) * (a * a * a);
 }
 
-// g0 and g1 are the two amplitude functions
 float g0(float a) {
 	return w0(a) + w1(a);
 }
@@ -973,7 +971,6 @@ float g1(float a) {
 	return w2(a) + w3(a);
 }
 
-// h0 and h1 are the two offset functions
 float h0(float a) {
 	return -1.0 + w1(a) / (w0(a) + w1(a));
 }
@@ -1938,7 +1935,6 @@ void fragment_shader(in SceneData scene_data) {
 			vec3 lm_light_l1p1;
 
 			if (sc_use_lightmap_bicubic_filter()) {
-// See function definition, TLDR: we have to inline this for WGSL translation.
 #ifndef WEBGPU_USED
 				lm_light_l0 = textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 0.0), lightmaps.data[ofs].light_texture_size).rgb;
 				lm_light_l1n1 = (textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 1.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
@@ -2031,7 +2027,6 @@ void fragment_shader(in SceneData scene_data) {
 
 		} else {
 			if (sc_use_lightmap_bicubic_filter()) {
-// See function definition, TLDR: we have to inline this for WGSL translation.
 #ifndef WEBGPU_USED
 				ambient_light += textureArray_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb * lightmaps.data[ofs].exposure_normalization;
 #else
@@ -2497,7 +2492,6 @@ void fragment_shader(in SceneData scene_data) {
 				const vec3 uvw = vec3(scaled_uv, float(slice));
 
 				if (sc_use_lightmap_bicubic_filter()) {
-// See function definition, TLDR: we have to inline this for WGSL translation.
 #ifndef WEBGPU_USED
 					shadowmask = textureArray_bicubic(lightmap_textures[MAX_LIGHTMAP_TEXTURES + ofs], uvw, lightmaps.data[ofs].light_texture_size).x;
 #else

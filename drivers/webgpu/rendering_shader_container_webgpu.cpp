@@ -82,13 +82,9 @@ static void _debug_dump_shader(const char *p_dir, const String &p_shader_name, R
 }
 #endif
 
-// 4: varyings renumbered from location 0.
-// 3: uniforms carry the stages that read them.
-// 2: stages hold WGSL from tint (1 held SPIR-V).
 const uint32_t RenderingShaderContainerWebGpu::FORMAT_VERSION = 4;
 
 uint32_t RenderingShaderContainerWebGpu::_format() const {
-	// 'WGPU' LE
 	return 0x55504757;
 }
 
@@ -120,10 +116,6 @@ void RenderingShaderContainerWebGpu::_set_from_shader_reflection_post(const Refl
 	webgpu_uniform_data.resize(reflection_binding_set_uniforms_data.size());
 }
 
-// The corrections the driver's _remap_binding_indices() reads to number WebGPU bindings: an array
-// of N handles becomes N bindings, each element of a combined image sampler a texture then a
-// sampler, and every later binding in the set moves up by the bindings added before it.
-// _webgpu_plan() gives tint's reader the same numbering.
 static void _webgpu_corrections(RenderingDeviceCommons::UniformType p_type, uint32_t p_length, Vector<uint32_t> &r_corrections) {
 	using RDC = RenderingDeviceCommons;
 	r_corrections.clear();
@@ -146,8 +138,6 @@ static void _webgpu_corrections(RenderingDeviceCommons::UniformType p_type, uint
 	}
 }
 
-// Appends the WebGPU binding of each element of a uniform, numbered as
-// _remap_binding_indices() does from _webgpu_corrections(), and returns the bindings it added.
 static uint32_t _webgpu_plan(uint32_t p_set, uint32_t p_binding, RenderingDeviceCommons::UniformType p_type, uint32_t p_length, uint32_t p_offset, std::vector<WebGpuTintPlanEntry> &r_plan) {
 	using RDC = RenderingDeviceCommons;
 	const uint32_t first = p_binding + p_offset;
@@ -258,10 +248,8 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 
 	String shader_name_str = String::utf8(shader_name.ptr(), shader_name.length());
 
-	// The bind group the push constant block goes to; the driver binds its emulation buffer there.
 	const uint32_t push_constant_group = webgpu_immediates_set(p_shader.uniform_sets.size());
 
-	// One binding plan for all stages, from the whole shader's uniforms.
 	std::vector<WebGpuTintPlanEntry> plan;
 	for (uint32_t set_idx = 0; set_idx < p_shader.uniform_sets.size(); set_idx++) {
 		const ReflectDescriptorSet &set_refl = p_shader.uniform_sets[set_idx];
@@ -272,7 +260,6 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		}
 	}
 
-	// Varyings renumbered from 0 across all stages, to stay under WebGPU's 16 locations.
 	std::vector<std::vector<uint32_t>> stage_words(p_spirv.size());
 	for (uint32_t i = 0; i < p_spirv.size(); i++) {
 		Span<uint32_t> stage_spirv = p_spirv[i].spirv();
@@ -280,7 +267,6 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 	}
 	ERR_FAIL_COND_V_MSG(!webgpu_varyings::compact(stage_words), false, vformat("Malformed SPIR-V in %s.", shader_name_str));
 
-	// SPIR-V -> WGSL for each stage, with the textures and samplers each stage uses.
 	HashMap<uint64_t, WebGpuTintBinding> used;
 	HashMap<uint64_t, uint32_t> read_stages; // Binding -> stages whose code reads it.
 	Vector<CharString> wgsl_stages;
@@ -322,7 +308,6 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		wgsl_stages.push_back(text);
 	}
 
-	// Corrections and binding hints for each Godot uniform.
 	webgpu_uniform_data.resize(reflection_binding_set_uniforms_data.size());
 
 	uint32_t global_idx = 0;
@@ -359,8 +344,6 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 			u.binding_hints.clear();
 			u.stages_read = 0;
 
-			// Element k of this uniform is WebGPU binding first + k. Unused elements stay UNUSED,
-			// which the driver reads as "prune this layout entry".
 			const uint32_t first = uniform_refl.binding + offset;
 			const uint32_t count = 1 + (uint32_t)u.corrections.size(); // Hints the driver reads.
 			bool have_base = false;
@@ -375,8 +358,6 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 				if (k > 0) {
 					u.binding_hints.push_back(hint);
 				}
-				// The base hint describes the whole uniform: element 0 for a combined image
-				// sampler (the texture), else any used element of the array.
 				const bool combined = uniform_refl.type == RDC::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
 				if (b && !have_base && (k == 0 || !combined)) {
 					u.base_hint = hint;
@@ -417,7 +398,6 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 	return true;
 }
 
-// Size of the non-arrayed items we store in container extra data.
 static constexpr uint32_t WEBGPU_UNIFORM_EXTRA_BASE_SIZE =
 		sizeof(WebGpuBindingHint) + 6 * sizeof(uint32_t);
 

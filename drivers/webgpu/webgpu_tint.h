@@ -60,10 +60,8 @@ struct WebGpuTintBinding {
 	uint32_t group = 0;
 	uint32_t binding = 0;
 	Kind kind = KIND_OTHER;
-	// Textures.
 	SampleType sample_type = SAMPLE_FLOAT;
 	bool multisampled = false;
-	// Samplers.
 	SamplerType sampler_type = SAMPLER_FILTERING;
 };
 
@@ -76,9 +74,6 @@ struct WebGpuTintPlanEntry {
 	uint32_t wgsl_binding = 0;
 };
 
-// Translates one SPIR-V stage to WGSL. Bindings follow p_plan. The push constant block goes to
-// @group(p_push_constant_group) @binding(p_push_constant_binding). r_bindings lists the textures
-// and samplers the WGSL uses, with the binding layout type each needs.
 bool webgpu_tint_spirv_to_wgsl(const uint32_t *p_words, size_t p_word_count, const std::vector<WebGpuTintPlanEntry> &p_plan, uint32_t p_push_constant_group,
 		uint32_t p_push_constant_binding, uint32_t p_push_constant_max_size, std::string &r_wgsl,
 		std::vector<WebGpuTintBinding> &r_bindings, std::vector<uint64_t> &r_read, std::string &r_error);

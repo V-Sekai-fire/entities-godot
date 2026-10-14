@@ -121,19 +121,12 @@ void main() {
 // WGSL does not support `gl_HelperInvocation` nor `subgroupBallotExclusiveBitCount`
 #if !defined(WEBGPU_USED)
 	if (!sc_use_helper_check || !gl_HelperInvocation) {
-		//https://advances.realtimerendering.com/s2017/2017_Sig_Improved_Culling_final.pdf
-
 		uvec4 mask;
 
 		while (true) {
-			// find the cluster offset of the first active thread
-			// threads that did break; go inactive and no longer count
 			uint first = subgroupBroadcastFirst(cluster_offset);
-			// update the mask for thread that match this cluster
 			mask = subgroupBallot(first == cluster_offset);
 			if (first == cluster_offset) {
-				// This thread belongs to the group of threads that match this offset,
-				// so exit the loop.
 				break;
 			}
 		}

@@ -51,8 +51,6 @@ static void handle_request_adapter(WGPURequestAdapterStatus p_status,
 
 	RenderingContextDriver::Device device;
 	device.name = String::utf8(info.device.data, info.device.length);
-	// Browsers leave `device` (and often `description`) empty for privacy, but give the vendor and
-	// architecture, such as "apple metal-3".
 	if (device.name.is_empty()) {
 		device.name = String::utf8(info.description.data, info.description.length);
 	}
@@ -114,8 +112,6 @@ Error RenderingContextDriverWebGpu::initialize() {
 	adapter_callback_info.mode = WGPUCallbackMode_WaitAnyOnly;
 	adapter_callback_info.callback = handle_request_adapter;
 	adapter_callback_info.userdata1 = this;
-
-	// There is no way to request all adapters, so we just get the high and low power ones.
 
 	const WGPUPowerPreference powers[] = { WGPUPowerPreference_HighPerformance, WGPUPowerPreference_LowPower };
 	for (WGPUPowerPreference power : powers) {
@@ -194,46 +190,35 @@ DisplayServerEnums::VSyncMode RenderingContextDriverWebGpu::surface_get_vsync_mo
 	return surface->vsync_mode;
 }
 
-// TODO: HDR
 void RenderingContextDriverWebGpu::surface_set_hdr_output_enabled(SurfaceID p_surface, bool p_enabled) {
-	// TODO: HDR — route to a WGPUSurfaceConfiguration update with an HDR color-space chain.
 }
 
 bool RenderingContextDriverWebGpu::surface_get_hdr_output_enabled(SurfaceID p_surface) const {
-	// TODO: HDR — query actual surface capability once the chain is configured.
 	return false;
 }
 
 void RenderingContextDriverWebGpu::surface_set_hdr_output_reference_luminance(SurfaceID p_surface, float p_reference_luminance) {
-	// TODO: HDR — feed into the canvas tone-mapping reference luminance.
 }
 
 float RenderingContextDriverWebGpu::surface_get_hdr_output_reference_luminance(SurfaceID p_surface) const {
-	// TODO: HDR
 	return 0.0f;
 }
 
 void RenderingContextDriverWebGpu::surface_set_hdr_output_max_luminance(SurfaceID p_surface, float p_max_luminance) {
-	// TODO: HDR — feed into the canvas tone-mapping peak luminance.
 }
 
 float RenderingContextDriverWebGpu::surface_get_hdr_output_max_luminance(SurfaceID p_surface) const {
-	// TODO: HDR
 	return 0.0f;
 }
 
 void RenderingContextDriverWebGpu::surface_set_hdr_output_linear_luminance_scale(SurfaceID p_surface, float p_linear_luminance_scale) {
-	// TODO: HDR — feed into the linear-light scaling used by the display chain.
 }
 
 float RenderingContextDriverWebGpu::surface_get_hdr_output_linear_luminance_scale(SurfaceID p_surface) const {
-	// TODO: HDR
 	return 0.0f;
 }
 
 float RenderingContextDriverWebGpu::surface_get_hdr_output_max_value(SurfaceID p_surface) const {
-	// TODO: HDR — return the surface's max representable linear value (>1.0 for HDR).
-	// Defensive SDR fallback for now; gated unreachable while _enabled is false.
 	return 1.0f;
 }
 
@@ -299,7 +284,6 @@ WGPUAdapter RenderingContextDriverWebGpu::adapter_acquire(uint32_t p_adapter_ind
 		wgpuAdapterAddRef(adapters[p_adapter_index]);
 		return adapters[p_adapter_index];
 	}
-	// The cached adapter already made a device (a local RenderingDevice): request another.
 	WGPUAdapter fresh = nullptr;
 	WGPURequestAdapterOptions adapter_options = WGPU_REQUEST_ADAPTER_OPTIONS_INIT;
 	adapter_options.powerPreference = adapter_power[p_adapter_index];
@@ -342,7 +326,6 @@ void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGP
 		}
 	}
 
-	// TODO: Complete full surface config.
 	WGPUSurfaceConfiguration surface_config = WGPU_SURFACE_CONFIGURATION_INIT;
 	surface_config.device = p_device;
 	surface_config.format = this->format;

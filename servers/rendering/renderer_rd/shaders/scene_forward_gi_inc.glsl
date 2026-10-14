@@ -134,7 +134,6 @@ void voxel_gi_compute(uint index, vec3 position, vec3 normal, vec3 ref_vec, mat3
 	for (int i = 0; i < MAX_CONE_DIRS; i++) {
 		vec3 dir = normalize((voxel_gi_instances.data[index].xform * vec4(normal_xform * cone_dirs[i], 0.0)).xyz);
 
-// See function definition, TLDR: we have to inline this for WGSL translation.
 #ifndef WEBGPU_USED
 		vec4 cone_light = voxel_cone_trace_45_degrees(voxel_gi_textures[index], cell_size, position, dir, cone_angle_tan, max_distance, voxel_gi_instances.data[index].bias);
 #else
@@ -153,7 +152,6 @@ void voxel_gi_compute(uint index, vec3 position, vec3 normal, vec3 ref_vec, mat3
 	out_diff += vec4(light * blend, blend);
 
 	//irradiance
-// See function definition, TLDR: we have to inline this for WGSL translation.
 #ifndef WEBGPU_USED
 	vec4 irr_light = voxel_cone_trace(voxel_gi_textures[index], cell_size, position, ref_vec, tan(roughness * 0.5 * M_PI * 0.99), max_distance, voxel_gi_instances.data[index].bias);
 #else

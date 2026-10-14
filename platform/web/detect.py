@@ -255,18 +255,12 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=["-sGL_ENABLE_GET_PROC_ADDRESS=0"])
 
     if env["webgpu"]:
-        # RD_ENABLED comes from SConstruct's rendering_device block.
         env.AppendUnique(CPPDEFINES=["WEBGPU_ENABLED"])
 
         # Debug things
         env.Append(CCFLAGS=["-g"])
-        # Emscripten docs recommend using `use_closure_compiler=yes` too
-        # env.Append(LINKFLAGS=["--closure=1"])
 
         env.Append(CCFLAGS=["--use-port=emdawnwebgpu"])
-        # wgpuInstanceWaitAny suspends until the browser resolves a promise. JSPI (the browser's
-        # JavaScript Promise Integration, Baseline since September 2026) does that without
-        # Asyncify's code rewriting, which also breaks across the dlink main and side modules.
         env.Append(LINKFLAGS=["--use-port=emdawnwebgpu", "-sJSPI=1"])
         backend = env["webgpu_backend"]
         if backend == "auto":
@@ -341,7 +335,6 @@ def configure(env: "SConsEnvironment"):
         "HEAPF32",
         "HEAPF64",
     ]
-    # TODO(davnotdev): Check me! `wasmTable` may or may not need to be exported.
     env["EXPORTED_RUNTIME_METHODS"] += ["callMain", "cwrap", "wasmTable"] + heap_arrays
     env["EXPORTED_FUNCTIONS"] += ["_malloc", "_free"]
 
