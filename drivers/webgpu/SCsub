@@ -10,6 +10,8 @@ import os
 baker_only = env["platform"] != "web"
 if baker_only and not env.editor_build:
     raise ValueError('The WebGPU driver is only supported on platform "web" (via emdawnwebgpu).')
+# The baker-only build is called from editor/shader/shader_baker and goes into the editor library.
+target_sources = env.editor_sources if baker_only else env.drivers_sources
 
 # Thirdparty: tint's SPIR-V reader (on SPIRV-Cross's parser) and WGSL writer, for SPIR-V to WGSL.
 # tint needs C++20; it and the bridge that includes it (webgpu_tint.cpp) build with their own env.
@@ -44,6 +46,9 @@ env_tint = env.Clone()
 env_tint.disable_warnings()
 env_tint["CXXFLAGS"] = [f for f in env_tint["CXXFLAGS"] if not str(f).startswith(("-std=", "/std:"))]
 env_tint.Prepend(CXXFLAGS=["/std:c++20" if env.msvc else "-std=c++20"])
+# tint uses __VA_OPT__, which MSVC only reads with its standard conforming preprocessor.
+if env.msvc and not env["use_llvm"]:
+    env_tint.Append(CXXFLAGS=["/Zc:preprocessor"])
 # tint stops the build unless NDEBUG or DAWN_ENABLE_ASSERTS is set, and dev builds leave NDEBUG
 # unset. DAWN_ENABLE_ASSERTS needs Dawn's assert handler, which is not vendored, so use NDEBUG.
 if env.dev_build:
@@ -80,7 +85,7 @@ thirdparty_obj = []
 env_tint.add_source_files(thirdparty_obj, tint_sources)
 env_tint.add_source_files(thirdparty_obj, spirv_cross_sources)
 env_tint.add_source_files(thirdparty_obj, ["webgpu_tint.cpp"])
-env.drivers_sources += thirdparty_obj
+target_sources += thirdparty_obj
 
 # Godot source files
 
@@ -91,7 +96,7 @@ if baker_only:
     env_baker.add_source_files(driver_obj, ["rendering_shader_container_webgpu.cpp"])
 else:
     env.add_source_files(driver_obj, [f for f in Glob("*.cpp") if f.name != "webgpu_tint.cpp"])
-env.drivers_sources += driver_obj
+target_sources += driver_obj
 
 # Rebuild the driver when the thirdparty code changes.
 env.Depends(driver_obj, thirdparty_obj)

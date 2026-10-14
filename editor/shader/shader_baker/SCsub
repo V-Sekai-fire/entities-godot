@@ -14,3 +14,7 @@ if env["metal"]:
 
 if env["webgpu_shader_baker"]:
     env.add_source_files(env.editor_sources, "shader_baker_export_plugin_platform_webgpu.cpp")
+    # The baker's WebGPU shader container and tint are only used by this plugin, so they build into
+    # the editor library: drivers links before editor, and linkers that read archives in order (GNU ld)
+    # would drop them from the drivers library.
+    SConscript("#drivers/webgpu/SCsub")
