@@ -173,6 +173,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	required_limits.maxSampledTexturesPerShaderStage = pick_limit(48, adapter_limits.maxSampledTexturesPerShaderStage);
 	required_limits.maxStorageBuffersPerShaderStage = pick_limit(16, adapter_limits.maxStorageBuffersPerShaderStage);
 	required_limits.maxStorageTexturesPerShaderStage = pick_limit(16, adapter_limits.maxStorageTexturesPerShaderStage);
+	// Godot pins material varyings from location 15, so every location the adapter has is used.
+	required_limits.maxInterStageShaderVariables = adapter_limits.maxInterStageShaderVariables;
 
 	WGPUDeviceDescriptor device_desc = WGPU_DEVICE_DESCRIPTOR_INIT;
 	device_desc.requiredFeatureCount = required_features_count;
