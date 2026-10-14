@@ -42,8 +42,12 @@ if not (baker_only and env["metal"]):
 
 env_tint = env.Clone()
 env_tint.disable_warnings()
-env_tint["CXXFLAGS"] = [f for f in env_tint["CXXFLAGS"] if not str(f).startswith("-std=")]
-env_tint.Prepend(CXXFLAGS=["-std=c++20"])
+env_tint["CXXFLAGS"] = [f for f in env_tint["CXXFLAGS"] if not str(f).startswith(("-std=", "/std:"))]
+env_tint.Prepend(CXXFLAGS=["/std:c++20" if env.msvc else "-std=c++20"])
+# tint stops the build unless NDEBUG or DAWN_ENABLE_ASSERTS is set, and dev builds leave NDEBUG
+# unset. DAWN_ENABLE_ASSERTS needs Dawn's assert handler, which is not vendored, so use NDEBUG.
+if env.dev_build:
+    env_tint.Append(CPPDEFINES=["NDEBUG"])
 env_tint.Prepend(
     CPPPATH=[
         tint_dir,

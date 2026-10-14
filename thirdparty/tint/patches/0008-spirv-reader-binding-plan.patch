@@ -116,7 +116,15 @@ diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_modul
 index 8102e8b577..0586656fd7 100644
 --- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.h
 +++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.h
-@@ -590,6 +590,13 @@ class IRContext {
+@@ -49,6 +49,7 @@
+ #include <list>
+ #include <map>
+ #include <memory>
++#include <optional>
+ #include <string>
+ #include <unordered_map>
+ #include <utility>
+@@ -590,6 +591,13 @@ class IRContext {
      /// free binding, like spvtools::opt::ResolveBindingConflictsPass.
      void ResolveBindingConflicts();
  
