@@ -40,6 +40,7 @@
 #include "drivers/webgpu/webgpu_binding_remap.h"
 #include "drivers/webgpu/webgpu_platform.h"
 #include "drivers/webgpu/webgpu_tint.h"
+#include "drivers/webgpu/webgpu_varying_locations.h"
 
 #include <thirdparty/spirv-reflect/spirv_reflect.h>
 
@@ -81,9 +82,10 @@ static void _debug_dump_shader(const char *p_dir, const String &p_shader_name, R
 }
 #endif
 
+// 4: varyings renumbered from location 0.
 // 3: uniforms carry the stages that read them.
 // 2: stages hold WGSL from tint (1 held SPIR-V).
-const uint32_t RenderingShaderContainerWebGpu::FORMAT_VERSION = 3;
+const uint32_t RenderingShaderContainerWebGpu::FORMAT_VERSION = 4;
 
 uint32_t RenderingShaderContainerWebGpu::_format() const {
 	// 'WGPU' LE
@@ -270,14 +272,21 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		}
 	}
 
+	// Varyings renumbered from 0 across all stages, to stay under WebGPU's 16 locations.
+	std::vector<std::vector<uint32_t>> stage_words(p_spirv.size());
+	for (uint32_t i = 0; i < p_spirv.size(); i++) {
+		Span<uint32_t> stage_spirv = p_spirv[i].spirv();
+		stage_words[i].assign(stage_spirv.ptr(), stage_spirv.ptr() + stage_spirv.size());
+	}
+	ERR_FAIL_COND_V_MSG(!webgpu_varyings::compact(stage_words), false, vformat("Malformed SPIR-V in %s.", shader_name_str));
+
 	// SPIR-V -> WGSL for each stage, with the textures and samplers each stage uses.
 	HashMap<uint64_t, WebGpuTintBinding> used;
 	HashMap<uint64_t, uint32_t> read_stages; // Binding -> stages whose code reads it.
 	Vector<CharString> wgsl_stages;
 	for (uint32_t i = 0; i < p_spirv.size(); i++) {
-		Span<uint32_t> stage_spirv = p_spirv[i].spirv();
-
 #ifdef DEBUG_SHADERS
+		Span<uint32_t> stage_spirv = p_spirv[i].spirv();
 		_debug_dump_shader(DEBUG_SHADERS_RAW_LOCATION, shader_name_str, p_spirv[i].shader_stage, (const uint8_t *)stage_spirv.ptr(), stage_spirv.size() * sizeof(uint32_t));
 #endif
 
@@ -285,7 +294,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		std::string error;
 		std::vector<WebGpuTintBinding> bindings;
 		std::vector<uint64_t> read;
-		bool ok = webgpu_tint_spirv_to_wgsl(stage_spirv.ptr(), stage_spirv.size(), plan, push_constant_group,
+		bool ok = webgpu_tint_spirv_to_wgsl(stage_words[i].data(), stage_words[i].size(), plan, push_constant_group,
 				WEBGPU_PUSH_CONSTANT_EMULATION_BINDING, WEBGPU_MAX_IMMEDIATE_SIZE, wgsl, bindings, read, error);
 		ERR_FAIL_COND_V_MSG(!ok, false, vformat("SPIR-V to WGSL failed for %s stage %s: %s", shader_name_str, String(RenderingDeviceCommons::SHADER_STAGE_NAMES[p_spirv[i].shader_stage]), String::utf8(error.c_str())));
 

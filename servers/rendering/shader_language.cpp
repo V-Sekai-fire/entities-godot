@@ -11187,7 +11187,9 @@ Error ShaderLanguage::_parse_shader(const HashMap<StringName, FunctionInfo> &p_f
 
 		tk = _get_token();
 	}
-	uint32_t varying_index = base_varying_index;
+	// WebGPU links stages by location, so its driver renumbers the varyings a shader uses from 0,
+	// the way a GL driver links them by name. As on GL, only the shader's own varyings count.
+	uint32_t varying_index = OS::get_singleton()->get_current_rendering_driver_name() == "webgpu" ? 0 : base_varying_index;
 	uint32_t max_varyings = 31;
 	// Can be false for internal shaders created in the process of initializing the engine.
 	if (RSG::utilities) {
