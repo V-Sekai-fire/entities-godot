@@ -284,6 +284,8 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=[f"-sDEFAULT_PTHREAD_STACK_SIZE={env['default_pthread_stack_size']}KB"])
         env.Append(LINKFLAGS=["-sPTHREAD_POOL_SIZE=\"Module['emscriptenPoolSize']||8\""])
         env.Append(LINKFLAGS=["-sMAXIMUM_MEMORY=2048MB"])
+        # dlmalloc takes one global lock, so worker threads queue on every allocation.
+        env.Append(LINKFLAGS=["-sMALLOC=mimalloc"])
 
     elif env["proxy_to_pthread"]:
         print_warning('"threads=no" support requires "proxy_to_pthread=no", disabling proxy to pthread.')
