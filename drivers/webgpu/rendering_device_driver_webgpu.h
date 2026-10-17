@@ -134,6 +134,8 @@ private:
 
 		bool is_original_texture;
 		bool uses_depth_or_array_layers;
+		// Created in a wider format because the device cannot use rd_texture_format as storage.
+		bool storage_promoted = false;
 	};
 
 	// For depth stencil formats, create one default texture view and one depth only texture view.
@@ -547,6 +549,10 @@ private:
 	SamplerID _sampler_mock_binding_create(WGPUSamplerBindingLayout p_layout);
 	TextureID _texture_mock_binding_create(WGPUTextureBindingLayout p_layout);
 	TextureID _storage_texture_mock_binding_create(WGPUStorageTextureBindingLayout p_layout);
+	// Without texture-formats-tier1, a tier1-only storage format is replaced by the core
+	// storage format with the same texel type, in WGSL, layouts and storage textures alike.
+	WGPUTextureFormat _storage_format(WGPUTextureFormat p_format) const;
+	String _storage_formats_promote_wgsl(const String &p_wgsl) const;
 	BufferID _buffer_mock_binding_create(WGPUBufferBindingLayout p_layout);
 
 public:

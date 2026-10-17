@@ -491,6 +491,19 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	WGPUTextureFormat texture_format = webgpu_texture_format_from_rd(p_format.format);
 	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format);
+	bool storage_promoted = false;
+	if ((p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT) && _storage_format(texture_format) != texture_format) {
+		// The wider texture holds different bytes per texel, so CPU uploads and copies cannot use it.
+		const BitField<TextureUsageBits> copies = TEXTURE_USAGE_CAN_UPDATE_BIT | TEXTURE_USAGE_CAN_COPY_TO_BIT | TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+		if (p_format.usage_bits & copies) {
+			WARN_PRINT_ONCE("WebGPU: a copyable storage texture uses a format this device cannot store; storage use is dropped.");
+			usage_bits &= ~WGPUTextureUsage_StorageBinding;
+		} else {
+			texture_format = _storage_format(texture_format);
+			view_format = _storage_format(view_format);
+			storage_promoted = true;
+		}
+	}
 	WGPUTextureUsage usage = (WGPUTextureUsage)usage_bits;
 	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_format.format);
 
@@ -535,8 +548,8 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	Vector<WGPUTextureFormat> view_formats;
 
 	for (uint32_t i = 0; i < p_format.shareable_formats.size(); i++) {
-		DataFormat format = p_format.shareable_formats[i];
-		view_formats.push_back(webgpu_texture_format_from_rd(format));
+		WGPUTextureFormat format = webgpu_texture_format_from_rd(p_format.shareable_formats[i]);
+		view_formats.push_back(storage_promoted ? _storage_format(format) : format);
 	}
 	view_formats.push_back(view_format);
 
@@ -594,6 +607,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	texture_info->texture_view_desc = texture_view_desc;
 	texture_info->is_original_texture = true;
 	texture_info->uses_depth_or_array_layers = uses_depth_or_array_layers;
+	texture_info->storage_promoted = storage_promoted;
 
 	return TextureID(texture_info);
 }
@@ -640,6 +654,9 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	WGPUTextureViewDescriptor texture_view_desc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
 	texture_view_desc.nextInChain = texture_swizzle_supported ? (WGPUChainedStruct *)&texture_view_desc_extras : nullptr;
 	texture_view_desc.format = webgpu_texture_format_from_rd(p_view.format);
+	if (texture_info->storage_promoted) {
+		texture_view_desc.format = _storage_format(texture_view_desc.format);
+	}
 	texture_view_desc.dimension = texture_info->texture_view_desc.dimension;
 	texture_view_desc.baseMipLevel = texture_info->texture_view_desc.baseMipLevel;
 	texture_view_desc.mipLevelCount = texture_info->texture_view_desc.mipLevelCount;
@@ -686,6 +703,9 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 #endif
 
 	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format);
+	if (texture_info->storage_promoted) {
+		view_format = _storage_format(view_format);
+	}
 	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_view.format);
 	WGPUTextureViewDescriptor texture_view_desc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
 	texture_view_desc.nextInChain = texture_swizzle_supported ? (WGPUChainedStruct *)&texture_view_desc_extras : nullptr;
@@ -830,13 +850,92 @@ static bool webgpu_storage_format_is_tier1(WGPUTextureFormat p_format) {
 	}
 }
 
+// The core storage format with the same texel type (float, uint or sint) and at least the
+// precision of a tier1-only storage format.
+static WGPUTextureFormat webgpu_storage_format_core_promotion(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_R8Unorm:
+		case WGPUTextureFormat_RG8Unorm:
+			return WGPUTextureFormat_RGBA8Unorm;
+		case WGPUTextureFormat_R8Uint:
+		case WGPUTextureFormat_RG8Uint:
+			return WGPUTextureFormat_RGBA8Uint;
+		case WGPUTextureFormat_R8Sint:
+		case WGPUTextureFormat_RG8Sint:
+			return WGPUTextureFormat_RGBA8Sint;
+		case WGPUTextureFormat_R16Uint:
+		case WGPUTextureFormat_RG16Uint:
+		case WGPUTextureFormat_RGB10A2Uint:
+			return WGPUTextureFormat_RGBA16Uint;
+		case WGPUTextureFormat_R16Sint:
+		case WGPUTextureFormat_RG16Sint:
+			return WGPUTextureFormat_RGBA16Sint;
+		case WGPUTextureFormat_R16Float:
+		case WGPUTextureFormat_RG16Float:
+		case WGPUTextureFormat_RG11B10Ufloat:
+		case WGPUTextureFormat_RGB10A2Unorm:
+			return WGPUTextureFormat_RGBA16Float;
+		default:
+			return p_format;
+	}
+}
+
+WGPUTextureFormat RenderingDeviceDriverWebGpu::_storage_format(WGPUTextureFormat p_format) const {
+	if (texture_formats_tier1_supported) {
+		return p_format;
+	}
+	return webgpu_storage_format_core_promotion(p_format);
+}
+
+String RenderingDeviceDriverWebGpu::_storage_formats_promote_wgsl(const String &p_wgsl) const {
+	if (texture_formats_tier1_supported) {
+		return p_wgsl;
+	}
+	static const char *promotions[][2] = {
+		{ "r8unorm", "rgba8unorm" },
+		{ "rg8unorm", "rgba8unorm" },
+		{ "r8uint", "rgba8uint" },
+		{ "rg8uint", "rgba8uint" },
+		{ "r8sint", "rgba8sint" },
+		{ "rg8sint", "rgba8sint" },
+		{ "r16uint", "rgba16uint" },
+		{ "rg16uint", "rgba16uint" },
+		{ "rgb10a2uint", "rgba16uint" },
+		{ "r16sint", "rgba16sint" },
+		{ "rg16sint", "rgba16sint" },
+		{ "r16float", "rgba16float" },
+		{ "rg16float", "rgba16float" },
+		{ "rg11b10ufloat", "rgba16float" },
+		{ "rgb10a2unorm", "rgba16float" },
+	};
+	// Only the texel format argument of texture_storage_*<format, access> changes.
+	String wgsl = p_wgsl;
+	int from = 0;
+	while ((from = wgsl.find("texture_storage_", from)) != -1) {
+		const int open = wgsl.find_char('<', from);
+		const int comma = open == -1 ? -1 : wgsl.find_char(',', open);
+		if (comma == -1) {
+			break;
+		}
+		const String format = wgsl.substr(open + 1, comma - open - 1).strip_edges();
+		for (const auto &promotion : promotions) {
+			if (format == promotion[0]) {
+				wgsl = wgsl.substr(0, open + 1) + promotion[1] + wgsl.substr(comma);
+				break;
+			}
+		}
+		from = open + 1;
+	}
+	return wgsl;
+}
+
 BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::texture_get_usages_supported_by_format(DataFormat p_format, bool p_cpu_readable) {
 	const WGPUTextureFormat wgpu_format = webgpu_texture_format_from_rd(p_format);
 	for (WGPUTextureFormat format : WEBGPU_CORE_SUPPORTED_FORMATS) {
 		if (wgpu_format == format) {
 			// Only the storage column is checked here; the other usages are still reported as supported.
 			BitField<RDD::TextureUsageBits> supported = INT64_MAX;
-			const bool storage = webgpu_storage_format_is_core(wgpu_format) ||
+			const bool storage = webgpu_storage_format_is_core(_storage_format(wgpu_format)) ||
 					(texture_formats_tier1_supported && webgpu_storage_format_is_tier1(wgpu_format));
 			if (!storage) {
 				supported.clear_flag(TEXTURE_USAGE_STORAGE_BIT);
@@ -1833,7 +1932,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 					layout_entry.storageTexture = WGPU_STORAGE_TEXTURE_BINDING_LAYOUT_INIT;
 					layout_entry.storageTexture.access = access;
-					layout_entry.storageTexture.format = webgpu_texture_format_from_rd(info.image_format);
+					layout_entry.storageTexture.format = _storage_format(webgpu_texture_format_from_rd(info.image_format));
 					layout_entry.storageTexture.viewDimension = viewDimension;
 
 					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
@@ -1929,15 +2028,18 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				shader.code_compression_flags, decompressed_code.ptrw(), source_size);
 		ERR_FAIL_COND_V_MSG(!ok, ShaderID(), vformat("Failed to decompress WGSL on shader stage %s.", String(SHADER_STAGE_NAMES[shader.shader_stage])));
 
+		const String wgsl = _storage_formats_promote_wgsl(String::utf8((const char *)decompressed_code.ptr(), source_size));
+		const CharString wgsl_utf8 = wgsl.utf8();
+
 		WGPUShaderSourceWGSL source = WGPU_SHADER_SOURCE_WGSL_INIT;
 		source.chain = {};
 		source.chain.next = nullptr;
 		source.chain.sType = WGPUSType_ShaderSourceWGSL;
 		source.code = WGPU_STRING_VIEW_INIT;
-		source.code.data = (const char *)decompressed_code.ptr();
-		source.code.length = source_size;
+		source.code.data = wgsl_utf8.get_data();
+		source.code.length = wgsl_utf8.length();
 
-		shader_info->shader_contents.push_back(String::utf8((const char *)decompressed_code.ptr(), source_size));
+		shader_info->shader_contents.push_back(wgsl);
 
 		WGPUShaderModuleDescriptor shader_module_desc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
 		shader_module_desc.nextInChain = &source.chain;
