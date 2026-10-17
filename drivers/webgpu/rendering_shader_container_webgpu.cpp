@@ -319,7 +319,17 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 			const ReflectUniform &uniform_refl = set_refl[binding_idx];
 			UniformData &u = webgpu_uniform_data.write[global_idx];
 
-			const SpvReflectDescriptorBinding &binding = uniform_refl.get_spv_reflect();
+			// The stage-less get_spv_reflect() ends in a crash without a return, which MSVC
+			// rejects (C4715) once it is instantiated; look up the first stage instead.
+			uint32_t first_stage = RDC::SHADER_STAGE_MAX;
+			for (uint32_t stage = 0; stage < RDC::SHADER_STAGE_MAX; stage++) {
+				if (uniform_refl.stages.has_flag(RDC::ShaderStage(1 << stage))) {
+					first_stage = stage;
+					break;
+				}
+			}
+			ERR_FAIL_COND_V_MSG(first_stage == RDC::SHADER_STAGE_MAX, false, "Uniform has no shader stage.");
+			const SpvReflectDescriptorBinding &binding = uniform_refl.get_spv_reflect(RDC::ShaderStage(first_stage));
 			u.image_format = (uint32_t)uniform_refl.texture_format;
 			u.texture_image_type = (uint32_t)_texture_type_from_spv((SpvDim)binding.image.dim, binding.image.arrayed != 0);
 			u.texture_is_multisample = binding.image.ms != 0 ? 1u : 0u;
