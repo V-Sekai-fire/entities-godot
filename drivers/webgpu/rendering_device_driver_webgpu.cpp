@@ -2785,6 +2785,11 @@ void RenderingDeviceDriverWebGpu::command_clear_buffer(CommandBufferID p_cmd_buf
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	// Compute commands wait in `commands` until the pass is flushed, while this one goes on the
+	// encoder now: flush first, or it runs before the dispatches recorded ahead of it.
+	if (command_buffer_info->has_compute_commands && !command_buffer_info->is_render_pass_active) {
+		_flush_active_command_pass(*command_buffer_info);
+	}
 
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
 
@@ -2799,6 +2804,11 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buff
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	// Compute commands wait in `commands` until the pass is flushed, while this one goes on the
+	// encoder now: flush first, or it runs before the dispatches recorded ahead of it.
+	if (command_buffer_info->has_compute_commands && !command_buffer_info->is_render_pass_active) {
+		_flush_active_command_pass(*command_buffer_info);
+	}
 
 	BufferInfo *src_buffer_info = (BufferInfo *)p_src_buffer.id;
 	BufferInfo *dst_buffer_info = (BufferInfo *)p_dst_buffer.id;
@@ -2808,7 +2818,8 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buff
 		if (src_buffer_info->upload_shadow) {
 			_upload_shadow_range(src_buffer_info, region.src_offset, region.size);
 		}
-		wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, STEPIFY(region.size, 256));
+		// WebGPU needs a multiple of 4; rounding further would overwrite dst past the region.
+		wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, STEPIFY(region.size, 4));
 	}
 
 	if (src_buffer_info->is_mapped) {
@@ -2823,6 +2834,11 @@ void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buf
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	// Compute commands wait in `commands` until the pass is flushed, while this one goes on the
+	// encoder now: flush first, or it runs before the dispatches recorded ahead of it.
+	if (command_buffer_info->has_compute_commands && !command_buffer_info->is_render_pass_active) {
+		_flush_active_command_pass(*command_buffer_info);
+	}
 
 	TextureInfo *src_texture_info = (TextureInfo *)p_src_texture.id;
 	TextureInfo *dst_texture_info = (TextureInfo *)p_dst_texture.id;
@@ -2882,6 +2898,11 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	// Compute commands wait in `commands` until the pass is flushed, while this one goes on the
+	// encoder now: flush first, or it runs before the dispatches recorded ahead of it.
+	if (command_buffer_info->has_compute_commands && !command_buffer_info->is_render_pass_active) {
+		_flush_active_command_pass(*command_buffer_info);
+	}
 
 	BufferInfo *src_buffer_info = (BufferInfo *)p_src_buffer.id;
 	TextureInfo *dst_texture_info = (TextureInfo *)p_dst_texture.id;
@@ -2951,6 +2972,11 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	// Compute commands wait in `commands` until the pass is flushed, while this one goes on the
+	// encoder now: flush first, or it runs before the dispatches recorded ahead of it.
+	if (command_buffer_info->has_compute_commands && !command_buffer_info->is_render_pass_active) {
+		_flush_active_command_pass(*command_buffer_info);
+	}
 
 	TextureInfo *src_texture_info = (TextureInfo *)p_src_texture.id;
 	BufferInfo *dst_buffer_info = (BufferInfo *)p_dst_buffer.id;
