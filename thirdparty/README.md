@@ -1186,6 +1186,10 @@ Patches:
 - `0014-spirv-reader-pointer-array-stride.patch` (ignore `ArrayStride` on pointer types: Slang
   puts it on every StorageBuffer pointer, it only matters to `OpPtrAccessChain`, which the reader
   does not handle, and the reader stopped with an internal compiler error on it)
+- `0015-spirv-reader-loop-exit-guard.patch` (`LoopExitGuard` lowering: a branch from inside a
+  switch to the merge of the loop around it, which Slang emits for every `break` in a loop body it
+  wraps in `switch 0`, becomes a guard variable and a guarded exit after each control on the way
+  out, since WGSL's `break` in a switch leaves only the switch)
 
 ## tinyexr
 

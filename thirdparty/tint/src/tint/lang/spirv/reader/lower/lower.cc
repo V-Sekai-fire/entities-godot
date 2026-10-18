@@ -36,6 +36,7 @@
 #include "src/tint/lang/spirv/reader/lower/decompose_strided_matrix.h"
 #include "src/tint/lang/spirv/reader/lower/depth_sample.h"
 #include "src/tint/lang/spirv/reader/lower/handle_params.h"
+#include "src/tint/lang/spirv/reader/lower/loop_exit_guard.h"
 #include "src/tint/lang/spirv/reader/lower/shader_io.h"
 #include "src/tint/lang/spirv/reader/lower/texture.h"
 #include "src/tint/lang/spirv/reader/lower/transpose_row_major.h"
@@ -46,6 +47,8 @@ namespace tint::spirv::reader {
 Result<SuccessType> Lower(core::ir::Module& mod,
                           bool flip_vertex_y,
                           bool read_only_storage_as_sampled) {
+    // Godot: a loop exit from inside a switch becomes a guarded exit of each control around it.
+    TINT_CHECK_RESULT(lower::LoopExitGuard(mod));
     TINT_CHECK_RESULT(core::ir::transform::DeadCodeElimination(mod));
     // Godot: texture and sampler parameters become the variables passed to them.
     TINT_CHECK_RESULT(lower::HandleParams(mod));
