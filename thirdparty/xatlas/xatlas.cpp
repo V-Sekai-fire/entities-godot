@@ -8412,7 +8412,7 @@ struct Atlas
 		// chartImage: result from conservative rasterization
 		// chartImageBilinear: chartImage plus any texels that would be sampled by bilinear filtering.
 		// chartImagePadding: either chartImage or chartImageBilinear depending on options, with a dilate filter applied options.padding times.
-		// Rotated versions swap x and y.
+		// Rotated versions are turned a quarter: pixel (x, y) moves to (y, width - 1 - x).
 		BitImage chartImage, chartImageBilinear, chartImagePadding;
 		BitImage chartImageRotated, chartImageBilinearRotated, chartImagePaddingRotated;
 		UniformGrid2 boundaryEdgeGrid;
@@ -8589,7 +8589,8 @@ struct Atlas
 				Vector2 t = texcoord;
 				if (best_r) {
 					XA_DEBUG_ASSERT(options.rotateCharts);
-					swap(t.x, t.y);
+					// A quarter turn, as the rotated chart images are drawn; a swap would mirror the chart.
+					t = Vector2(t.y, (float)chartImage.width() - t.x);
 				}
 				texcoord.x = best_x + t.x;
 				texcoord.y = best_y + t.y;
@@ -8834,7 +8835,7 @@ private:
 			setPixel:
 				dest->set(x, y);
 				if (destRotated)
-					destRotated->set(y, x);
+					destRotated->set(y, source->width() - 1 - x);
 			}
 		}
 	}
@@ -8849,7 +8850,7 @@ private:
 		auto args = (DrawTriangleCallbackArgs *)param;
 		args->chartBitImage->set(x, y);
 		if (args->chartBitImageRotated)
-			args->chartBitImageRotated->set(y, x);
+			args->chartBitImageRotated->set(y, args->chartBitImage->width() - 1 - x);
 		return true;
 	}
 
