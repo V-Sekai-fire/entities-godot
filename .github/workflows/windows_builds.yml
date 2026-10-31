@@ -126,10 +126,16 @@ jobs:
           echo "MINGW_PREFIX=$PWD/llvm-mingw-$ver-ucrt-x86_64" >> "$GITHUB_ENV"
           echo "$PWD/llvm-mingw-$ver-ucrt-x86_64/bin" >> "$GITHUB_PATH"
 
+      - name: FoundationDB client
+        id: fdb-client
+        # modules/sqlite builds with MinGW only: fdb_vfs.c needs pthread.h and unistd.h.
+        if: matrix.compiler == 'llvm-mingw' || matrix.compiler == 'gcc'
+        uses: ./.github/actions/fdb-client
+
       - name: Compilation
         uses: ./.github/actions/godot-build
         with:
-          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }} ${{ matrix.compiler == 'llvm-mingw' && format('mingw_prefix={0}', env.MINGW_PREFIX) || '' }} d3d12=${{ steps.d3d12-sdk.outputs.D3D12_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }}
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }} ${{ steps.fdb-client.outputs.scons-flags }} ${{ matrix.compiler == 'llvm-mingw' && format('mingw_prefix={0}', env.MINGW_PREFIX) || '' }} d3d12=${{ steps.d3d12-sdk.outputs.D3D12_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }}
           platform: windows
           target: ${{ matrix.target }}
 

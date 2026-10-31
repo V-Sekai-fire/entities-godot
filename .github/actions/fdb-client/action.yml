@@ -1,0 +1,75 @@
+name: FoundationDB client
+description: Download the FoundationDB client headers and library from a datasource-foundationdb release, check them against the release's SHA256SUMS, and report where they are.
+
+inputs:
+  release:
+    description: Release tag of V-Sekai-fire/datasource-foundationdb.
+    default: 7.3.79-weftspun-dev.2
+
+outputs:
+  scons-flags:
+    description: fdb_include and fdb_libpath flags for the modules/sqlite build.
+    value: ${{ steps.locate.outputs.scons-flags }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download the installer
+      shell: bash
+      run: |
+        set -eu
+        base="https://github.com/V-Sekai-fire/datasource-foundationdb/releases/download/${{ inputs.release }}"
+        dir="$RUNNER_TEMP/fdb-client"
+        mkdir -p "$dir"
+        cd "$dir"
+        curl -fsSL --retry 3 -O "$base/SHA256SUMS"
+        # The installer carries the headers on every OS and the Windows library.
+        files="foundationdb-7.3.79-SNAPSHOT-x64.msi"
+        # Linux links the release's own libfdb_c.
+        if [ "$RUNNER_OS" = "Linux" ]; then files="$files libfdb_c.linux.x86_64.so"; fi
+        for f in $files; do
+          curl -fsSL --retry 3 -O "$base/$f"
+          grep " $f\$" SHA256SUMS | sha256sum -c -
+        done
+
+    - name: Unpack on Windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $dir = Join-Path $env:RUNNER_TEMP 'fdb-client'
+        $target = Join-Path $dir 'root'
+        Start-Process msiexec -ArgumentList '/a', (Join-Path $dir 'foundationdb-7.3.79-SNAPSHOT-x64.msi'), '/qn', "TARGETDIR=$target" -Wait -NoNewWindow
+        if (-not (Test-Path (Join-Path $target 'PFiles/foundationdb/include/foundationdb/fdb_c.h'))) { throw 'fdb_c.h missing after unpacking the installer' }
+
+    - name: Unpack on Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -eu
+        sudo apt-get install -y msitools
+        cd "$RUNNER_TEMP/fdb-client"
+        msiextract -C root foundationdb-7.3.79-SNAPSHOT-x64.msi > /dev/null
+        mkdir -p lib
+        cp libfdb_c.linux.x86_64.so lib/libfdb_c.so
+
+    - name: Locate the client
+      id: locate
+      shell: bash
+      run: |
+        set -eu
+        dir="$RUNNER_TEMP/fdb-client"
+        root="$(find "$dir/root" -type d -path '*include/foundationdb' | head -n 1)"
+        test -f "$root/fdb_c.h"
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          inc="$(cygpath -m "$root")"
+          pf="$(dirname "$(dirname "$root")")"
+          lib="$(cygpath -m "$pf/lib/foundationdb")"
+          # The binary loads fdb_c.dll at run time.
+          echo "$(cygpath -w "$pf/bin")" >> "$GITHUB_PATH"
+        else
+          inc="$root"
+          lib="$dir/lib"
+          echo "LD_LIBRARY_PATH=$lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+        fi
+        echo "scons-flags=fdb_include=$inc fdb_libpath=$lib" >> "$GITHUB_OUTPUT"
+        echo "fdb_include=$inc fdb_libpath=$lib"
