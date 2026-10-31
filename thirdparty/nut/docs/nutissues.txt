@@ -1,0 +1,181 @@
+Issue broadcast-clock-sync
+--------------------------
+Problem: Clock synchronization leading to buffer overflow and underflow
+in the decoder.
+
+
+Issue broadcast-preload-len
+---------------------------
+Problem: How long should the receiver preload the NUT file before starting
+playback and after seeking, so no buffer over/underflow happens.
+
+Solutions to the above 2 issues are for example storing one of the following
+A. preload time
+B. preload bytes
+C. buffer fullness in seconds
+D. buffer fullness in bytes
+E. transmit time stamps
+
+Values in bytes are sensitive to packet loss, which can delay initial startup.
+
+
+These can be stored in one of the following
+a. sync points
+b. info packets
+c. a new stream type
+
+Info packets are currently not allowed to change thus they are not suitable
+without that being changed.
+
+
+Issue chapter-overlap/gap
+-------------------------
+If one changes the timebase between chapters then overlaps (forbidden by the
+spec) or gaps (problematic with split & merge) can happen.
+
+Solutions:
+A. Do not change the timebase.
+B. Store start and end in separate timebases (breaks compatibility).
+C. Add a field into the info packet overriding the chapter_end with a
+   more accurate value.
+D. Use the chapter start of the next chapter (breaks compatibility and
+   error robustness).
+
+It seems the consensus is A.
+
+
+Issue stream-chapter-overlap
+----------------------------
+It is possible especially in the light of the precision of the previous
+issue, that chapters might not end exactly at the same points in time in
+all streams. There could be a few samples difference.
+Do we care about this?
+
+It seems the consensus is: no, we dont care
+
+
+Issue info-stream-subsets
+-------------------------
+Currently if info applies to more than 1 stream but not all, it has to be
+duplicated for each stream it applies to.
+
+
+Issue multiple-programs
+-----------------------
+Multiple programs (that is several audio-video stream pairs for example) can
+not be stored cleanly in NUT.
+
+Solutions:
+A. one backptr per program + any solution for issue info-stream-subsets
+B. Design a separate layer for it.
+C. Do not support this.
+
+
+Issue info-overhead
+-------------------
+Info can be stored much more compactly by replacing common strings by
+shorter representations.
+
+Solutions:
+A. Change syntax so a v value which indexes into a fixed table can select
+   info names. (breaks compatibility completely)
+B. Use/allow 1 char abbreviations (new demuxers could read old files, old
+   ones could read everything except the abbreviated fields).
+C. Leave info as it is.
+
+
+Issue edit-lists
+----------------
+For editing it is very useful to not rewrite the whole file after every step.
+
+Solutions:
+A. Store such edits in info packets.
+B. Store such edits in info packets but allow them only in "private" NUT
+   files. That is files distributed must be remuxed. Players must reject
+   files with edit lists.
+C. Do not support this (this would mean no interoperability between video
+   editing programs using NUT as they would use their own formats to store
+   edit lists).
+
+
+Issue alternatives
+------------------
+Alternatives like a variant without some scenes or with a happy ending
+instead of a tragic one cannot be stored in NUT currently.
+
+Solutions:
+A. Store such alternative playlists of scenes in info packets somehow.
+B. Design a separate layer for it.
+C. Do not support this.
+
+
+Issue header-elision
+--------------------
+Headers of codec frames often contain low entropy information or things
+we already know like the frame size.
+
+A. Store header bytes and length in the framecode table.
+B. Leave things as they are.
+
+Implemented
+
+
+Issue small-frames
+------------------
+The original intent of NUT frames was that 1 container frame == 1 codec
+frame, albeit this does not seem to be explicitly written in nut.txt.
+Also it is inefficient for very small frames, AMR-NB for example has 6-32
+bytes per frame.
+
+Solutions:
+A. Enforce 1 container frame == 1 codec frame even if it causes 10% overhead.
+B. Allow multiple frames as long as the whole packet is less than some
+   fixed minimum in bytes (like 256byte).
+C. Allow multiple frames as long as the whole packet is less than some
+   fixed minimum in bytes (like 256byte) and the codec uses a constant
+   framesize in samples.
+D. Use header compression, that is allow to store the first (few) bytes
+   of a codec frame together with its size in the framecode table. This
+   would allow us to store the size of a frame without any redundancy.
+   Thus effectively avoiding the overhead small frames cause.
+
+It seems the consensus is: A+D With the specified bounds
+
+
+Issue pcm-frames
+----------------
+No word is said about how many or how few PCM samples should be in a frame.
+
+Solutions:
+A. Define a maximum number of samples (like 512).
+B. Define a maximum timespam (like 0.1 sec).
+C. Define a maximum number of bytes (like 1024).
+
+Implemented: A
+
+
+Issue pcm-sample-format
+-----------------------
+How do we identify the sample format
+
+A. fourcc
+B. extradata
+C. New field in the stream header
+
+It seems the consensus is: A
+
+
+Issue pcm-interleaving
+----------------------
+How do we identify the interleaving
+
+A. fourcc
+B. extradata
+C. New field in the stream header
+D. Only allow 1 standard interleaving
+
+What about the interleaving of non raw codecs, do all specify the
+interleaving, or do any leave it to the container? If so, our options
+would be down to only C.
+
+Also a field specific to just raw does not belong in the stream headers.
