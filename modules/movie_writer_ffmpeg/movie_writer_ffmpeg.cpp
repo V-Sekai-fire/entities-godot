@@ -179,7 +179,8 @@ Error MovieWriterFFmpeg::write_begin(const Size2i &p_movie_size, uint32_t p_fps,
 	// Video stream.
 	streams[0].type = NUT_VIDEO_CLASS;
 	streams[0].fourcc_len = 4;
-	streams[0].fourcc = (uint8_t *)"RGBA";
+	static uint8_t video_fourcc[4] = { 'R', 'G', 'B', 24 }; // RGB24, matching Image::FORMAT_RGB8.
+	streams[0].fourcc = video_fourcc;
 	streams[0].width = p_movie_size.width;
 	streams[0].height = p_movie_size.height;
 	streams[0].time_base.num = 1;
@@ -227,7 +228,12 @@ Error MovieWriterFFmpeg::write_frame(const Ref<Image> &p_image, const int32_t *p
 		ERR_FAIL_V_MSG(ERR_FILE_CANT_WRITE, "Failed to write to FFmpeg: Broken pipe.");
 	}
 
-	const Vector<uint8_t> &v_data = p_image->get_data();
+	Ref<Image> frame = p_image;
+	if (frame->get_format() != Image::FORMAT_RGB8) {
+		frame = frame->duplicate();
+		frame->convert(Image::FORMAT_RGB8);
+	}
+	const Vector<uint8_t> &v_data = frame->get_data();
 	nut_packet_tt vp;
 	vp.stream = 0;
 	vp.len = v_data.size();
