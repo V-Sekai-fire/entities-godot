@@ -1,0 +1,126 @@
+3	integrity_check: ok | rows: 2000, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+4	integrity_check: ok | rows: 2000, distinct: 2, value: round-4 | TORN: round-4 and round-5 in one database | 
+5	integrity_check: ok | rows: 2000, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+6	integrity_check: *** in database main *** | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 10: btreeInitPage() returns error code 11 | 
+7	DROP TABLE IF EXISTS kv -> database disk image is malformed | writer failed before the crash | 
+8	DROP TABLE IF EXISTS kv -> database disk image is malformed | writer failed before the crash | 
+10	integrity_check: ok | rows: 2000, distinct: 2, value: round-2 | TORN: round-2 and round-3 in one database | 
+13	integrity_check: ok | rows: 400, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+14	integrity_check: *** in database main *** | Page 3: never used | Page 4: never used | rows: 0, distinct: 0, value: none | 
+27	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+28	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+29	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+30	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+31	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+32	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+33	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+34	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+35	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+36	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+37	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+38	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+39	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+40	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+41	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+42	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+45	176 commits/s against a floor of 216
+46	191 commits/s against a floor of 216
+47	197 commits/s against a floor of 216
+48	203 commits/s against a floor of 216
+49	197 commits/s against a floor of 216
+50	195 commits/s against a floor of 216
+51	187 commits/s against a floor of 216
+52	176 commits/s against a floor of 216
+53	DROP TABLE IF EXISTS kv -> database disk image is malformed | writer failed before the crash | 
+54	integrity_check: ok | rows: 2000, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+55	integrity_check: *** in database main *** | Page 3: never used | Page 4: never used | rows: 0, distinct: 0, value: none | 
+56	integrity_check: *** in database main *** | Freelist: size is 3 but should be 2 | 2nd reference to page 2 | 
+58	integrity_check: *** in database main *** | Page 3: never used | Page 4: never used | rows: 0, distinct: 0, value: none | 
+59	integrity_check: *** in database main *** | Freelist: size is 3 but should be 2 | 2nd reference to page 2 | rows: 0, distinct: 0, value: none | 
+61	integrity_check: *** in database main *** | Tree 2 page 3: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+64	integrity_check: ok | rows: 400, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+65	integrity_check: ok | rows: 400, distinct: 2, value: round-4 | TORN: round-4 and round-5 in one database | 
+68	integrity_check: ok | rows: 400, distinct: 2, value: round-4 | TORN: round-4 and round-5 in one database | 
+69	integrity_check: ok | rows: 400, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+71	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+72	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+73	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | 
+74	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+75	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | 
+76	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | 
+77	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+78	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | 
+79	integrity_check: ok | rows: 2000, distinct: 2, value: round-2 | TORN: round-2 and round-3 in one database | 
+80	integrity_check: ok | rows: 2000, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+81	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+83	integrity_check: ok | rows: 2000, distinct: 2, value: round-1 | TORN: round-1 and round-2 in one database | 
+84	integrity_check: ok | rows: 2000, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+85	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | 
+87	integrity_check: ok | rows: 2000, distinct: 2, value: round-7 | TORN: round-7 and round-8 in one database | 
+88	integrity_check: ok | rows: 2000, distinct: 2, value: round-7 | TORN: round-7 and round-8 in one database | 
+91	integrity_check: ok | rows: 2000, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+92	integrity_check: ok | rows: 2000, distinct: 2, value: round-7 | TORN: round-7 and round-8 in one database | 
+93	integrity_check: ok | rows: 2000, distinct: 2, value: round-4 | TORN: round-4 and round-5 in one database | 
+94	integrity_check: ok | rows: 2000, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+99	integrity_check: *** in database main *** | Page 3: never used | Page 4: never used | rows: 0, distinct: 0, value: none | 
+101	integrity_check: ok | rows: 400, distinct: 2, value: round-2 | TORN: round-2 and round-3 in one database | 
+102	integrity_check: ok | rows: 2000, distinct: 2, value: round-7 | TORN: round-7 and round-8 in one database | 
+104	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+105	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+106	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+107	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+109	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+110	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+113	integrity_check: ok | rows: 400, distinct: 2, value: round-1 | TORN: round-1 and round-2 in one database | 
+114	integrity_check: ok | rows: 400, distinct: 2, value: round-2 | TORN: round-2 and round-3 in one database | 
+117	integrity_check: ok | rows: 400, distinct: 2, value: round-2 | TORN: round-2 and round-3 in one database | 
+118	integrity_check: ok | rows: 400, distinct: 2, value: round-1 | TORN: round-1 and round-2 in one database | 
+119	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | 
+120	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+121	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | 
+122	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | 
+123	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+124	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | 
+125	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | 
+126	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+129	integrity_check: ok | rows: 400, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+130	integrity_check: ok | rows: 400, distinct: 2, value: round-4 | TORN: round-4 and round-5 in one database | 
+133	integrity_check: ok | rows: 400, distinct: 2, value: round-4 | TORN: round-4 and round-5 in one database | 
+134	integrity_check: ok | rows: 400, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+137	integrity_check: ok | rows: 400, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+138	integrity_check: ok | rows: 400, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+141	integrity_check: ok | rows: 400, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+142	integrity_check: ok | rows: 400, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+143	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+144	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+145	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+146	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+147	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+148	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+149	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+150	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+158	integrity_check: ok | rows: 400, distinct: 2, value: round-2 | TORN: round-2 and round-3 in one database | 
+159	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+160	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+161	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+162	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+163	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+164	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+165	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+166	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+167	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+168	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+170	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+171	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+174	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+175	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+177	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+178	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+179	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | 
+180	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+181	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | 
+182	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | 
+183	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+184	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | 
+195	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+197	integrity_check: ok | rows: 2000, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 

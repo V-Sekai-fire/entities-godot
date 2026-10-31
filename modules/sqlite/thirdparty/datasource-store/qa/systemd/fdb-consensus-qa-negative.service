@@ -1,0 +1,25 @@
+[Unit]
+# The negative control. `single` redundancy keeps one copy of every key, so losing a zone
+# must lose data — this unit is expected to FAIL, and a success here means the QA proves
+# nothing. It exists because the first version of the test passed under `single`: one key
+# lives on one storage team, so the kill missed it and placement luck read as redundancy.
+#
+# SKIP_CLAIM gets past the status-line gate so that the kill, not the reported number, is
+# what is under test.
+Description=FoundationDB consensus QA negative control (single redundancy, must fail)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=600
+WorkingDirectory=@QADIR@
+Environment=REDUNDANCY=single
+Environment=SKIP_CLAIM=1
+Environment=ROOT=%h/.local/state/weft-fdb-qa/neg
+ExecStart=/bin/bash @QADIR@/consensus.sh
+ExecStopPost=/bin/sh -c 'echo "[qa] negative control finished with status $EXIT_STATUS (nonzero is the pass)"'
+
+[Install]
+WantedBy=default.target

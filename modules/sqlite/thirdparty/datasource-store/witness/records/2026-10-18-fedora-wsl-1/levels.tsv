@@ -1,0 +1,13 @@
+perf/rows=2000/reps=1	-
+crash/rows=8/at=1..30	-
+crash/rows=400/at=6..21	-
+crash/rows=2000/at=6..80	-
+fence/writer	-
+fence/reader	-
+crash/rows=400/at=6..13	crash/rows=400/at=6..21
+crash/rows=400/at=14..21	crash/rows=400/at=6..21
+crash/rows=400/at=6..9	crash/rows=400/at=6..13
+crash/rows=400/at=10..13	crash/rows=400/at=6..13
+crash/rows=400/at=14..17	crash/rows=400/at=14..21
+crash/rows=400/at=18..21	crash/rows=400/at=14..21
+crash/rows=2000/at=6..21	crash/rows=400/at=6..21

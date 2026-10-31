@@ -1,0 +1,17 @@
+# CMake writes these, and CI writes them again on every run.
+build/
+build-fuzztest/
+.cmake-host/
+compile_commands.json
+
+# The headers .clangd fetches for an editor on a host without them.
+.deps/
+
+# Every program here makes databases. A crashed writer leaves its database behind on
+# purpose, so these accumulate.
+*.db
+
+# antlr4, which FuzzTest pulls in, installs its runtime beside the CMakeLists that
+# fetched it rather than into the build directory.
+fuzz/dist/
+/spec/.lake/
