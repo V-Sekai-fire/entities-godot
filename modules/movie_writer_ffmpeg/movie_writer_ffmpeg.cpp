@@ -92,7 +92,17 @@ Error MovieWriterFFmpeg::write_begin(const Size2i &p_movie_size, uint32_t p_fps,
 		"-i",
 		"-", // Input from stdin.
 	};
-	if (encoder_args.is_empty()) { // Custom CPU encoder defaults tuned for speed.
+	const bool use_cineform = encoder_args.is_empty() ? base_extension == "mkv" : encoder_args.contains("cfhd");
+	if (use_cineform) {
+		// CineForm needs a width divisible by 16 and a height divisible by 8, otherwise FFmpeg fails mid-stream.
+		ERR_FAIL_COND_V_MSG(p_movie_size.width % 16 != 0 || p_movie_size.height % 8 != 0, ERR_INVALID_PARAMETER,
+				vformat("CineForm requires a width divisible by 16 and a height divisible by 8, got %dx%d.", p_movie_size.width, p_movie_size.height));
+	}
+	if (encoder_args.is_empty() && base_extension == "mkv") { // Archive default (RFD66606-3004): CineForm 12-bit RGB with lossless audio.
+		for (const char *arg : { "-c:v", "cfhd", "-pix_fmt", "gbrp12le", "-quality", "film3+", "-c:a", "pcm_s24le" }) {
+			ffargs.push_back(arg);
+		}
+	} else if (encoder_args.is_empty()) { // Custom CPU encoder defaults tuned for speed.
 		ffargs.push_back("-c:v");
 		if (base_extension == "webm") {
 			ffargs.push_back("libvpx-vp9");
