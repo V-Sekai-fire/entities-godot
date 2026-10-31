@@ -39,6 +39,8 @@
 
 class SQLite;
 
+void sqlite_fdb_shutdown();
+
 class SQLiteQuery : public RefCounted {
 	GDCLASS(SQLiteQuery, RefCounted);
 

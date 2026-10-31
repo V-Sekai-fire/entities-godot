@@ -45,6 +45,7 @@
 extern "C" {
 int weft_fdb_start(const char *p_cluster_file);
 int weft_vfs_register(int p_make_default);
+void weft_fdb_stop(void);
 }
 
 // Starts the FoundationDB client once per process and registers the VFS. The cluster file
@@ -62,6 +63,13 @@ static bool start_fdb_store() {
 		}
 	}
 	return rc == 0;
+}
+
+// Stops the FoundationDB client's network thread. The release libfdb_c crashes when the
+// process leaves with that thread still running and the stop left to atexit, so the module
+// stops it while the engine shuts down. weft_fdb_stop is idempotent.
+void sqlite_fdb_shutdown() {
+	weft_fdb_stop();
 }
 
 Array fast_parse_row(sqlite3_stmt *stmt) {
