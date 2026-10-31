@@ -39,6 +39,31 @@
 #include "core/os/os.h"
 #include "core/variant/variant.h"
 
+#include <stdlib.h>
+
+// The weft_fdb VFS from thirdparty/datasource-store/fdb_vfs.c (compiled by SCsub).
+extern "C" {
+int weft_fdb_start(const char *p_cluster_file);
+int weft_vfs_register(int p_make_default);
+}
+
+// Starts the FoundationDB client once per process and registers the VFS. The cluster file
+// comes from WEFT_FDB_CLUSTER_FILE, or FoundationDB's default when unset.
+static bool start_fdb_store() {
+	static int rc = -1;
+	static bool started = false;
+	if (!started) {
+		started = true;
+		const char *cluster_file = getenv("WEFT_FDB_CLUSTER_FILE");
+		int start_rc = weft_fdb_start(cluster_file);
+		rc = start_rc ? start_rc : weft_vfs_register(0);
+		if (start_rc) {
+			print_error("FoundationDB did not start (error " + itos(start_rc) + ", WEFT_FDB_CLUSTER_FILE=" + String(cluster_file ? cluster_file : "unset") + ")");
+		}
+	}
+	return rc == 0;
+}
+
 Array fast_parse_row(sqlite3_stmt *stmt) {
 	Array result;
 
@@ -324,12 +349,42 @@ bool SQLite::open(const String &path) {
 		return open_buffered(path, buffer, size);
 	}
 
-	String real_path = ProjectSettings::get_singleton()->globalize_path(path.strip_edges());
+	// The database lives in FoundationDB, not in a file. The path names it: "user://" and
+	// "res://" prefixes and leading slashes are dropped, so "user://save.db" is the database
+	// "save.db". ".v1" is the layout version of the page keys.
+	String name = path.strip_edges();
+	int scheme = name.find("://");
+	if (scheme >= 0) {
+		name = name.substr(scheme + 3);
+	}
+	name = name.lstrip("/");
+	if (name.is_empty() || name.contains_char('?') || name.contains_char('#') || name.contains_char('%')) {
+		print_error("Cannot open database: the name must not be empty or contain ?, # or %.");
+		return false;
+	}
+	if (!start_fdb_store()) {
+		return false;
+	}
 
-	int result = sqlite3_open(real_path.utf8().get_data(), &db);
-
+	String uri = "file:" + name + ".v1?vfs=weft_fdb";
+	int result = sqlite3_open_v2(uri.utf8().get_data(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_URI, nullptr);
 	if (result != SQLITE_OK) {
 		print_error("Cannot open database!");
+		sqlite3_close_v2(db);
+		db = nullptr;
+		return false;
+	}
+
+	// The two pragmas fdb_vfs.c requires. A commit is one atomic FoundationDB transaction,
+	// so the rollback journal stays in memory, and the handle is the only writer, so SQLite
+	// may trust its page cache.
+	char *error = nullptr;
+	result = sqlite3_exec(db, "PRAGMA journal_mode=MEMORY; PRAGMA locking_mode=EXCLUSIVE;", nullptr, nullptr, &error);
+	if (result != SQLITE_OK) {
+		print_error("Cannot set up database: " + String(error ? error : "unknown error"));
+		sqlite3_free(error);
+		sqlite3_close_v2(db);
+		db = nullptr;
 		return false;
 	}
 

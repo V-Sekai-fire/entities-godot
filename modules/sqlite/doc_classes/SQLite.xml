@@ -4,7 +4,7 @@
 		Wrapper class for SQLite databases.
 	</brief_description>
 	<description>
-		A wrapper class that lets you perform SQL statements on an SQLite database file.
+		A wrapper class that lets you perform SQL statements on an SQLite database whose pages live in FoundationDB (the weft_fdb VFS from datasource-store). The client finds the cluster through the [code]WEFT_FDB_CLUSTER_FILE[/code] environment variable, or FoundationDB's default cluster file when it is unset.
 		For queries that involve arbitrary user input, you should use methods that end in [code]*_with_args[/code], as these protect against SQL injection.
 	</description>
 	<tutorials>
@@ -26,7 +26,7 @@
 			<return type="bool" />
 			<param index="0" name="path" type="String" />
 			<description>
-				Opens the database file at the given path. Returns [code]true[/code] if the database was successfully opened, [code]false[/code] otherwise.
+				Opens the database named by [param path] in FoundationDB. A [code]user://[/code] prefix is dropped, so [code]user://save.db[/code] is the database [code]save.db[/code]; names must not contain [code]?[/code], [code]#[/code] or [code]%[/code]. Nothing is written to a local file. Returns [code]true[/code] if the database was successfully opened, [code]false[/code] otherwise.
 				If the path starts with "res://", it will use [method open_buffered] implicitly.
 			</description>
 		</method>

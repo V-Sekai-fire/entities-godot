@@ -23,6 +23,20 @@ env.Append(
 
 env.Append(CPPPATH=["#modules/sqlite/thirdparty", "#modules/sqlite"])
 
+# Pages live in FoundationDB. The weft_fdb VFS (thirdparty/datasource-store, a subtree of
+# V-Sekai-fire/datasource-store) is compiled in and linked against the FoundationDB client
+# library, which the build machine provides (foundationdb-clients).
+import os.path
+
+if not os.path.isfile(os.path.join(env["fdb_include"], "fdb_c.h")):
+    print_error(
+        "modules/sqlite needs the FoundationDB client: fdb_c.h not found in fdb_include=%s. "
+        "Install foundationdb-clients or pass fdb_include=<dir> fdb_libpath=<dir>." % env["fdb_include"]
+    )
+    Exit(255)
+
+env.Append(CPPPATH=[env["fdb_include"]], LIBPATH=[env["fdb_libpath"]], LIBS=["fdb_c"])
+
 env["builtin_zstd"] = False
 
 env_thirdparty = env.Clone()
@@ -39,5 +53,14 @@ for source_file in module_sources:
 
 env_thirdparty.add_source_files(env_thirdparty.modules_sources, "#modules/sqlite/thirdparty/sqlite/sqlite3.c")
 env_thirdparty.add_source_files(env_thirdparty.modules_sources, "#modules/sqlite/thirdparty/spmemvfs/spmemvfs.c")
+
+# fdb_vfs.c includes <sqlite3.h> and "fdb_keys.h", and needs the FoundationDB API version.
+env_thirdparty.Append(
+    CPPPATH=["#modules/sqlite/thirdparty/sqlite", "#modules/sqlite/thirdparty/datasource-store"],
+    CPPDEFINES=[("FDB_API_VERSION", 730)],
+)
+env_thirdparty.add_source_files(
+    env_thirdparty.modules_sources, "#modules/sqlite/thirdparty/datasource-store/fdb_vfs.c"
+)
 
 env.modules_sources += env_thirdparty.modules_sources
