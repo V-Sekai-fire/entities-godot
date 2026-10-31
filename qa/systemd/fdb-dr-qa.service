@@ -1,0 +1,25 @@
+[Unit]
+# The disaster recovery procedure: back up, wipe the disks, restore, verify.
+#
+# Longer budget than the consensus QA because it builds a cluster twice and moves the whole
+# keyspace through a backup. Still bounded — a DR run that cannot finish in ten minutes at
+# this size is stuck, not slow, and that is worth failing on.
+Description=FoundationDB DR procedure QA (backup, total loss, restore)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=600
+WorkingDirectory=@QADIR@
+# The FoundationDB packages install backup_agent outside PATH, and a systemd unit does not
+# inherit the interactive shell's PATH either. Naming it here rather than relying on the
+# script's default is what keeps the two callers -- this unit and a developer's shell --
+# resolving the same binary.
+Environment=AGENT=/usr/lib/foundationdb/backup_agent/backup_agent
+ExecStart=/bin/bash @QADIR@/dr.sh
+ExecStopPost=/bin/sh -c 'echo "[dr] unit finished with status $EXIT_STATUS"'
+
+[Install]
+WantedBy=default.target

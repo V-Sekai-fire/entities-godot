@@ -1,0 +1,24 @@
+[Unit]
+# Prove a FoundationDB cluster tolerates a zone loss, by taking one away.
+#
+# A user unit rather than a system one: it needs no root, and everything it touches lives
+# under $HOME. A oneshot rather than nohup, so the run survives the shell that started it,
+# the exit status is inspectable afterwards, and the output lands in the journal with
+# timestamps instead of a file in /tmp.
+Description=FoundationDB consensus QA (three zones, kill one, prove it)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Keep "active (exited)" after success, so is-active distinguishes a pass from a never-ran.
+RemainAfterExit=yes
+# Five minutes. A healthy run takes about two; longer than this means stuck, not slow.
+TimeoutStartSec=600
+WorkingDirectory=@QADIR@
+ExecStart=/bin/bash @QADIR@/consensus.sh
+# Leave the evidence in the journal even when the run failed.
+ExecStopPost=/bin/sh -c 'echo "[qa] unit finished with status $EXIT_STATUS"'
+
+[Install]
+WantedBy=default.target

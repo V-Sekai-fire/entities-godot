@@ -1,0 +1,102 @@
+# The FoundationDB C ABI the store calls, and nothing else.
+#
+# Read `check_surface.sh` beside this file for how it is enforced. The list is checked
+# against the symbols the built library actually leaves undefined, so it cannot go stale
+# the way a comment can. `thirdparty/harness/iceoryx2.sigs` is the same idea for the bus.
+#
+# Why a list at all. `spec/Backend.lean` states seven laws and proves that what the layout
+# needs is the laws and not FoundationDB, which is what lets a local backend carry the same
+# store. That argument holds only while the C stays inside the surface the laws describe.
+# One call to a feature with no equivalent underneath and the two backends stop being the
+# same store — silently, and in a way no test here would notice.
+#
+# So this file is the whitelist half of that proof. A symbol absent from it is a decision,
+# not an oversight, and the notes at the bottom say which decision.
+#
+# Format: one symbol per line. A comment starts with '#'.
+
+# ── The client and its network thread ─────────────────────────────────────────
+# One process, one network thread, one database handle. `weft_fdb_start` and
+# `weft_fdb_stop`, which is the whole lifecycle.
+fdb_select_api_version_impl
+fdb_setup_network
+fdb_run_network
+fdb_stop_network
+fdb_create_database
+fdb_database_destroy
+
+# ── Futures ───────────────────────────────────────────────────────────────────
+# Every future goes through `await`: block, then take the error. No callbacks, so no
+# completion thread and nothing to reason about about ordering.
+fdb_future_block_until_ready
+fdb_future_get_error
+fdb_future_get_value
+fdb_future_get_keyvalue_array
+fdb_future_destroy
+
+# ── Transactions ──────────────────────────────────────────────────────────────
+# `run_txn` creates one, runs a body, and commits or retries. `fdb_transaction_on_error`
+# is what decides whether an error may be retried and how long to wait before the next
+# attempt, which is the one piece of retry policy this code does not own.
+fdb_database_create_transaction
+fdb_transaction_destroy
+fdb_transaction_commit
+fdb_transaction_on_error
+
+# ── The keyspace ──────────────────────────────────────────────────────────────
+# Four operations, and they are the four in `Weft.Backend.Backend`. A range clear is one
+# record whatever it removes, which is why the layout clears prefixes rather than keys.
+fdb_transaction_get
+fdb_transaction_get_range
+fdb_transaction_set
+fdb_transaction_clear_range
+
+# ── What is deliberately absent ───────────────────────────────────────────────
+#
+# Each of these is a real FoundationDB feature with no SQLite equivalent. Adopting one
+# means either the local backend emulates it — sound only because an actor is the single
+# writer of its own store — or the two backends genuinely differ and `substitutable` in
+# `spec/Backend.lean` stops being provable. That the code uses none of them is why a local
+# backend is possible at all.
+#
+# fdb_transaction_set_option
+#     The important one. It is how a caller would turn off read-your-writes, make reads
+#     snapshot by default, or raise the transaction limits. Banning it is what pins the
+#     code to default semantics, which is the claim `Backend.lean` is written against.
+#
+# fdb_transaction_watch
+#     Superseded before it was ever wanted. A watch is a network round trip; iceoryx2 is
+#     shared memory on one machine and a send is a pointer handoff. Any cross-store
+#     notification is cheaper over the bus that is already there.
+#
+# fdb_transaction_atomic_op
+#     The honest case is LOGN, where `resolve_body` reads a counter it is about to write.
+#     An atomic add would save that read. It would also add a vtable concept the local
+#     backend can only emulate with the read it was meant to remove.
+#
+# fdb_transaction_get_versionstamp
+#     The strongest candidate, and still not taken. `weft/txn/NEXT` is a genuine hot key:
+#     every store allocating a group txid conflicts with every other on it. But it is only
+#     touched on group commits, `g_group_lock` already serialises those per process, and
+#     the backend-neutral fix — allocate txids in blocks and hand them out in process —
+#     removes nearly all of it without leaving the surface.
+#
+#     It does not close the txid reuse defect. A staging txid must be `head + 1`, because
+#     `Weft.ParallelCommit.DbState.visible` is `tx ≤ head`. See
+#     `loose_intent_accepts_a_dead_group`; the cheap fix there is clearing on abort.
+#
+# fdb_transaction_add_conflict_range, fdb_transaction_get_read_version,
+# fdb_transaction_get_committed_version, fdb_transaction_clear, fdb_transaction_get_key,
+# fdb_transaction_get_estimated_range_size_bytes, tenants, the directory and tuple layers
+#     Unused. Conflict detection is implicit from serializable gets, which is what makes
+#     `check_fence` a fence. The tuple layer is not used because `fdb_keys.h` is: a hand
+#     rolled order preserving encoding that `fuzz/keys_test.cc` can test without linking
+#     FoundationDB at all.
+#
+# ── One thing a symbol list cannot catch ──────────────────────────────────────
+#
+# A snapshot read is not a different symbol. It is the trailing argument to
+# `fdb_transaction_get` and `fdb_transaction_get_range`, and it must stay zero. Reading the
+# fence non-snapshot is what registers the read conflict that makes FoundationDB reject a
+# write whose fence moved, so one snapshot read in the wrong place disables ownership and
+# nothing fails loudly. `check_surface.sh` greps for it separately.

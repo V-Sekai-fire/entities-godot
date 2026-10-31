@@ -1,0 +1,70 @@
+1	integrity_check: ok | rows: 2000, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+2	integrity_check: ok | rows: 2000, distinct: 2, value: round-2 | TORN: round-2 and round-3 in one database | 
+3	integrity_check: ok | rows: 2000, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+4	integrity_check: ok | rows: 2000, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+5	integrity_check: ok | rows: 2000, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+6	integrity_check: ok | rows: 2000, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+7	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | 
+8	integrity_check: *** in database main *** | Tree 2 page 10: btreeInitPage() returns error code 11 | Tree 2 page 9: btreeInitPage() returns error code 11 | Tree 2 page 8: btreeInitPage() returns error code 11 | Tree 2 page 7: btreeInitPage() returns error code 11 | Tree 2 page 6: btreeInitPage() returns error code 11 | Tree 2 page 5: btreeInitPage() returns error code 11 | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+11	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+12	integrity_check: ok | rows: 400, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+15	integrity_check: ok | rows: 400, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+16	integrity_check: ok | rows: 400, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+25	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+26	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+27	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+28	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+29	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+30	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+31	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+32	reader sees 50 rows | writer committed one more row | reader's next read sees 50 rows | expected 51 rows after following the head, got 50 | 
+33	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+34	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+35	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+36	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+37	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+38	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+39	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+40	a wrote and read 2000 rows | b took the fence and committed; b reads 2000 rows | a's write after losing the fence: rc=8 (attempt to write a readonly database) | a's read after losing the fence: rc=11 extended=11 (database disk image is malformed) | expected SQLITE_IOERR, got 11 | 
+45	integrity_check: ok | rows: 400, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+47	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+48	integrity_check: ok | rows: 400, distinct: 2, value: round-1 | TORN: round-1 and round-2 in one database | 
+49	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+50	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+52	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+53	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+56	integrity_check: ok | rows: 400, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+57	integrity_check: ok | rows: 400, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+60	integrity_check: ok | rows: 400, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+61	integrity_check: ok | rows: 400, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+66	integrity_check: ok | rows: 400, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+69	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+70	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+72	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+73	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | 
+74	integrity_check: ok | rows: 400, distinct: 2, value: round-0 | TORN: round-0 and round-1 in one database | 
+75	integrity_check: *** in database main *** | Tree 2 page 4: btreeInitPage() returns error code 11 | Tree 2 page 3: btreeInitPage() returns error code 11 | 
+77	integrity_check: ok | rows: 400, distinct: 2, value: round-2 | TORN: round-2 and round-3 in one database | 
+78	integrity_check: ok | rows: 400, distinct: 2, value: round-1 | TORN: round-1 and round-2 in one database | 
+81	integrity_check: ok | rows: 400, distinct: 2, value: round-1 | TORN: round-1 and round-2 in one database | 
+82	integrity_check: ok | rows: 400, distinct: 2, value: round-2 | TORN: round-2 and round-3 in one database | 
+85	integrity_check: ok | rows: 400, distinct: 2, value: round-4 | TORN: round-4 and round-5 in one database | 
+86	integrity_check: ok | rows: 400, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+89	integrity_check: ok | rows: 400, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+90	integrity_check: ok | rows: 400, distinct: 2, value: round-4 | TORN: round-4 and round-5 in one database | 
+93	integrity_check: ok | rows: 400, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+94	integrity_check: ok | rows: 400, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+97	integrity_check: ok | rows: 400, distinct: 2, value: round-5 | TORN: round-5 and round-6 in one database | 
+98	integrity_check: ok | rows: 400, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+103	204 commits/s against a baseline of 218
+104	167 commits/s against a baseline of 218
+105	179 commits/s against a baseline of 218
+106	175 commits/s against a baseline of 218
+107	182 commits/s against a baseline of 218
+108	193 commits/s against a baseline of 218
+109	195 commits/s against a baseline of 218
+110	193 commits/s against a baseline of 218
+111	integrity_check: ok | rows: 400, distinct: 2, value: round-1 | TORN: round-1 and round-2 in one database | 
+116	integrity_check: ok | rows: 400, distinct: 2, value: round-6 | TORN: round-6 and round-7 in one database | 
+121	integrity_check: ok | rows: 400, distinct: 2, value: round-3 | TORN: round-3 and round-4 in one database | 
+122	210 commits/s against a baseline of 224

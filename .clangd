@@ -1,0 +1,49 @@
+# clangd configuration for the store.
+#
+# The build needs FoundationDB and SQLite headers. An editor on a host without them
+# reports every include as missing and then guesses at every type.
+#
+# `CompileFlags.Add` gives clangd the include paths and the API version it needs. A
+# `compile_commands.json` takes priority when one exists, and CMake writes one into the
+# build directory on every configure, so the fallback below matters only without a build:
+#
+#   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+#   ln -sf build/compile_commands.json .
+#
+# Without the headers on the host, fetch them into `.deps/`, which is not committed:
+#
+#   curl -fsSL https://github.com/apple/foundationdb/releases/download/7.3.76/fdb-headers-7.3.76.tar.gz \
+#     | tar xz -C .deps
+#   curl -fsSL -o /tmp/sq.zip https://sqlite.org/2024/sqlite-amalgamation-3450100.zip
+#   unzip -oj /tmp/sq.zip '*/sqlite3.h' -d .deps
+#
+# `fdb_c_types.h` is needed as well, because the published headers tarball does not carry
+# it. Take it from the image the `Containerfile` builds:
+#
+#   podman create --name h fabric-store:latest
+#   podman cp h:/usr/include/foundationdb/fdb_c_types.h .deps/
+#   podman rm -f h
+#
+# A host editor still cannot resolve a Linux system header such as `pthread.h` when the
+# host has no Linux sysroot. Editing inside the container gives complete results.
+CompileFlags:
+  Add:
+    - -I.deps
+    - -I/usr/include/foundationdb
+    - -DFDB_API_VERSION=730
+---
+# The C flags above must not reach the property tests, which are C++. `keys-witness/` has
+# its own build and its own standard, and -std=c11 on a .cc file is an error rather than a
+# guess.
+If:
+  PathMatch: .*\.(c|h)
+CompileFlags:
+  Add:
+    - -std=c11
+---
+If:
+  PathMatch: keys-witness/.*\.cc
+CompileFlags:
+  Add:
+    - -std=c++17
+    - -I.

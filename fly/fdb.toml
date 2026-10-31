@@ -1,0 +1,121 @@
+# The FoundationDB cluster the store's pages live in.
+#
+#   fly deploy --config fly/fdb.toml --dockerfile fly/Containerfile.fdb
+#
+# Three machines, `double` redundancy, three coordinators. That combination is what
+# `qa/consensus.sh` asserts and it is chosen rather than inherited: `double` keeps two copies
+# of every key, so one machine may be lost, and three coordinators mean a quorum is two, so
+# the same single loss leaves the cluster able to order writes. Two machines with `double`
+# would keep the copies and lose the quorum, which fails as a cluster while looking fine as
+# a replication setting.
+#
+# There are no [[services]] and no public address. FoundationDB is reached by clients on the
+# 6PN private network, and a database on the public internet is a database whose security
+# rests on its own authentication -- which for FDB before TLS is configured is nothing at
+# all.
+app            = "weftspun-fdb"
+primary_region = "sjc"
+
+[build]
+  # Bao runs beside the FDB server (RFD 2147); service-openbao's Dockerfile.colocated builds this
+  # image from the FDB image this repository's Containerfile.fdb produces.
+  image = "registry.fly.io/weftspun-fdb:colocated-20261013204638"
+
+[env]
+  # Required by the entrypoint, and deliberately not defaulted there: the count is how the
+  # entrypoint knows the cluster is whole before writing a coordinator list, so a wrong
+  # default would form a smaller cluster that reports itself healthy. Change this and the
+  # machine count together.
+  WEFT_FDB_MACHINES   = "3"
+  # `double` with three machines: one machine may be lost (RFD 2147 keeps it while Bao runs here).
+  WEFT_FDB_REDUNDANCY = "double"
+  WEFT_FDB_STORAGE    = "ssd-2"
+  WEFT_FDB_PROCS      = "1"
+  # One fdbserver capped low on the 512 MB VM, leaving room for Bao beside it.
+  WEFT_FDB_MEMORY_MIB = "128"
+  WEFT_FDB_CACHE_MIB  = "32"
+  WEFT_FDB_DATA       = "/data"
+
+  # Peer verification. FoundationDB matches this against the certificate a peer presents, so
+  # it is what makes one wildcard certificate a cluster credential rather than a decoration:
+  # without it, TLS encrypts the link and any certificate at all is accepted at the other end
+  # -- confidentiality without authentication, which is the weaker half of what TLS is for.
+  #
+  # `Check.Valid=1` requires a chain to the CA. The two `S.CN` terms pin the subject. Both
+  # halves, because either alone admits something: a valid certificate for another name, or
+  # this name unsigned.
+  #
+  # There is no globbing here, and the earlier `S.CN=*.chibifire.com` was a silent no-op
+  # because of it. `flow/TLSConfig.actor.cpp` implements exactly three matchers -- EXACT is a
+  # memcmp of equal lengths, PREFIX and SUFFIX are memcmp at one end -- so `*` is not a
+  # metacharacter but a literal asterisk, and `S.CN=*.chibifire.com` asks for a certificate
+  # whose Common Name is the fourteen characters `*.chibifire.com`. Nothing we issue has that
+  # name, so the rule matched no peer at all. A verification rule that refuses everything
+  # looks exactly like a cluster that cannot find its coordinators.
+  #
+  # `>=` is prefix and `<=` is suffix, which is the doc's own `S.OU>=FDB,S.OU<=Team` shape.
+  # Together they say: the Common Name begins `fdb-` and ends `.chibifire.com`, which is the
+  # whole of what our CA will issue.
+  WEFT_FDB_TLS_VERIFY = "Check.Valid=1,S.CN>=fdb-,S.CN<=.chibifire.com"
+
+# The SSH tunnel to Bao's listener (RFD 2255), balanced across the three machines.
+[[services]]
+  protocol = "tcp"
+  internal_port = 2222
+  auto_stop_machines = "off"
+  min_machines_running = 3
+
+  [[services.ports]]
+    port = 2222
+
+[mounts]
+  source      = "fdb_data"
+  destination = "/data"
+
+# The backup freshness check, read from the health file backup-fresh.sh
+# maintains for the R2 tag dr, the only backup since the Tigris tag was retired
+# (RFD 2143): fresh means the tag is restorable and its newest complete log is
+# within WEFT_BACKUP_MAX_BEHIND. It lives here because this machine already
+# holds the bucket credentials -- CI has no production access. A stale backup
+# fails a check in `fly status` instead of surfacing at restore time.
+[checks]
+  [checks.backup_fresh_dr]
+    type = "http"
+    port = 8081
+    path = "/dr"
+    interval = "2m"
+    timeout = "10s"
+    # Long grace because the DR tag is started lazily by whichever machine
+    # wins the idempotent guard, and the first-ever start can wait behind a
+    # cluster reconfiguration or a cold R2 handshake. Ordinary running steady
+    # state refreshes every 5 minutes.
+    grace_period = "30m"
+
+  # The roll gate: fails until the data state is healthy and a zone can be
+  # lost without losing data, so a rolling deploy waits out re-replication
+  # after each machine restart -- the Kubernetes FDB operator's behaviour,
+  # expressed as a machine check.
+  [checks.cluster_health]
+    type = "http"
+    port = 8081
+    path = "/cluster"
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "5m"
+
+# `stop` rather than the default, because a FoundationDB process that is restarted while the
+# cluster is degraded makes the degradation worse. A machine that exits should stay down
+# until someone looks.
+[[restart]]
+  policy = "on-failure"
+  retries = 3
+
+# Memory is sized to measurement rather than to FoundationDB's recommendation: on
+# 2026-08-31 a node held 302 MB of 1968 MB, the two fdbservers at 112 MB and 99 MB
+# RSS, so 1 GB leaves ~700 MB of headroom. `cpus` is not free to shrink with it --
+# fdbserver is single-threaded, so WEFT_FDB_PROCS above is one process per core, and
+# a core removed here puts two of them in contention on one.
+[[vm]]
+  memory   = "512mb"
+  cpu_kind = "shared"
+  cpus     = 1

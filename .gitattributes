@@ -1,0 +1,36 @@
+# Line endings are not cosmetic here. `check_surface.sh` compares the symbols in the built
+# library against `foundationdb.allow` line by line, so a CRLF checkout makes every listed
+# symbol miss its match — and the check then reports the same 19 symbols as both unlisted
+# and unused, which reads as a total surface violation rather than as a checkout artefact.
+# It cost a debugging round on Windows to find that, so the rule is written down instead.
+#
+# Every shell script here is also run under `sh`, which reads `#!/bin/sh\r` as an
+# interpreter named `/bin/sh\r` and reports "bad interpreter".
+*.sh            text eol=lf
+*.allow         text eol=lf
+ci.sh           text eol=lf
+*.c             text eol=lf
+*.h             text eol=lf
+*.cpp           text eol=lf
+*.lean          text eol=lf
+
+# The per-suffix lines above were not enough, and the reason took five incidents to see.
+# `core.autocrlf` was `true` in this repository's own config, and the rules only ever reached
+# files someone had thought to list. Anything unlisted -- `Containerfile`, both licences,
+# `fly/fly.toml`, `.clangd` -- still checked out CRLF.
+#
+# The second half is what hid it. `git add --renormalize` writes LF into the *index*, and the
+# working tree keeps what it had until the files are checked out again. So `git ls-files
+# --eol` read `i/lf w/crlf` -- correct in the repository, wrong on disk -- and it is the copy
+# on disk that `sh` runs and that `check_surface.sh` compares line by line. Adding rules
+# looked like a fix and fixed nothing that already existed.
+#
+# So the default is stated once, for everything, rather than extended a suffix at a time.
+* text=auto eol=lf
+
+# Real binaries, which the line above must not touch.
+*.png           binary
+*.jpg           binary
+*.parquet       binary
+*.zst           binary
+*.jar           binary
