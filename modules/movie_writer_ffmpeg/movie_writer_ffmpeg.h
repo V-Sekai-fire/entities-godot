@@ -34,7 +34,7 @@
 #include "servers/movie_writer/movie_writer.h"
 
 extern "C" {
-#include <thirdparty/libnut/libnut.h>
+#include <thirdparty/nut/src/libnut/libnut.h>
 }
 
 class MovieWriterFFmpeg : public MovieWriter {

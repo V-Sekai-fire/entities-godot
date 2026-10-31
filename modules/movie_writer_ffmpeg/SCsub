@@ -8,7 +8,7 @@ env_movie_writer_ffmpeg = env_modules.Clone()
 
 thirdparty_obj = []
 
-thirdparty_dir = "#thirdparty/libnut/"
+thirdparty_dir = "#thirdparty/nut/src/libnut/"
 thirdparty_sources = ["framecode.c", "muxer.c"]
 thirdparty_sources = [thirdparty_dir + file for file in thirdparty_sources]
 
