@@ -52,7 +52,9 @@ static void *nut_realloc(void *ptr, size_t size) {
 }
 
 static void nut_free(void *ptr) {
-	memfree(ptr);
+	if (ptr) { // C free() accepts null; memfree() reports it.
+		memfree(ptr);
+	}
 }
 
 uint32_t MovieWriterFFmpeg::get_audio_mix_rate() const {
