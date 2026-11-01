@@ -88,6 +88,10 @@ private:
 		Vector<Vector3> vertices;
 		Vector<Vector3> normals;
 		Vector<Vector2> uvs;
+		Vector<Vector2> uv2s;
+		Vector<Color> colors;
+		Vector<int> bones; // 4 per vertex
+		Vector<float> weights; // 4 per vertex
 		Vector<float> tans;
 		Ref<Material> material;
 		int last_added = 0;
@@ -95,8 +99,15 @@ private:
 		Vector3 *verticesw = nullptr;
 		Vector3 *normalsw = nullptr;
 		Vector2 *uvsw = nullptr;
+		Vector2 *uv2sw = nullptr;
+		Color *colorsw = nullptr;
+		int *bonesw = nullptr;
+		float *weightsw = nullptr;
 		float *tansw = nullptr;
 	};
+
+	void _size_surface_attributes(const CSGBrush *p_brush, ShapeUpdateSurface &r_surface, int p_face_count);
+	void _write_corner_attributes(const CSGBrush *p_brush, int p_face, int p_corner, ShapeUpdateSurface &r_surface, int p_vertex);
 
 #ifndef PHYSICS_3D_DISABLED
 	void _update_collision_faces();

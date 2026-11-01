@@ -106,6 +106,10 @@ void CSGBrush::build_from_faces(const Vector<Vector3> &p_vertices, const Vector<
 void CSGBrush::copy_from(const CSGBrush &p_brush, const Transform3D &p_xform) {
 	faces = p_brush.faces;
 	materials = p_brush.materials;
+	has_uv2 = p_brush.has_uv2;
+	has_colors = p_brush.has_colors;
+	skin_bones = p_brush.skin_bones;
+	skin_weights = p_brush.skin_weights;
 
 	for (int i = 0; i < faces.size(); i++) {
 		for (int j = 0; j < 3; j++) {
@@ -114,4 +118,59 @@ void CSGBrush::copy_from(const CSGBrush &p_brush, const Transform3D &p_xform) {
 	}
 
 	_regen_face_aabbs();
+}
+
+void CSGBrush::set_attributes(const Vector<Vector2> &p_uv2s, const Vector<Color> &p_colors, const Vector<int> &p_bones, const Vector<float> &p_weights, int p_influences) {
+	const int corners = faces.size() * 3;
+
+	has_uv2 = p_uv2s.size() == corners;
+	if (has_uv2) {
+		for (int i = 0; i < faces.size(); i++) {
+			for (int j = 0; j < 3; j++) {
+				faces.write[i].uv2s[j] = p_uv2s[i * 3 + j];
+			}
+		}
+	}
+
+	has_colors = p_colors.size() == corners;
+	if (has_colors) {
+		for (int i = 0; i < faces.size(); i++) {
+			for (int j = 0; j < 3; j++) {
+				faces.write[i].colors[j] = p_colors[i * 3 + j];
+			}
+		}
+	}
+
+	skin_bones.clear();
+	skin_weights.clear();
+	if (p_influences <= 0 || p_bones.size() != corners * p_influences || p_weights.size() != corners * p_influences) {
+		return;
+	}
+
+	// One channel per bone that carries weight anywhere on the brush, in bone order.
+	Vector<int> used;
+	for (int i = 0; i < p_bones.size(); i++) {
+		if (p_weights[i] > 0.0f && !used.has(p_bones[i])) {
+			used.push_back(p_bones[i]);
+		}
+	}
+	used.sort();
+	if (used.is_empty()) {
+		return;
+	}
+	ERR_FAIL_COND_MSG(used.size() > MAX_SKIN_CHANNELS, vformat("CSG carries skin weights for at most %d bones, this mesh uses %d. Merge its bones into fewer groups first.", MAX_SKIN_CHANNELS, used.size()));
+
+	const int channels = used.size();
+	skin_bones = used;
+	skin_weights.resize(corners * channels);
+	skin_weights.fill(0.0f);
+	float *w = skin_weights.ptrw();
+	for (int c = 0; c < corners; c++) {
+		for (int k = 0; k < p_influences; k++) {
+			const float weight = p_weights[c * p_influences + k];
+			if (weight > 0.0f) {
+				w[c * channels + used.find(p_bones[c * p_influences + k])] += weight;
+			}
+		}
+	}
 }
