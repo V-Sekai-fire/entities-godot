@@ -18,8 +18,10 @@ def can_build(env, platform):
 
 
 def configure(env):
-    # libriscv throws on guest faults, so the engine is built with exceptions.
-    env["disable_exceptions"] = False
+    # libriscv throws on guest faults, but the engine stays built without exceptions: SCsub compiles
+    # only the sandbox sources with -fexceptions. Clearing disable_exceptions here would come too
+    # late for SConstruct's -fno-exceptions and would only make openxr's loader try to use them.
+    pass
 
 
 def get_doc_classes():
