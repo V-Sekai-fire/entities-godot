@@ -1,0 +1,524 @@
+#include "../lexer.h"
+#include "../parser.h"
+#include <cassert>
+#include <iostream>
+
+using namespace gdscript;
+
+void test_simple_function() {
+	std::cout << "Testing simple function..." << std::endl;
+
+	std::string source = R"(func add(a, b):
+	return a + b
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions.size() == 1);
+	assert(program.functions[0].name == "add");
+	assert(program.functions[0].parameters.size() == 2);
+	assert(program.functions[0].parameters[0].name == "a");
+	assert(program.functions[0].parameters[1].name == "b");
+	assert(program.functions[0].body.size() == 1);
+
+	// Check return statement
+	auto* ret_stmt = dynamic_cast<ReturnStmt*>(program.functions[0].body[0].get());
+	assert(ret_stmt != nullptr);
+	assert(ret_stmt->value != nullptr);
+
+	std::cout << "  ✓ Simple function test passed" << std::endl;
+}
+
+void test_variable_declaration() {
+	std::cout << "Testing variable declaration..." << std::endl;
+
+	std::string source = R"(func test():
+	var x = 10
+	var y
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions[0].body.size() == 2);
+
+	auto* var1 = dynamic_cast<VarDeclStmt*>(program.functions[0].body[0].get());
+	assert(var1 != nullptr);
+	assert(var1->name == "x");
+	assert(var1->initializer != nullptr);
+
+	auto* var2 = dynamic_cast<VarDeclStmt*>(program.functions[0].body[1].get());
+	assert(var2 != nullptr);
+	assert(var2->name == "y");
+	assert(var2->initializer == nullptr);
+
+	std::cout << "  ✓ Variable declaration test passed" << std::endl;
+}
+
+void test_if_statement() {
+	std::cout << "Testing if statement..." << std::endl;
+
+	std::string source = R"(func test(x):
+	if x > 0:
+		return 1
+	else:
+		return -1
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions[0].body.size() == 1);
+
+	auto* if_stmt = dynamic_cast<IfStmt*>(program.functions[0].body[0].get());
+	assert(if_stmt != nullptr);
+	assert(if_stmt->condition != nullptr);
+	assert(if_stmt->then_branch.size() == 1);
+	assert(if_stmt->else_branch.size() == 1);
+
+	std::cout << "  ✓ If statement test passed" << std::endl;
+}
+
+void test_if_var_binding() {
+	std::cout << "Testing if-var binding..." << std::endl;
+
+	Lexer lexer(
+		"func inferred(x):\n"
+		"\tif var value := x:\n"
+		"\t\treturn value\n"
+		"func typed(x):\n"
+		"\tif var value: int? = x:\n"
+		"\t\treturn value\n"
+		"\telse:\n"
+		"\t\treturn 0\n");
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions.size() == 2);
+	auto* inferred = dynamic_cast<IfStmt*>(program.functions[0].body[0].get());
+	assert(inferred != nullptr);
+	assert(inferred->condition == nullptr);
+	assert(inferred->binding != nullptr);
+	assert(inferred->binding->name == "value");
+	assert(inferred->binding->type_hint.empty());
+	assert(inferred->binding->initializer != nullptr);
+
+	auto* typed = dynamic_cast<IfStmt*>(program.functions[1].body[0].get());
+	assert(typed != nullptr && typed->binding != nullptr);
+	assert(typed->binding->type_hint.to_string() == "int?");
+	assert(typed->else_branch.size() == 1);
+
+	bool missing_initializer = false;
+	try {
+		Lexer bad_lexer("func f():\n\tif var value:\n\t\tpass\n");
+		Parser bad_parser(bad_lexer.tokenize());
+		bad_parser.parse();
+	} catch (const std::exception&) {
+		missing_initializer = true;
+	}
+	assert(missing_initializer && "if-var must require an initializer");
+
+	std::cout << "  ✓ If-var binding test passed" << std::endl;
+}
+
+void test_while_loop() {
+	std::cout << "Testing while loop..." << std::endl;
+
+	std::string source = R"(func test():
+	var i = 0
+	while i < 10:
+		i = i + 1
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions[0].body.size() == 2);
+
+	auto* while_stmt = dynamic_cast<WhileStmt*>(program.functions[0].body[1].get());
+	assert(while_stmt != nullptr);
+	assert(while_stmt->condition != nullptr);
+	assert(while_stmt->body.size() == 1);
+
+	std::cout << "  ✓ While loop test passed" << std::endl;
+}
+
+void test_expressions() {
+	std::cout << "Testing expressions..." << std::endl;
+
+	std::string source = R"(func test():
+	var a = 1 + 2 * 3
+	var b = (1 + 2) * 3
+	var c = x and y or z
+	var d = not x
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions[0].body.size() == 4);
+
+	// Check that all are variable declarations with expressions
+	for (int i = 0; i < 4; i++) {
+		auto* var_decl = dynamic_cast<VarDeclStmt*>(program.functions[0].body[i].get());
+		assert(var_decl != nullptr);
+		assert(var_decl->initializer != nullptr);
+	}
+
+	std::cout << "  ✓ Expressions test passed" << std::endl;
+}
+
+void test_function_call() {
+	std::cout << "Testing function calls..." << std::endl;
+
+	std::string source = R"(func test():
+	var result = add(1, 2)
+	print("hello")
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions[0].body.size() == 2);
+
+	// First statement: var result = add(1, 2)
+	auto* var_decl = dynamic_cast<VarDeclStmt*>(program.functions[0].body[0].get());
+	assert(var_decl != nullptr);
+
+	auto* call_expr = dynamic_cast<CallExpr*>(var_decl->initializer.get());
+	assert(call_expr != nullptr);
+	assert(call_expr->function_name == "add");
+	assert(call_expr->arguments.size() == 2);
+
+	std::cout << "  ✓ Function call test passed" << std::endl;
+}
+
+void test_method_call() {
+	std::cout << "Testing method calls..." << std::endl;
+
+	std::string source = R"(func test():
+	var node = get_node("/root")
+	node.set_position(Vector2(0, 0))
+	var pos = node.get_position()
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions[0].body.size() == 3);
+
+	// Second statement: node.set_position(...)
+	auto* expr_stmt = dynamic_cast<ExprStmt*>(program.functions[0].body[1].get());
+	assert(expr_stmt != nullptr);
+
+	auto* member_call = dynamic_cast<MemberCallExpr*>(expr_stmt->expression.get());
+	assert(member_call != nullptr);
+	assert(member_call->member_name == "set_position");
+	assert(member_call->arguments.size() == 1);
+
+	std::cout << "  ✓ Method call test passed" << std::endl;
+}
+
+void test_nested_control_flow() {
+	std::cout << "Testing nested control flow..." << std::endl;
+
+	std::string source = R"(func test(x):
+	if x > 0:
+		while x > 0:
+			x = x - 1
+			if x == 5:
+				break
+	else:
+		return -1
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	auto* if_stmt = dynamic_cast<IfStmt*>(program.functions[0].body[0].get());
+	assert(if_stmt != nullptr);
+	assert(if_stmt->then_branch.size() == 1);
+
+	auto* while_stmt = dynamic_cast<WhileStmt*>(if_stmt->then_branch[0].get());
+	assert(while_stmt != nullptr);
+	assert(while_stmt->body.size() == 2);
+
+	std::cout << "  ✓ Nested control flow test passed" << std::endl;
+}
+
+void test_multiple_functions() {
+	std::cout << "Testing multiple functions..." << std::endl;
+
+	std::string source = R"(func add(a, b):
+	return a + b
+
+func multiply(a, b):
+	return a * b
+
+func main():
+	var x = add(10, 20)
+	var y = multiply(x, 2)
+	return y
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions.size() == 3);
+	assert(program.functions[0].name == "add");
+	assert(program.functions[1].name == "multiply");
+	assert(program.functions[2].name == "main");
+
+	std::cout << "  ✓ Multiple functions test passed" << std::endl;
+}
+
+void test_parameter_type_hints() {
+	std::cout << "Testing parameter type hints..." << std::endl;
+
+	std::string source = R"(func add(a: int, b: int):
+	return a + b
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions.size() == 1);
+	assert(program.functions[0].parameters.size() == 2);
+	assert(program.functions[0].parameters[0].name == "a");
+	assert(program.functions[0].parameters[0].type_hint == "int");
+	assert(program.functions[0].parameters[1].name == "b");
+	assert(program.functions[0].parameters[1].type_hint == "int");
+
+	std::cout << "  ✓ Parameter type hints test passed" << std::endl;
+}
+
+void test_function_return_type() {
+	std::cout << "Testing function return type..." << std::endl;
+
+	std::string source = R"(func add(a: int, b: int) -> int:
+	return a + b
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions.size() == 1);
+	assert(program.functions[0].return_type == "int");
+
+	std::cout << "  ✓ Function return type test passed" << std::endl;
+}
+
+void test_variable_type_hints() {
+	std::cout << "Testing variable type hints..." << std::endl;
+
+	std::string source = R"(func test():
+	var x: int = 10
+	var y: float = 3.14
+	var name: String = "hello"
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions[0].body.size() == 3);
+
+	auto* var1 = dynamic_cast<VarDeclStmt*>(program.functions[0].body[0].get());
+	assert(var1 != nullptr);
+	assert(var1->name == "x");
+	assert(var1->type_hint == "int");
+
+	auto* var2 = dynamic_cast<VarDeclStmt*>(program.functions[0].body[1].get());
+	assert(var2 != nullptr);
+	assert(var2->name == "y");
+	assert(var2->type_hint == "float");
+
+	auto* var3 = dynamic_cast<VarDeclStmt*>(program.functions[0].body[2].get());
+	assert(var3 != nullptr);
+	assert(var3->name == "name");
+	assert(var3->type_hint == "String");
+
+	std::cout << "  ✓ Variable type hints test passed" << std::endl;
+}
+
+void test_mixed_type_hints() {
+	std::cout << "Testing mixed type hints (with and without)..." << std::endl;
+
+	std::string source = R"(func test(a: int, b, c: float) -> void:
+	var x: int = 10
+	var y = 20
+	var z: String
+	return x
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions.size() == 1);
+	assert(program.functions[0].parameters.size() == 3);
+
+	// Check parameter type hints
+	assert(program.functions[0].parameters[0].type_hint == "int");
+	assert(program.functions[0].parameters[1].type_hint == "");  // No type hint
+	assert(program.functions[0].parameters[2].type_hint == "float");
+
+	// Check return type
+	assert(program.functions[0].return_type == "void");
+
+	// Check variable type hints
+	auto* var1 = dynamic_cast<VarDeclStmt*>(program.functions[0].body[0].get());
+	assert(var1->type_hint == "int");
+
+	auto* var2 = dynamic_cast<VarDeclStmt*>(program.functions[0].body[1].get());
+	assert(var2->type_hint == "");  // No type hint
+
+	auto* var3 = dynamic_cast<VarDeclStmt*>(program.functions[0].body[2].get());
+	assert(var3->type_hint == "String");
+
+	std::cout << "  ✓ Mixed type hints test passed" << std::endl;
+}
+
+void test_extends_keyword() {
+	std::cout << "Testing extends keyword (ignored)..." << std::endl;
+
+	std::string source = R"(extends Node
+
+func test():
+	return 42
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	// extends should be parsed and ignored
+	assert(program.functions.size() == 1);
+	assert(program.functions[0].name == "test");
+
+	std::cout << "  ✓ Extends keyword test passed" << std::endl;
+}
+
+void test_extends_with_multiple_functions() {
+	std::cout << "Testing extends with multiple functions..." << std::endl;
+
+	std::string source = R"(extends CharacterBody2D
+
+func _ready():
+	pass
+
+func _process(delta: float):
+	return delta
+)";
+
+	Lexer lexer(source);
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	// extends should be parsed and ignored, functions should be parsed normally
+	assert(program.functions.size() == 2);
+	assert(program.functions[0].name == "_ready");
+	assert(program.functions[1].name == "_process");
+	assert(program.functions[1].parameters.size() == 1);
+	assert(program.functions[1].parameters[0].type_hint == "float");
+
+	std::cout << "  ✓ Extends with multiple functions test passed" << std::endl;
+}
+
+void test_default_parameter_values() {
+	std::cout << "Testing default parameter values..." << std::endl;
+
+	Lexer lexer("func f(a, b = 5, c: int = 10):\n\treturn a\n");
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+
+	assert(program.functions.size() == 1);
+	const auto& params = program.functions[0].parameters;
+	assert(params.size() == 3);
+	assert(params[0].default_value == nullptr);
+	assert(params[1].default_value != nullptr);
+	assert(params[2].default_value != nullptr);
+	assert(params[2].type_hint == "int");
+
+	// A parameter without a default may not follow one that has a default
+	bool threw = false;
+	try {
+		Lexer bad_lexer("func f(a = 1, b):\n\treturn a\n");
+		Parser bad_parser(bad_lexer.tokenize());
+		bad_parser.parse();
+	} catch (const std::exception&) {
+		threw = true;
+	}
+	assert(threw && "Expected an error for a non-default parameter after a default one");
+
+	std::cout << "  ✓ Default parameter values test passed" << std::endl;
+}
+
+void test_ternary_and_match_parsing() {
+	std::cout << "Testing ternary and match parsing..." << std::endl;
+
+	Lexer lexer("func f(a):\n\treturn 1 if a else 2\n");
+	Parser parser(lexer.tokenize());
+	Program program = parser.parse();
+	assert(program.functions.size() == 1);
+	auto* ret = dynamic_cast<const ReturnStmt*>(program.functions[0].body[0].get());
+	assert(ret != nullptr);
+	assert(dynamic_cast<const TernaryExpr*>(ret->value.get()) != nullptr);
+
+	Lexer match_lexer("func f(a):\n\tmatch a:\n\t\t1, 2:\n\t\t\treturn 10\n\t\t_:\n\t\t\treturn 20\n");
+	Parser match_parser(match_lexer.tokenize());
+	Program match_program = match_parser.parse();
+	auto* match_stmt = dynamic_cast<const MatchStmt*>(match_program.functions[0].body[0].get());
+	assert(match_stmt != nullptr);
+	assert(match_stmt->branches.size() == 2);
+	assert(match_stmt->branches[0].patterns.size() == 2);
+	assert(match_stmt->branches[0].patterns[0]->kind == MatchPattern::Kind::VALUE);
+	assert(match_stmt->branches[1].patterns.size() == 1);
+	assert(match_stmt->branches[1].patterns[0]->kind == MatchPattern::Kind::WILDCARD);
+	assert(match_stmt->branches[1].is_catch_all());
+
+	std::cout << "  ✓ Ternary and match parsing test passed" << std::endl;
+}
+
+int main() {
+	std::cout << "\n=== Running Parser Tests ===" << std::endl;
+
+	try {
+		test_simple_function();
+		test_variable_declaration();
+		test_if_statement();
+		test_if_var_binding();
+		test_while_loop();
+		test_expressions();
+		test_function_call();
+		test_method_call();
+		test_nested_control_flow();
+		test_multiple_functions();
+		test_parameter_type_hints();
+		test_function_return_type();
+		test_variable_type_hints();
+		test_mixed_type_hints();
+		test_extends_keyword();
+		test_extends_with_multiple_functions();
+		test_default_parameter_values();
+		test_ternary_and_match_parsing();
+
+		std::cout << "\n✅ All parser tests passed!" << std::endl;
+		return 0;
+	} catch (const std::exception& e) {
+		std::cerr << "\n❌ Test failed: " << e.what() << std::endl;
+		return 1;
+	}
+}

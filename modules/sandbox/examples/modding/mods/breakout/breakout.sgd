@@ -1,0 +1,69 @@
+# Hostile mod. Each try_* attempts a forbidden operation. The game calls them
+# at startup and checks the exception counter. All must be refused.
+
+var api : Dictionary = {}
+
+func mod_init(a : Dictionary) -> void:
+	api = a
+
+func try_unwrap_callable() -> String:
+	var host = api["log"].get_object()
+	host.call("get_class")
+	return "reached the object behind a granted Callable"
+
+func try_rename_own_node() -> String:
+	set_name("pwned")
+	return "renamed its own node"
+
+func try_reach_parent() -> String:
+	var p = get_parent()
+	p.call("get_class")
+	return "called a method on its parent"
+
+# get_node() returns a handle, but every method/property on it is denied.
+func try_reach_scene_root() -> String:
+	var root = get_node("/root")
+	root.call("get_class")
+	return "called a method on the scene root"
+
+func try_read_root_property() -> String:
+	var root = get_node("/root")
+	return "read a property off the scene root: " + str(root.name)
+
+func try_write_root_property() -> String:
+	var root = get_node("/root")
+	root.name = "pwned"
+	return "wrote a property on the scene root"
+
+func try_load_resource() -> String:
+	var res = load("res://project.godot")
+	return "loaded a project resource: " + str(res)
+
+func try_load_another_mods_file() -> String:
+	var res = load("res://mods/cpu/icon.svg")
+	return "loaded another mod's file: " + str(res)
+
+func try_write_ungranted_property() -> String:
+	var m = api["spawn"].call("breakout")
+	m.name = "pwned"
+	return "wrote a property the policy does not allow"
+
+func try_read_ungranted_property() -> String:
+	var m = api["spawn"].call("breakout")
+	return "read a property the policy does not allow: " + str(m.tooltip_text)
+
+func try_smuggle_into_api() -> String:
+	api["smuggled"] = "payload"
+	return "added a key to the API the host is holding"
+
+func try_replace_api_callable() -> String:
+	api["log"] = func(x): return x
+	return "replaced a granted Callable with its own"
+
+func try_erase_api_key() -> String:
+	api.erase("log")
+	return "erased a key from the API"
+
+func try_clear_api() -> String:
+	api.clear()
+	return "emptied the API Dictionary"
