@@ -1,0 +1,250 @@
+#include "sandbox_project_settings.h"
+
+#include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/os.hpp>
+
+using namespace godot;
+
+static constexpr char USE_GLOBAL_NAMES[] = "sandbox/general/use_global_sandbox_names";
+static constexpr char USE_GLOBAL_NAMES_HINT[] = "Use customized global names for Sandbox programs";
+static constexpr char PROGRAM_LIBRARIES[] = "sandbox/general/program_libraries";
+static constexpr char PROGRAM_LIBRARIES_HINT[] = "Custom libraries for downloadable Sandbox programs";
+
+static constexpr char DOCKER_ENABLED[] = "sandbox/toolchain/docker_enabled";
+static constexpr char DOCKER_ENABLED_HINT[] = "Enable Docker for compilation";
+static constexpr char DOCKER_PATH[] = "sandbox/toolchain/docker";
+static constexpr char DOCKER_PATH_HINT[] = "Path to the Docker executable";
+static constexpr char ZIG_PATH[] = "sandbox/toolchain/zig";
+static constexpr char ZIG_PATH_HINT[] = "Path to the Zig executable";
+static constexpr char CMAKE_PATH[] = "sandbox/toolchain/cmake";
+static constexpr char CMAKE_PATH_HINT[] = "Path to the CMake executable";
+static constexpr char SCONS_PATH[] = "sandbox/toolchain/sconstruct";
+static constexpr char SCONS_PATH_HINT[] = "Path to the SConstruct executable";
+static constexpr char MAKE_PATH[] = "sandbox/toolchain/make";
+static constexpr char MAKE_PATH_HINT[] = "Path to the Make or Ninja executable";
+static constexpr char GIT_PATH[] = "sandbox/toolchain/git";
+static constexpr char GIT_PATH_HINT[] = "Path to the Git executable";
+static constexpr char SKIP_DEPENDENCY_CHECK[] = "sandbox/toolchain/skip_dependency_check";
+static constexpr char SKIP_DEPENDENCY_CHECK_HINT[] = "Skip the Sandbox dependency check";
+
+static constexpr char ASYNC_COMPILATION[] = "sandbox/compilation/async";
+static constexpr char ASYNC_COMPILATION_HINT[] = "Compile scripts asynchronously";
+static constexpr char DEBUG_INFO[] = "sandbox/compilation/debug_info";
+static constexpr char DEBUG_INFO_HINT[] = "Enable debug information when building ELF files";
+static constexpr char GLOBAL_DEFINES[] = "sandbox/compilation/global_defines";
+static constexpr char GLOBAL_DEFINES_HINT[] = "Global defines used when compiling Sandbox programs";
+static constexpr char NATIVE_TYPES[] = "sandbox/compilation/unboxed_arguments";
+static constexpr char NATIVE_TYPES_HINT[] = "Use native types and classes instead of Variants in Sandbox functions where possible";
+
+static constexpr char BINTR_ENABLED[] = "sandbox/binary_translation/enabled";
+static constexpr char BINTR_ENABLED_HINT[] = "Load matching hash-named native translations when available";
+static constexpr char BINTR_CACHE_DIR[] = "sandbox/binary_translation/cache_dir";
+static constexpr char BINTR_CACHE_DIR_HINT[] = "Writable directory containing bintr-<hash> native translations";
+
+static constexpr char GENERATE_RUNTIME_API[] = "sandbox/runtime_api/generate";
+static constexpr char GENERATE_RUNTIME_API_HINT[] = "Generate the run-time API for the Sandbox";
+static constexpr char METHOD_ARGUMENTS[] = "sandbox/runtime_api/method_arguments";
+static constexpr char METHOD_ARGUMENTS_HINT[] = "Generate method arguments for the run-time API";
+static constexpr char GENAPI_SKIPPED_CLASSES[] = "sandbox/runtime_api/skipped_classes";
+static constexpr char GENAPI_SKIPPED_CLASSES_HINT[] = "Matching classes to skip when generating the run-time API";
+
+static constexpr char TRAIT_STRUCTURAL_FALLBACK[] = "sandbox/safe_gdscript/trait_structural_fallback";
+static constexpr char TRAIT_STRUCTURAL_FALLBACK_HINT[] =
+		"Allow `is Trait` to match non-SafeGDScript objects structurally by method names";
+
+static void register_setting(
+		const String &p_name,
+		const Variant &p_value,
+		bool p_needs_restart,
+		PropertyHint p_hint,
+		const String &p_hint_string) {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+
+	if (!project_settings->has_setting(p_name)) {
+		project_settings->set(p_name, p_value);
+	}
+
+	Dictionary property_info;
+	property_info["name"] = p_name;
+	property_info["type"] = p_value.get_type();
+	property_info["hint"] = p_hint;
+	property_info["hint_string"] = p_hint_string;
+
+	project_settings->add_property_info(property_info);
+	project_settings->set_initial_value(p_name, p_value);
+	project_settings->set_restart_if_changed(p_name, p_needs_restart);
+
+	// Keep the settings in registration order within the Sandbox sections without
+	// disturbing the engine categories that use lower order values.
+	static int32_t order = 1000000;
+
+	project_settings->set_order(p_name, order++);
+}
+
+void register_setting_plain(
+		const String &p_name,
+		const Variant &p_value,
+		const String &p_hint_string = "",
+		bool p_needs_restart = false) {
+	register_setting(p_name, p_value, p_needs_restart, PROPERTY_HINT_NONE, p_hint_string);
+}
+
+static void migrate_setting(const String &p_old_name, const String &p_new_name) {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (project_settings->has_setting(p_old_name) && !project_settings->has_setting(p_new_name)) {
+		project_settings->set(p_new_name, project_settings->get_setting(p_old_name));
+		project_settings->set(p_old_name, Variant());
+	}
+}
+
+void SandboxProjectSettings::register_settings() {
+	migrate_setting("editor/script/use_global_sandbox_names", USE_GLOBAL_NAMES);
+	register_setting_plain(USE_GLOBAL_NAMES, true, USE_GLOBAL_NAMES_HINT, true);
+	migrate_setting("editor/script/program_libraries", PROGRAM_LIBRARIES);
+	Dictionary libraries;
+	libraries["godot-sandbox-programs"] = "libriscv/godot-sandbox-programs";
+	register_setting_plain(PROGRAM_LIBRARIES, libraries, PROGRAM_LIBRARIES_HINT, false);
+
+	migrate_setting("editor/script/docker_enabled", DOCKER_ENABLED);
+	register_setting_plain(DOCKER_ENABLED, true, DOCKER_ENABLED_HINT, true);
+	migrate_setting("editor/script/docker", DOCKER_PATH);
+#ifdef WIN32
+	register_setting_plain(DOCKER_PATH, "C:\\Program Files\\Docker\\Docker\\bin\\", DOCKER_PATH_HINT, true);
+#else
+	register_setting_plain(DOCKER_PATH, "docker", DOCKER_PATH_HINT, true);
+#endif
+	migrate_setting("editor/script/zig", ZIG_PATH);
+	register_setting_plain(ZIG_PATH, "zig", ZIG_PATH_HINT, true);
+	migrate_setting("editor/script/cmake", CMAKE_PATH);
+	register_setting_plain(CMAKE_PATH, "cmake", CMAKE_PATH_HINT, true);
+	migrate_setting("editor/script/sconstruct", SCONS_PATH);
+	register_setting_plain(SCONS_PATH, "scons", SCONS_PATH_HINT, true);
+	migrate_setting("editor/script/make", MAKE_PATH);
+#ifdef WIN32
+	register_setting_plain(MAKE_PATH, "ninja", MAKE_PATH_HINT, false);
+#else
+	register_setting_plain(MAKE_PATH, "make", MAKE_PATH_HINT, false);
+#endif
+	migrate_setting("editor/script/git", GIT_PATH);
+	register_setting_plain(GIT_PATH, "git", GIT_PATH_HINT, false);
+	migrate_setting("editor/script/skip", SKIP_DEPENDENCY_CHECK);
+	register_setting_plain(SKIP_DEPENDENCY_CHECK, false, SKIP_DEPENDENCY_CHECK_HINT, false);
+
+	migrate_setting("editor/script/async_compilation", ASYNC_COMPILATION);
+	register_setting_plain(ASYNC_COMPILATION, true, ASYNC_COMPILATION_HINT, false);
+	migrate_setting("editor/script/debug_info", DEBUG_INFO);
+	register_setting_plain(DEBUG_INFO, false, DEBUG_INFO_HINT, false);
+	migrate_setting("editor/script/global_defines", GLOBAL_DEFINES);
+	register_setting_plain(GLOBAL_DEFINES, Array(), GLOBAL_DEFINES_HINT, false);
+	migrate_setting("editor/script/unboxed_types_for_sandbox_arguments", NATIVE_TYPES);
+	register_setting_plain(NATIVE_TYPES, true, NATIVE_TYPES_HINT, false);
+
+	register_setting_plain(BINTR_ENABLED, false, BINTR_ENABLED_HINT, true);
+	register_setting_plain(BINTR_CACHE_DIR, "user://sandbox_bintr/", BINTR_CACHE_DIR_HINT, true);
+
+	migrate_setting("editor/script/generate_runtime_api", GENERATE_RUNTIME_API);
+	register_setting_plain(GENERATE_RUNTIME_API, true, GENERATE_RUNTIME_API_HINT, false);
+	migrate_setting("editor/script/runtime_api_method_arguments", METHOD_ARGUMENTS);
+	register_setting_plain(METHOD_ARGUMENTS, false, METHOD_ARGUMENTS_HINT, true);
+	migrate_setting("editor/script/generated_api_skipped_classes", GENAPI_SKIPPED_CLASSES);
+	Array skipped_classes;
+	skipped_classes.push_back("Editor");
+	skipped_classes.push_back("Multiplayer");
+	skipped_classes.push_back("Packet");
+	skipped_classes.push_back("Peer");
+	skipped_classes.push_back("Loader");
+	skipped_classes.push_back("Saver");
+	skipped_classes.push_back("OS");
+	register_setting_plain(GENAPI_SKIPPED_CLASSES, skipped_classes, GENAPI_SKIPPED_CLASSES_HINT, false);
+
+#ifndef SAFEGDSCRIPT_DISABLED
+	migrate_setting("safe_gdscript/traits/structural_fallback", TRAIT_STRUCTURAL_FALLBACK);
+	register_setting_plain(TRAIT_STRUCTURAL_FALLBACK, true, TRAIT_STRUCTURAL_FALLBACK_HINT, false);
+#endif
+}
+
+template <typename TType>
+static TType get_setting(const char *p_setting) {
+	const ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	const Variant setting_value = project_settings->get_setting_with_override(p_setting);
+	const Variant::Type setting_type = setting_value.get_type();
+	const Variant::Type expected_type = Variant(TType()).get_type();
+
+	ERR_FAIL_COND_V(setting_type != expected_type, Variant());
+
+	return setting_value;
+}
+
+bool SandboxProjectSettings::use_global_sandbox_names() {
+	return get_setting<bool>(USE_GLOBAL_NAMES);
+}
+
+bool SandboxProjectSettings::get_docker_enabled() {
+	return get_setting<bool>(DOCKER_ENABLED);
+}
+
+String SandboxProjectSettings::get_docker_path() {
+	return get_setting<String>(DOCKER_PATH);
+}
+
+String SandboxProjectSettings::get_cmake_path() {
+	String cmake_path = get_setting<String>(CMAKE_PATH);
+	if (cmake_path.begins_with("user://")) {
+		cmake_path = ProjectSettings::get_singleton()->globalize_path(cmake_path);
+	}
+	return cmake_path;
+}
+
+String SandboxProjectSettings::get_scons_path() {
+	return get_setting<String>(SCONS_PATH);
+}
+
+String SandboxProjectSettings::get_zig_path() {
+	return get_setting<String>(ZIG_PATH);
+}
+
+bool SandboxProjectSettings::async_compilation() {
+	return get_setting<bool>(ASYNC_COMPILATION);
+}
+
+bool SandboxProjectSettings::binary_translation_enabled() {
+	return get_setting<bool>(BINTR_ENABLED);
+}
+
+String SandboxProjectSettings::binary_translation_cache_dir() {
+	return get_setting<String>(BINTR_CACHE_DIR);
+}
+
+bool SandboxProjectSettings::use_native_types() {
+	return get_setting<bool>(NATIVE_TYPES);
+}
+
+bool SandboxProjectSettings::debug_info() {
+	return get_setting<bool>(DEBUG_INFO);
+}
+
+bool SandboxProjectSettings::trait_structural_fallback() {
+#ifndef SAFEGDSCRIPT_DISABLED
+	return get_setting<bool>(TRAIT_STRUCTURAL_FALLBACK);
+#else
+	return true;
+#endif
+}
+
+Array SandboxProjectSettings::get_global_defines() {
+	return get_setting<Array>(GLOBAL_DEFINES);
+}
+
+bool SandboxProjectSettings::generate_runtime_api() {
+	return get_setting<bool>(GENERATE_RUNTIME_API);
+}
+bool SandboxProjectSettings::generate_method_arguments() {
+	return get_setting<bool>(METHOD_ARGUMENTS);
+}
+Array SandboxProjectSettings::generated_api_skipped_classes() {
+	return get_setting<Array>(GENAPI_SKIPPED_CLASSES);
+}
+
+Dictionary SandboxProjectSettings::get_program_libraries() {
+	return get_setting<Dictionary>(PROGRAM_LIBRARIES);
+}

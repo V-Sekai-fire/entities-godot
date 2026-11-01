@@ -1,0 +1,511 @@
+#include "elf_builder.h"
+#include "gdsmeta.h"
+#include "riscv_codegen.h"
+#include <cstring>
+#include <stdexcept>
+
+namespace gdscript {
+
+ElfBuilder::ElfBuilder() {}
+
+std::vector<uint8_t> ElfBuilder::build(const IRProgram& program, const VariantLayout& layout,
+	bool profiling, ProfilingClock profiling_clock, bool debug_info,
+	const std::vector<uint32_t>& breakpoint_lines, bool debug_step_points) {
+	RISCVCodeGen codegen(layout, profiling, profiling_clock, debug_info, breakpoint_lines,
+		debug_step_points);
+	std::vector<uint8_t> code = codegen.generate(program);
+
+	// Rebase addresses from .text-relative to virtual.
+	m_line_table = codegen.get_line_table();
+	m_installed_breakpoints = codegen.get_installed_breakpoints();
+	m_debug_variables = codegen.get_debug_variables();
+	for (LineTableEntry& entry : m_line_table.entries) {
+		entry.address += uint32_t(BASE_ADDR);
+	}
+	auto func_offsets = codegen.get_function_offsets();
+	auto const_pool = codegen.get_constant_pool();
+	auto global_data_size = codegen.get_global_data_size();
+	const uint64_t global_address = codegen.get_global_address();
+	const size_t global_area_size = codegen.get_global_area_size();
+	const uint64_t profiling_address = codegen.get_profiling_address();
+	const uint64_t profiling_size = codegen.get_profiling_size();
+	const uint64_t debug_address = codegen.get_debug_address();
+	const uint64_t debug_size = codegen.get_debug_size();
+	const uint64_t instance_blob_address = codegen.get_instance_blob_address();
+	const uint64_t instance_blob_size = codegen.get_instance_blob_size();
+	const uint64_t instance_init_offset = codegen.get_instance_init_offset();
+	const uint64_t trait_cache_address = codegen.get_trait_cache_address();
+	const size_t trait_cache_count = codegen.get_trait_cache_count();
+	const size_t trait_cache_stride = RISCVCodeGen::trait_cache_bytes();
+
+	std::vector<uint8_t> elf_data;
+
+	size_t ehdr_size = sizeof(Elf64_Ehdr);
+	size_t phdr_size = sizeof(Elf64_Phdr);
+
+	// Two PT_LOAD segments when globals exist: .text (R+X) and .data (R+W).
+	bool has_globals = global_data_size > 0;
+	size_t num_phdrs = has_globals ? 2 : 1;
+
+	size_t text_size = code.size() - global_data_size;
+	size_t data_size = global_data_size;
+
+	// .text is index 1, .data index 2: symtab st_shndx references these by number.
+	std::vector<std::string> section_names = { "", ".text" };
+	if (has_globals) {
+		section_names.push_back(".data");
+	}
+	section_names.push_back(".symtab");
+	section_names.push_back(".strtab");
+	section_names.push_back(".comment");
+	section_names.push_back(GDSMETA_SECTION);
+	section_names.push_back(".shstrtab");
+
+	const size_t idx_symtab = has_globals ? 3 : 2;
+	const size_t idx_strtab = idx_symtab + 1;
+	const size_t idx_comment = idx_strtab + 1;
+	const size_t idx_gdsmeta = idx_comment + 1;
+	const size_t idx_shstrtab = idx_gdsmeta + 1;
+	const size_t num_sections = section_names.size();
+
+	const std::string comment_string = "Godot GDScript API v1";
+	std::vector<uint8_t> comment_bytes(comment_string.begin(), comment_string.end());
+	comment_bytes.push_back(0);
+
+	ScriptMetadata meta;
+	meta.double_precision = layout.double_precision;
+	meta.is_tool = program.is_tool;
+	meta.base_is_path = program.base_is_path;
+	meta.class_name = program.class_name;
+	meta.base_class = program.base_class;
+	meta.constants = program.constants;
+	meta.uses = program.script_uses;
+	meta.classes = program.class_signatures;
+	meta.classes.insert(meta.classes.end(), program.trait_signatures.begin(), program.trait_signatures.end());
+	meta.functions = program.signatures;
+	meta.signals = program.signals;
+	meta.properties = program.properties;
+	meta.rpc_configs = program.rpc_configs;
+	meta.line_table = m_line_table;
+	const std::vector<uint8_t> gdsmeta_bytes = encode_script_metadata(meta);
+	std::vector<uint8_t> shstrtab;
+	shstrtab.reserve(1 + (1 + section_names.size()) * 10); // Rough estimate
+	std::vector<size_t> section_name_offsets;
+	section_name_offsets.reserve(section_names.size());
+
+	for (const auto& name : section_names) {
+		section_name_offsets.push_back(shstrtab.size());
+		shstrtab.insert(shstrtab.end(), name.begin(), name.end());
+		shstrtab.push_back(0);
+	}
+
+	std::vector<uint8_t> strtab;
+	strtab.push_back(0);
+
+	// fast_exit sits at BASE_ADDR, ahead of every function; the host resolves it
+	// as the exit address every vmcall returns to.
+	const size_t fast_exit_name_offset = strtab.size();
+	strtab.insert(strtab.end(), FAST_EXIT_SYMBOL, FAST_EXIT_SYMBOL + strlen(FAST_EXIT_SYMBOL));
+	strtab.push_back(0);
+
+	std::vector<std::string> symbol_names;
+	symbol_names.reserve(program.functions.size());
+	std::vector<size_t> symbol_name_offsets;
+	symbol_name_offsets.reserve(program.functions.size());
+
+	for (const auto& func : program.functions) {
+		symbol_names.push_back(func.name);
+		symbol_name_offsets.push_back(strtab.size());
+		strtab.insert(strtab.end(), func.name.begin(), func.name.end());
+		strtab.push_back(0);
+	}
+
+	size_t profiling_name_offset = 0;
+	if (profiling_size > 0) {
+		profiling_name_offset = strtab.size();
+		const std::string name = PROFILING_SYMBOL;
+		strtab.insert(strtab.end(), name.begin(), name.end());
+		strtab.push_back(0);
+	}
+
+	size_t debug_name_offset = 0;
+	if (debug_size > 0) {
+		debug_name_offset = strtab.size();
+		const std::string name = DEBUG_SYMBOL;
+		strtab.insert(strtab.end(), name.begin(), name.end());
+		strtab.push_back(0);
+	}
+
+	size_t globals_name_offset = 0;
+	if (global_area_size > 0) {
+		globals_name_offset = strtab.size();
+		const std::string name = DEBUG_GLOBALS_SYMBOL;
+		strtab.insert(strtab.end(), name.begin(), name.end());
+		strtab.push_back(0);
+	}
+
+	size_t instance_name_offset = 0;
+	size_t instance_init_name_offset = 0;
+	if (instance_blob_size > 0) {
+		instance_name_offset = strtab.size();
+		const std::string name = INSTANCE_SYMBOL;
+		strtab.insert(strtab.end(), name.begin(), name.end());
+		strtab.push_back(0);
+
+		instance_init_name_offset = strtab.size();
+		const std::string init_name = INSTANCE_INIT_SYMBOL;
+		strtab.insert(strtab.end(), init_name.begin(), init_name.end());
+		strtab.push_back(0);
+	}
+
+	// One symbol per trait cache: without them the host cannot find the caches
+	// to clear, and a stale 'is Trait' answer outlives the script change.
+	std::vector<size_t> trait_cache_name_offsets;
+	trait_cache_name_offsets.reserve(trait_cache_count);
+	for (size_t i = 0; i < trait_cache_count; i++) {
+		const std::string name = std::string(TRAIT_CACHE_SYMBOL_PREFIX) + std::to_string(i);
+		trait_cache_name_offsets.push_back(strtab.size());
+		strtab.insert(strtab.end(), name.begin(), name.end());
+		strtab.push_back(0);
+	}
+
+	// Defined locally to avoid alignment/packing issues.
+	struct alignas(8) Elf64_Sym {
+		uint32_t st_name;
+		uint8_t st_info;
+		uint8_t st_other;
+		uint16_t st_shndx;
+		uint64_t st_value;
+		uint64_t st_size;
+	};
+
+	static_assert(sizeof(Elf64_Sym) == 24, "Elf64_Sym must be 24 bytes");
+
+	std::vector<Elf64_Sym> symtab;
+	symtab.reserve(1 + program.functions.size());
+
+	Elf64_Sym null_sym = {};
+	memset(&null_sym, 0, sizeof(null_sym));
+	symtab.push_back(null_sym);
+
+	Elf64_Sym fast_exit_sym = {};
+	memset(&fast_exit_sym, 0, sizeof(fast_exit_sym));
+	fast_exit_sym.st_name = static_cast<uint32_t>(fast_exit_name_offset);
+	fast_exit_sym.st_info = (1 << 4) | 2; // STB_GLOBAL | STT_FUNC
+	fast_exit_sym.st_shndx = 1; // .text
+	fast_exit_sym.st_value = BASE_ADDR;
+	fast_exit_sym.st_size = FAST_EXIT_SIZE;
+	symtab.push_back(fast_exit_sym);
+
+	for (size_t i = 0; i < program.functions.size(); i++) {
+		const auto& func = program.functions[i];
+		size_t func_offset = func_offsets.at(func.name);
+
+		size_t func_size = text_size - func_offset;
+		if (i + 1 < program.functions.size()) {
+			const auto& next_func = program.functions[i + 1];
+			size_t next_offset = func_offsets.at(next_func.name);
+			func_size = next_offset - func_offset;
+		}
+
+		Elf64_Sym sym = {};
+		memset(&sym, 0, sizeof(sym));
+		sym.st_name = static_cast<uint32_t>(symbol_name_offsets[i]);
+		sym.st_info = (1 << 4) | 2; // STB_GLOBAL (1) << 4 | STT_FUNC (2)
+		sym.st_other = 0;
+		sym.st_shndx = 1; // .text section
+		sym.st_value = BASE_ADDR + func_offset; // Actual function address
+		sym.st_size = func_size;
+		symtab.push_back(sym);
+	}
+
+	if (profiling_size > 0) {
+		Elf64_Sym sym = {};
+		memset(&sym, 0, sizeof(sym));
+		sym.st_name = static_cast<uint32_t>(profiling_name_offset);
+		sym.st_info = (1 << 4) | 1; // STB_GLOBAL | STT_OBJECT
+		sym.st_other = 0;
+		sym.st_shndx = 2; // .data
+		sym.st_value = profiling_address;
+		sym.st_size = profiling_size;
+		symtab.push_back(sym);
+	}
+
+	if (debug_size > 0) {
+		Elf64_Sym sym = {};
+		memset(&sym, 0, sizeof(sym));
+		sym.st_name = static_cast<uint32_t>(debug_name_offset);
+		sym.st_info = (1 << 4) | 1; // STB_GLOBAL | STT_OBJECT
+		sym.st_other = 0;
+		sym.st_shndx = 2; // .data
+		sym.st_value = debug_address;
+		sym.st_size = debug_size;
+		symtab.push_back(sym);
+	}
+
+	if (global_area_size > 0) {
+		Elf64_Sym sym = {};
+		sym.st_name = static_cast<uint32_t>(globals_name_offset);
+		sym.st_info = (1 << 4) | 1;
+		sym.st_shndx = 2;
+		sym.st_value = global_address;
+		sym.st_size = global_area_size;
+		symtab.push_back(sym);
+	}
+
+	if (instance_blob_size > 0) {
+		Elf64_Sym blob = {};
+		memset(&blob, 0, sizeof(blob));
+		blob.st_name = static_cast<uint32_t>(instance_name_offset);
+		blob.st_info = (1 << 4) | 1;
+		blob.st_other = 0;
+		blob.st_shndx = 2;
+		blob.st_value = instance_blob_address;
+		blob.st_size = instance_blob_size;
+		symtab.push_back(blob);
+
+		Elf64_Sym init = {};
+		memset(&init, 0, sizeof(init));
+		init.st_name = static_cast<uint32_t>(instance_init_name_offset);
+		init.st_info = (1 << 4) | 2;
+		init.st_other = 0;
+		init.st_shndx = 1;
+		init.st_value = BASE_ADDR + instance_init_offset;
+		init.st_size = 0;
+		symtab.push_back(init);
+	}
+
+	for (size_t i = 0; i < trait_cache_count; i++) {
+		Elf64_Sym sym = {};
+		memset(&sym, 0, sizeof(sym));
+		sym.st_name = static_cast<uint32_t>(trait_cache_name_offsets[i]);
+		sym.st_info = (1 << 4) | 1; // STB_GLOBAL | STT_OBJECT
+		sym.st_other = 0;
+		sym.st_shndx = 2; // .data
+		sym.st_value = trait_cache_address + i * trait_cache_stride;
+		sym.st_size = trait_cache_stride;
+		symtab.push_back(sym);
+	}
+
+	size_t symtab_size = symtab.size() * sizeof(Elf64_Sym);
+
+	size_t offset = 0;
+	offset += ehdr_size;
+	size_t phdr_offset = offset;
+	offset += num_phdrs * phdr_size;
+
+	offset = (offset + 0xFFF) & ~0xFFF;
+	size_t text_offset = offset;
+	offset += text_size;
+
+	size_t data_offset = 0;
+	if (has_globals) {
+		offset = (offset + 0xFFF) & ~0xFFF;
+		data_offset = offset;
+		offset += data_size;
+	}
+
+	offset = (offset + 7) & ~7;
+	size_t symtab_offset = offset;
+	offset += symtab_size;
+
+	size_t strtab_offset = offset;
+	offset += strtab.size();
+
+	size_t comment_offset = offset;
+	offset += comment_bytes.size();
+
+	offset = (offset + 7) & ~7;
+	size_t gdsmeta_offset = offset;
+	offset += gdsmeta_bytes.size();
+
+	size_t shstrtab_offset = offset;
+	offset += shstrtab.size();
+
+	offset = (offset + 7) & ~7;
+	size_t shdr_offset = offset;
+	Elf64_Ehdr ehdr;
+	memset(&ehdr, 0, sizeof(ehdr));
+
+	ehdr.e_ident[0] = 0x7f;
+	ehdr.e_ident[1] = 'E';
+	ehdr.e_ident[2] = 'L';
+	ehdr.e_ident[3] = 'F';
+	ehdr.e_ident[4] = 2;
+	ehdr.e_ident[5] = 1;
+	ehdr.e_ident[6] = 1;
+	ehdr.e_ident[7] = 0;
+
+	ehdr.e_type = ET_EXEC;
+	ehdr.e_machine = EM_RISCV;
+	ehdr.e_version = EV_CURRENT;
+	ehdr.e_entry = BASE_ADDR + FAST_EXIT_SIZE; // Past fast_exit
+	ehdr.e_phoff = phdr_offset;
+	ehdr.e_shoff = shdr_offset;
+	ehdr.e_flags = 0x5;
+	ehdr.e_ehsize = sizeof(Elf64_Ehdr);
+	ehdr.e_phentsize = sizeof(Elf64_Phdr);
+	ehdr.e_phnum = static_cast<uint16_t>(num_phdrs);
+	ehdr.e_shentsize = sizeof(Elf64_Shdr);
+	ehdr.e_shnum = static_cast<uint16_t>(num_sections);
+	ehdr.e_shstrndx = static_cast<uint16_t>(idx_shstrtab);
+
+	write_value(elf_data, ehdr);
+
+	Elf64_Phdr phdr_text;
+	memset(&phdr_text, 0, sizeof(phdr_text));
+
+	phdr_text.p_type = 1;
+	phdr_text.p_flags = 5;
+	phdr_text.p_offset = static_cast<uint64_t>(text_offset);
+	phdr_text.p_vaddr = BASE_ADDR;
+	phdr_text.p_paddr = BASE_ADDR;
+	phdr_text.p_filesz = static_cast<uint64_t>(text_size);
+	phdr_text.p_memsz = static_cast<uint64_t>(text_size);
+	phdr_text.p_align = 0x1000;
+
+	write_value(elf_data, phdr_text);
+
+	if (has_globals) {
+		uint64_t data_vaddr = BASE_ADDR + text_size;
+		data_vaddr = (data_vaddr + 0xFFF) & ~0xFFFULL;
+
+		Elf64_Phdr phdr_data;
+		memset(&phdr_data, 0, sizeof(phdr_data));
+
+		phdr_data.p_type = 1;
+		phdr_data.p_flags = 6;
+		phdr_data.p_offset = static_cast<uint64_t>(data_offset);
+		phdr_data.p_vaddr = data_vaddr;
+		phdr_data.p_paddr = data_vaddr;
+		phdr_data.p_filesz = static_cast<uint64_t>(data_size);
+		phdr_data.p_memsz = static_cast<uint64_t>(data_size);
+		phdr_data.p_align = 0x1000;
+
+		write_value(elf_data, phdr_data);
+	}
+
+	while (elf_data.size() < text_offset) {
+		elf_data.push_back(0);
+	}
+
+	elf_data.insert(elf_data.end(), code.begin(), code.begin() + text_size);
+
+	if (has_globals) {
+		while (elf_data.size() < data_offset) {
+			elf_data.push_back(0);
+		}
+		elf_data.insert(elf_data.end(), code.begin() + text_size, code.end());
+	}
+
+	while (elf_data.size() < symtab_offset) {
+		elf_data.push_back(0);
+	}
+
+	for (const auto& sym : symtab) {
+		write_value(elf_data, sym);
+	}
+
+	elf_data.insert(elf_data.end(), strtab.begin(), strtab.end());
+
+	while (elf_data.size() < comment_offset) {
+		elf_data.push_back(0);
+	}
+	elf_data.insert(elf_data.end(), comment_bytes.begin(), comment_bytes.end());
+
+	while (elf_data.size() < gdsmeta_offset) {
+		elf_data.push_back(0);
+	}
+	elf_data.insert(elf_data.end(), gdsmeta_bytes.begin(), gdsmeta_bytes.end());
+
+	while (elf_data.size() < shstrtab_offset) {
+		elf_data.push_back(0);
+	}
+	elf_data.insert(elf_data.end(), shstrtab.begin(), shstrtab.end());
+
+	while (elf_data.size() < shdr_offset) {
+		elf_data.push_back(0);
+	}
+
+	Elf64_Shdr shdr_null = {};
+	write_value(elf_data, shdr_null);
+
+	Elf64_Shdr shdr_text = {};
+	shdr_text.sh_name = static_cast<uint32_t>(section_name_offsets[1]);
+	shdr_text.sh_type = 1;
+	shdr_text.sh_flags = 6;
+	shdr_text.sh_addr = BASE_ADDR;
+	shdr_text.sh_offset = static_cast<uint64_t>(text_offset);
+	shdr_text.sh_size = static_cast<uint64_t>(text_size);
+	shdr_text.sh_addralign = 4;
+	write_value(elf_data, shdr_text);
+
+	if (has_globals) {
+		uint64_t data_vaddr = BASE_ADDR + text_size;
+		data_vaddr = (data_vaddr + 0xFFF) & ~0xFFFULL;
+
+		Elf64_Shdr shdr_data = {};
+		shdr_data.sh_name = static_cast<uint32_t>(section_name_offsets[2]);
+		shdr_data.sh_type = 1;
+		shdr_data.sh_flags = 3;
+		shdr_data.sh_addr = data_vaddr;
+		shdr_data.sh_offset = static_cast<uint64_t>(data_offset);
+		shdr_data.sh_size = static_cast<uint64_t>(data_size);
+		shdr_data.sh_addralign = 8;
+		write_value(elf_data, shdr_data);
+	}
+
+	Elf64_Shdr shdr_symtab = {};
+	shdr_symtab.sh_name = static_cast<uint32_t>(section_name_offsets[idx_symtab]);
+	shdr_symtab.sh_type = 2;
+	shdr_symtab.sh_offset = static_cast<uint64_t>(symtab_offset);
+	shdr_symtab.sh_size = static_cast<uint64_t>(symtab_size);
+	shdr_symtab.sh_link = static_cast<uint32_t>(idx_strtab);
+	shdr_symtab.sh_info = 1;
+	shdr_symtab.sh_addralign = 8;
+	shdr_symtab.sh_entsize = sizeof(Elf64_Sym);
+	write_value(elf_data, shdr_symtab);
+
+	Elf64_Shdr shdr_strtab = {};
+	shdr_strtab.sh_name = static_cast<uint32_t>(section_name_offsets[idx_strtab]);
+	shdr_strtab.sh_type = 3;
+	shdr_strtab.sh_offset = static_cast<uint64_t>(strtab_offset);
+	shdr_strtab.sh_size = static_cast<uint64_t>(strtab.size());
+	shdr_strtab.sh_addralign = 1;
+	write_value(elf_data, shdr_strtab);
+
+	Elf64_Shdr shdr_comment = {};
+	shdr_comment.sh_name = static_cast<uint32_t>(section_name_offsets[idx_comment]);
+	shdr_comment.sh_type = 1;
+	shdr_comment.sh_offset = static_cast<uint64_t>(comment_offset);
+	shdr_comment.sh_size = static_cast<uint64_t>(comment_bytes.size());
+	shdr_comment.sh_addralign = 1;
+	write_value(elf_data, shdr_comment);
+
+	Elf64_Shdr shdr_gdsmeta = {};
+	shdr_gdsmeta.sh_name = static_cast<uint32_t>(section_name_offsets[idx_gdsmeta]);
+	shdr_gdsmeta.sh_type = 1;
+	shdr_gdsmeta.sh_offset = static_cast<uint64_t>(gdsmeta_offset);
+	shdr_gdsmeta.sh_size = static_cast<uint64_t>(gdsmeta_bytes.size());
+	shdr_gdsmeta.sh_addralign = 8;
+	write_value(elf_data, shdr_gdsmeta);
+
+	Elf64_Shdr shdr_shstrtab = {};
+	shdr_shstrtab.sh_name = static_cast<uint32_t>(section_name_offsets[idx_shstrtab]);
+	shdr_shstrtab.sh_type = 3;
+	shdr_shstrtab.sh_offset = static_cast<uint64_t>(shstrtab_offset);
+	shdr_shstrtab.sh_size = static_cast<uint64_t>(shstrtab.size());
+	shdr_shstrtab.sh_addralign = 1;
+	write_value(elf_data, shdr_shstrtab);
+
+	return elf_data;
+}
+
+void ElfBuilder::write_elf_header(std::vector<uint8_t>& data, uint64_t entry_point) {
+}
+
+std::vector<uint8_t> ElfBuilder::generate_minimal_code(const IRProgram& program) {
+	return {};
+}
+
+} // namespace gdscript

@@ -1,0 +1,461 @@
+#include "compiler.h"
+#include "chain.h"
+#include "traits.h"
+#include "compiler_exception.h"
+#include "lexer.h"
+#include "parser.h"
+#include "codegen.h"
+#include "ir_optimizer.h"
+#include <iostream>
+#include <stdexcept>
+#include <algorithm>
+#include <unordered_map>
+#include <unordered_set>
+
+namespace gdscript {
+
+namespace {
+std::string source_line_at(const std::string& source, int line) {
+	if (line <= 0) {
+		return {};
+	}
+	size_t begin = 0;
+	for (int current = 1; current < line; current++) {
+		begin = source.find('\n', begin);
+		if (begin == std::string::npos) {
+			return {};
+		}
+		begin += 1;
+	}
+	size_t end = source.find('\n', begin);
+	if (end == std::string::npos) {
+		end = source.size();
+	}
+	// Strip trailing \r (CRLF files).
+	while (end > begin && source[end - 1] == '\r') {
+		end--;
+	}
+	return source.substr(begin, end - begin);
+}
+// Import preloaded script bases into the existing class lowering. Keep the
+// resource constant intact: only the inheritance edge names the private class.
+void import_native_bases(Program &program, const CompilerOptions &options) {
+	if (!options.native_classes || !options.load_class_source) return;
+	std::vector<StructDecl> imported;
+	std::unordered_map<std::string, std::string> names;
+	std::unordered_set<std::string> visiting;
+	if (!options.source_path.empty()) visiting.insert(options.source_path);
+	std::function<std::string(const Program &, const std::string &, const std::string &, bool)> resolve;
+	resolve = [&](const Program &scope, const std::string &base, const std::string &source, bool is_path) -> std::string {
+		if (base.empty()) return "RefCounted";
+		if (!is_path) {
+			for (const auto &decl : scope.structs) if (decl.name == base) return base;
+		}
+		std::string path = is_path ? base : std::string();
+		if (!is_path) {
+			for (const auto &global : scope.globals) {
+				if (!global.is_const || global.name != base) continue;
+				const auto *call = dynamic_cast<const CallExpr *>(global.initializer.get());
+				const auto *literal = call && call->function_name == "preload" && call->arguments.size() == 1
+					? dynamic_cast<const LiteralExpr *>(call->arguments[0].get()) : nullptr;
+				if (!literal || literal->lit_type != LiteralExpr::Type::STRING)
+					throw std::runtime_error("Class base '" + base + "' must be a preloaded script");
+				path = std::get<std::string>(literal->value);
+			}
+			if (path.empty()) for (const auto &entry : options.global_script_classes)
+				if (entry.first == base) path = entry.second;
+		}
+		if (path.empty()) return base; // engine class
+		auto loaded = options.load_class_source(path, source);
+		if (visiting.count(loaded.path)) throw std::runtime_error("Cyclic script inheritance: " + loaded.path);
+		if (auto found = names.find(loaded.path); found != names.end()) return found->second;
+		if (visiting.size() >= MAX_CHAIN_DEPTH) throw std::runtime_error("Script inheritance is too deep");
+		visiting.insert(loaded.path);
+		Lexer lexer(loaded.source);
+		Parser parser(lexer.tokenize());
+		auto parsed = parser.parse();
+		apply_traits(parsed);
+		StructDecl decl;
+		decl.name = "@imported" + std::to_string(names.size());
+		names[loaded.path] = decl.name;
+		decl.is_class = true;
+		decl.source_path = loaded.path;
+		decl.base_name = resolve(parsed, parsed.base_class, loaded.path, parsed.base_is_path);
+		decl.methods = std::move(parsed.functions);
+		decl.signals = std::move(parsed.signals);
+		// A nested class has fields, methods and constants. Refuse declarations
+		// whose script-level lifetime/accessors cannot be represented as fields.
+		if (!parsed.structs.empty() || !parsed.enums.empty())
+			throw std::runtime_error("Nested script base contains unsupported nested types: " + loaded.path);
+		for (auto &global : parsed.globals) {
+			if (global.is_static || global.is_onready || global.has_accessors())
+				throw std::runtime_error("Nested script base contains unsupported field accessors or storage: " + loaded.path);
+			StructField field;
+			field.name = global.name;
+			field.type_hint = global.type_hint;
+			field.default_value = std::move(global.initializer);
+			field.line = global.line;
+			field.column = global.column;
+			field.doc_comment = global.doc_comment;
+			(global.is_const ? decl.constants : decl.fields).push_back(std::move(field));
+		}
+		visiting.erase(loaded.path);
+		const auto name = decl.name;
+		imported.push_back(std::move(decl));
+		return name;
+	};
+	for (auto &decl : program.structs)
+		if (decl.is_class) decl.base_name = resolve(program, decl.base_name, options.source_path, false);
+	for (auto &decl : imported) program.structs.push_back(std::move(decl));
+}
+} // namespace
+
+Compiler::Compiler() {}
+
+std::optional<IRProgram> Compiler::compile_to_ir(const std::string& source, const CompilerOptions& options) {
+	m_signatures.clear();
+	m_signals.clear();
+	m_rpc_configs.clear();
+	m_tests.clear();
+	m_class_signatures.clear();
+	m_script_uses.clear();
+	m_constants.clear();
+	m_properties.clear();
+	m_debug_variables.clear();
+	m_line_table.entries.clear();
+	m_installed_breakpoints.clear();
+	m_warnings.clear();
+	m_is_tool = false;
+	m_class_name.clear();
+	m_base_class.clear();
+	m_base_is_path = false;
+	m_native_base_class.clear();
+	m_native_base_is_path = false;
+	try {
+		const bool has_executable_base = std::any_of(options.base_sources.begin(),
+			options.base_sources.end(), [](const CompilerOptions::BaseSource &base) {
+				return !base.trait_only;
+			});
+		if (has_executable_base && options.restricted) {
+			throw CompilerException(ErrorType::SEMANTIC_ERROR,
+				"A restricted Sandbox refuses 'extends', so no base script is compiled in",
+				0, 0, "", "", "",
+				"The same gate that refuses 'extends' outright refuses a base body");
+		}
+
+		Lexer lexer(source);
+		auto tokens = lexer.tokenize();
+
+		if (options.dump_tokens) {
+			std::cout << "=== TOKENS ===" << std::endl;
+			for (const auto& token : tokens) {
+				std::cout << token.to_string() << std::endl;
+			}
+			std::cout << std::endl;
+		}
+
+		Parser parser(tokens);
+		parser.set_doc_comments(lexer.doc_comments());
+		Program program = parser.parse();
+		m_warnings = parser.warnings();
+
+		if (!options.base_sources.empty()) {
+			std::vector<ChainLink> links;
+			links.reserve(options.base_sources.size() + 1);
+			struct ImportedProviderTraits {
+				std::unordered_set<std::string> local_names;
+				std::unordered_set<std::string> qualified_names;
+			};
+			std::unordered_map<std::string, ImportedProviderTraits> imported_provider_traits;
+			for (size_t i = options.base_sources.size(); i-- > 0;) {
+				const CompilerOptions::BaseSource& base = options.base_sources[i];
+				Lexer base_lexer(base.source);
+				Parser base_parser(base_lexer.tokenize());
+				base_parser.set_doc_comments(base_lexer.doc_comments());
+				ChainLink link;
+				link.name = base.name;
+				link.path = base.path;
+				try {
+					link.program = base_parser.parse();
+				} catch (CompilerException& e) {
+					if (e.line() > 0 && e.source_line().empty()) {
+						e.set_source_line(source_line_at(base.source, e.line()));
+					}
+					e.set_file(base.path);
+					throw;
+				}
+				if (base.trait_only) {
+					const size_t dot = base.name.rfind('.');
+					std::string provider = base.path;
+					if (provider.empty()) {
+						provider = dot == std::string::npos ? base.name : base.name.substr(0, dot);
+					}
+					ImportedProviderTraits& imported = imported_provider_traits[provider];
+					for (TraitDecl &decl : link.program.traits) {
+						if (dot != std::string::npos && decl.name == base.name.substr(dot + 1)) {
+							if (!imported.qualified_names.insert(base.name).second) continue;
+							decl.name = base.name;
+						} else if (!imported.local_names.insert(decl.name).second) {
+							continue;
+						}
+						program.traits.push_back(std::move(decl));
+					}
+				} else {
+					links.push_back(std::move(link));
+				}
+			}
+			if (!links.empty()) {
+				ChainLink leaf;
+				leaf.path = options.source_path;
+				leaf.program = std::move(program);
+				links.push_back(std::move(leaf));
+				std::vector<const TraitDecl*> available_traits;
+				for (const ChainLink& link : links)
+					for (const TraitDecl& trait : link.program.traits)
+						available_traits.push_back(&trait);
+				for (ChainLink& link : links) apply_traits(link.program, available_traits);
+				program = merge_chain(std::move(links));
+			}
+		}
+
+		if (!program.chain.merged()) apply_traits(program);
+
+		if (options.dump_ast) {
+			std::cout << "=== AST ===" << std::endl;
+			std::cout << "Functions: " << program.functions.size() << std::endl;
+			for (const auto& func : program.functions) {
+				std::cout << "  func " << func.name << "(";
+				for (size_t i = 0; i < func.parameters.size(); i++) {
+					if (i > 0) std::cout << ", ";
+					std::cout << func.parameters[i].name;
+				}
+				std::cout << "): " << func.body.size() << " statements" << std::endl;
+			}
+			std::cout << std::endl;
+		}
+
+		// A shipping build carries no tests: they are dropped before codegen, so
+		// no test body reaches the ELF. Tests call helpers, never the reverse.
+		std::vector<std::string> dropped_tests;
+		if (!options.emit_tests) {
+			for (const FunctionDecl& decl : program.functions) {
+				if (decl.is_test) {
+					dropped_tests.push_back(decl.name);
+				}
+			}
+			program.functions.erase(std::remove_if(program.functions.begin(),
+				program.functions.end(), [](const FunctionDecl& decl) {
+					return decl.is_test;
+				}), program.functions.end());
+		}
+
+		import_native_bases(program, options);
+		if (options.native_classes) {
+			for (auto &decl : program.structs)
+				if (decl.is_class && decl.base_name.empty()) decl.base_name = "RefCounted";
+		}
+		CodeGenerator codegen;
+		codegen.set_native_classes(options.native_classes);
+		codegen.set_dropped_tests(dropped_tests);
+		codegen.set_restricted(options.restricted);
+		codegen.set_batch_iteration(options.batch_iteration);
+		codegen.set_struct_checks(options.restricted ||
+			options.struct_checks != CompilerOptions::StructChecks::OFF,
+			options.struct_checks == CompilerOptions::StructChecks::DEEP);
+		codegen.set_trait_structural_fallback(options.trait_structural_fallback);
+		codegen.set_source_path(options.source_path);
+		codegen.set_autoloads(options.autoloads);
+		codegen.set_global_script_classes(options.global_script_classes);
+		codegen.set_engine_ancestry(options.engine_ancestry);
+		IRProgram ir_program = codegen.generate(program);
+		m_signatures = ir_program.signatures;
+		m_signals = ir_program.signals;
+		m_rpc_configs = ir_program.rpc_configs;
+		m_tests = ir_program.tests;
+		m_class_signatures = ir_program.class_signatures;
+		m_class_signatures.insert(m_class_signatures.end(),
+			ir_program.trait_signatures.begin(), ir_program.trait_signatures.end());
+		m_script_uses = ir_program.script_uses;
+		m_constants = ir_program.constants;
+		for (const IRGlobalVar &global : ir_program.globals) {
+			if (global.is_const) {
+				continue;
+			}
+			PropertySignature property;
+			property.name = global.name;
+			const TypeSet declared{global.declared_set};
+			property.type = declared.is_nullable_single() &&
+					declared.non_null().only() == Variant::OBJECT
+					? int32_t(Variant::OBJECT)
+					: global.value_type == IRInstruction::TypeHint_NONE
+					? -1 : int32_t(global.value_type);
+			property.class_name = global.class_name;
+			property.hint = uint32_t(global.export_hint.hint);
+			property.hint_string = global.export_hint.hint_string;
+			if (global.value_type == Variant::DICTIONARY && !global.class_name.empty() &&
+				property.hint_string.empty()) {
+				property.hint_string = global.class_name;
+			}
+			property.declaration_line = global.declaration_line;
+			property.section = global.export_section;
+			property.is_member = global.is_member();
+			property.is_static = global.is_static;
+			// Godot property usage bits: STORAGE=2, EDITOR=4, SCRIPT_VARIABLE=4096.
+			property.usage = global.export_hint.usage != 0
+					? uint32_t(global.export_hint.usage)
+					: (global.is_property ? 4102u : 4096u);
+			using InitType = IRGlobalVar::InitType;
+			switch (global.init_type) {
+				case InitType::NONE:
+				case InitType::RUNTIME:
+					property.default_kind = PropertyDefaultKind::NONE;
+					break;
+				case InitType::NULL_VAL:
+					property.default_kind = PropertyDefaultKind::NIL;
+					break;
+				case InitType::INT:
+					property.default_kind = PropertyDefaultKind::INT;
+					property.default_value = std::get<int64_t>(global.init_value);
+					break;
+				case InitType::FLOAT:
+					property.default_kind = PropertyDefaultKind::FLOAT;
+					property.default_value = std::get<double>(global.init_value);
+					break;
+				case InitType::BOOL:
+					property.default_kind = PropertyDefaultKind::BOOL;
+					property.default_value = std::get<bool>(global.init_value);
+					break;
+				case InitType::STRING:
+					property.default_kind = PropertyDefaultKind::STRING;
+					property.default_value = std::get<std::string>(global.init_value);
+					break;
+				case InitType::EMPTY_ARRAY:
+					property.default_kind = PropertyDefaultKind::EMPTY_ARRAY;
+					break;
+				case InitType::EMPTY_DICT:
+					property.default_kind = PropertyDefaultKind::EMPTY_DICTIONARY;
+					break;
+			}
+			m_properties.push_back(std::move(property));
+		}
+
+		ir_program.properties = m_properties;
+
+		if (options.dump_ir) {
+			std::cout << "=== IR (unoptimized) ===" << std::endl;
+			for (const auto& func : ir_program.functions) {
+				std::cout << "Function: " << func.name << std::endl;
+				std::cout << "  Max registers: " << func.max_registers << std::endl;
+				std::cout << "  Instructions:" << std::endl;
+				for (const auto& instr : func.instructions) {
+					std::cout << "    " << instr.to_string(&ir_program.strings) << std::endl;
+				}
+				std::cout << std::endl;
+			}
+
+			std::cout << "String constants:" << std::endl;
+			for (size_t i = 0; i < ir_program.string_constants.size(); i++) {
+				std::cout << "  [" << i << "] \"" << ir_program.string_constants[i] << "\"" << std::endl;
+			}
+			std::cout << std::endl;
+		}
+
+		// Stamp before optimizing: a debug local's live range is recorded as
+		// positions in the unoptimized body, and the stamps are what survive the
+		// passes that insert and delete around them.
+		for (IRFunction &function : ir_program.functions) {
+			for (size_t i = 0; i < function.instructions.size(); i++) {
+				function.instructions[i].debug_order = uint32_t(i + 1);
+			}
+		}
+		if (options.optimize) {
+			IROptimizer optimizer;
+			optimizer.optimize(ir_program);
+		}
+		for (IRFunction &function : ir_program.functions) {
+			function.debug_locals.erase(std::remove_if(function.debug_locals.begin(),
+					function.debug_locals.end(), [&](const IRFunction::DebugLocal &local) {
+						return local.register_num < 0 || local.register_num >= function.max_registers;
+					}), function.debug_locals.end());
+			// Running maximum, so an instruction a pass synthesised (stamp 0) belongs
+			// to the region it sits in rather than to the top of the function.
+			std::vector<uint32_t> order(function.instructions.size());
+			uint32_t running = 0;
+			for (size_t i = 0; i < function.instructions.size(); i++) {
+				running = std::max(running, function.instructions[i].debug_order);
+				order[i] = running;
+			}
+			const auto position = [&order](size_t recorded) {
+				const uint32_t stamp = recorded < UINT32_MAX ? uint32_t(recorded) + 1u : UINT32_MAX;
+				return size_t(std::lower_bound(order.begin(), order.end(), stamp) - order.begin());
+			};
+			for (IRFunction::DebugLocal &local : function.debug_locals) {
+				local.begin_instruction = position(local.begin_instruction);
+				local.end_instruction = position(local.end_instruction);
+			}
+		}
+
+		if (options.dump_ir) {
+			std::cout << "=== IR (optimized) ===" << std::endl;
+			for (const auto& func : ir_program.functions) {
+				std::cout << "Function: " << func.name << std::endl;
+				std::cout << "  Max registers: " << func.max_registers << std::endl;
+				std::cout << "  Instructions:" << std::endl;
+				for (const auto& instr : func.instructions) {
+					std::cout << "    " << instr.to_string(&ir_program.strings) << std::endl;
+				}
+				std::cout << std::endl;
+			}
+		}
+
+		m_is_tool = ir_program.is_tool;
+		m_class_name = ir_program.class_name;
+		m_base_class = ir_program.base_class;
+		m_base_is_path = ir_program.base_is_path;
+		m_native_base_class = ir_program.native_base_class;
+		m_native_base_is_path = ir_program.native_base_is_path;
+
+		m_error.clear();
+		m_error_info = {};
+		return ir_program;
+
+	} catch (const CompilerException& e) {
+		set_error(source, e);
+		return std::nullopt;
+	} catch (const std::exception& e) {
+		set_error(e);
+		return std::nullopt;
+	}
+}
+
+void Compiler::set_error(const std::string& source, const CompilerException& e) {
+	CompilerException located = e;
+	if (located.line() > 0 && located.source_line().empty() && located.file().empty()) {
+		located.set_source_line(source_line_at(source, located.line()));
+	}
+	m_error = located.what();
+	m_error_info = CompilerError{ true, located.error_type(), located.message(),
+		located.line(), located.column(), located.function(), located.hint() };
+}
+
+void Compiler::set_error(const std::exception& e) {
+	m_error = e.what();
+	m_error_info = CompilerError{};
+	m_error_info.has_error = true;
+	m_error_info.message = e.what();
+}
+
+} // namespace gdscript
+
+#include "c_codegen.h"
+namespace gdscript {
+std::optional<std::string> Compiler::compile_to_c(const std::string &source, CompilerOptions options) {
+    options.optimize = false;
+    options.batch_iteration = false;
+    auto program = compile_to_ir(source, options);
+    if (!program) return std::nullopt;
+    try { return CCodeGenerator().generate(*program,
+        options.debug_info || options.debug_step_points || !options.breakpoint_lines.empty()); }
+    catch (const std::exception &error) { set_error(error); return std::nullopt; }
+}
+}
