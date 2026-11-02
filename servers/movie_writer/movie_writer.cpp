@@ -193,8 +193,6 @@ void MovieWriter::_bind_methods() {
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "editor/movie_writer/speaker_mode", PROPERTY_HINT_ENUM, "Stereo,3.1,5.1,7.1"), 0);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "editor/movie_writer/video_quality", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), 0.75);
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "editor/movie_writer/audio_bit_depth", PROPERTY_HINT_ENUM, "16:16,32:32"), 16);
-	GLOBAL_DEF_BASIC("editor/movie_writer/async_readback", true);
-	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "editor/movie_writer/size_mismatch_action", PROPERTY_HINT_ENUM, "Resize Every Frame,Use Window Size,Abort"), 0);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "editor/movie_writer/ogv/audio_quality", PROPERTY_HINT_RANGE, "-0.1,1.0,0.01"), 0.5);
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "editor/movie_writer/ogv/encoding_speed", PROPERTY_HINT_ENUM, "Fastest (Lowest Efficiency):4,Fast (Low Efficiency):3,Slow (High Efficiency):2,Slowest (Highest Efficiency):1"), 4);
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "editor/movie_writer/ogv/keyframe_interval", PROPERTY_HINT_RANGE, "1,1024,1"), 64);
@@ -203,6 +201,8 @@ void MovieWriter::_bind_methods() {
 	GLOBAL_DEF_BASIC("editor/movie_writer/movie_file", "");
 	GLOBAL_DEF_BASIC("editor/movie_writer/disable_vsync", false);
 	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "editor/movie_writer/fps", PROPERTY_HINT_RANGE, "1,300,1,suffix:FPS"), 60);
+	GLOBAL_DEF_BASIC("editor/movie_writer/async_readback", true);
+	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "editor/movie_writer/size_mismatch_action", PROPERTY_HINT_ENUM, "Resize Every Frame,Use Window Size,Abort"), 0);
 }
 
 void MovieWriter::set_extensions_hint() {
