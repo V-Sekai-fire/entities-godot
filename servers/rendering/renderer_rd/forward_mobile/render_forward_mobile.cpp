@@ -938,9 +938,9 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 
 	Size2i screen_size;
 	RID framebuffer;
+	uint32_t oit_accumulate_count = 0; // Leading alpha elements composited through the OIT resolve instead of blending.
 	bool reverse_cull = p_render_data->scene_data->cam_transform.basis.determinant() < 0;
 	bool merge_transparent_pass = true; // If true: we can do our transparent pass in the same pass as our opaque pass.
-	uint32_t oit_accumulate_count = 0; // Leading alpha elements composited through the OIT resolve instead of blending.
 	bool using_subpass_post_process = true; // If true: we can do our post processing in a subpass
 	RendererRD::MaterialStorage::Samplers samplers;
 	bool hdr_render_target = false;
