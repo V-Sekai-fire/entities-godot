@@ -65,6 +65,7 @@ private:
     bool getValue(int8_t& val);
     bool getValue(RGB32& color);
     bool getValue(Point& pt);
+    bool getValue(Point3& pt);
 
     template<typename T> bool parseTangent(const char *key, LottieVectorFrame<T>& value);
     template<typename T> bool parseTangent(const char *key, LottieScalarFrame<T>& value);
@@ -75,8 +76,11 @@ private:
 
     LottieObject* parseObject(const char* type);
     LottieObject* parseAsset();
-    void parseImage(LottieImage* image, const char* data, const char* subPath, bool embedded, float width, float height);
-    LottieLayer* parseLayer(LottieLayer* precomp);
+    bool parseAssetSource(AssetSrc& src, const char* data, const char* subPath, const char* type, bool embedded, bool& external);
+    void parseImage(LottieImage* image, const char* data, const char* subPath, float width, float height, bool embedded);
+    void parseAudio(LottieAudio* audio, const char* data, const char* subPath, bool embedded);
+    void parseVolume(LottieLayer* layer);
+    LottieLayer* parseLayer(LottieRootLayer* precomp);
     LottieObject* parseGroup();
     LottieRect* parseRect();
     LottieEllipse* parseEllipse();
@@ -88,12 +92,13 @@ private:
     LottiePolyStar* parsePolyStar();
     LottieRoundedCorner* parseRoundedCorner();
     LottieGradientFill* parseGradientFill();
-    LottieLayer* parseLayers(LottieLayer* root);
+    LottieRootLayer* parseLayers();
     LottieMask* parseMask();
     LottieTrimpath* parseTrimpath();
     LottieRepeater* parseRepeater();
     LottieOffsetPath* parseOffsetPath();
     LottiePuckerBloat* parsePuckerBloat();
+    LottieZigZag* parseZigZag();
     LottieFont* parseFont();
     void parseFontData(LottieFont* font, const char* data);
     LottieMarker* parseMarker();

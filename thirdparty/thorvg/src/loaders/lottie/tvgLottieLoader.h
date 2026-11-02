@@ -25,8 +25,9 @@
 
 #include "tvgCommon.h"
 #include "tvgInlist.h"
-#include "tvgFrameModule.h"
+#include "tvgLoader.h"
 #include "tvgTaskScheduler.h"
+#include "thorvg_lottie.h"
 
 struct LottieComposition;
 struct LottieBuilder;
@@ -50,10 +51,8 @@ struct LottieCustomSlot
     ~LottieCustomSlot();
 };
 
-
-class LottieLoader : public FrameModule, public Task
+struct LottieLoader : AnimLoader, Task
 {
-public:
     const char* content = nullptr;      //lottie file data
     uint32_t size = 0;                  //lottie data size
     float frameNo = 0.0f;               //current frame number
@@ -67,15 +66,13 @@ public:
 
     Key key;
     char* dirName = nullptr;            //base resource directory
-
-    bool copy = false;                  //"content" is owned by this loader
     bool build = true;                  //require building the lottie scene
 
     LottieLoader();
     ~LottieLoader();
 
-    bool open(const char* path) override;
-    bool open(const char* data, uint32_t size, const char* rpath, bool copy) override;
+    Result open(const char* path, const LoaderOps& ops) override;
+    Result open(const char* data, uint32_t size, const LoaderOps& ops) override;
     bool resize(Paint* paint, float w, float h) override;
     bool read() override;
     Paint* paint() override;
@@ -90,7 +87,7 @@ public:
     float totalFrame() override;
     float curFrame() override;
     float duration() override;
-    void sync() override;
+    bool sync() override;
 
     //Marker Supports
     uint32_t markersCnt();
@@ -100,19 +97,20 @@ public:
 
     float shorten(float frameNo);  //Reduce the accuracy for performance
     bool tween(float from, float to, float progress);
-    bool assign(const char* layer, uint32_t ix, const char* var, float val);
+    bool tweenTo(float to);
+    bool tween(float progress);
     bool quality(uint8_t value);
-    void set(const AssetResolver* resolver) override;
+    void resolver(std::function<void(const tvg::LottieAudioResolver&, void*)> func, void* data);
+    void volume(float value);
 
 private:
     bool ready();
-    bool header();
+    Result header();
     void clear();
     float startFrame();
     void run(unsigned tid) override;
     void release();
     bool prepare();
 };
-
 
 #endif //_TVG_LOTTIELOADER_H_

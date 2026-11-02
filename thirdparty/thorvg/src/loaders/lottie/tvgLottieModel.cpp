@@ -27,7 +27,7 @@
 
 
 /************************************************************************/
-/* Internal Class Implementation                                        */
+/* LottieTextFollowPath                                                 */
 /************************************************************************/
 
 Point LottieTextFollowPath::split(float dLen, float lenSearched, float& angle)
@@ -39,7 +39,7 @@ Point LottieTextFollowPath::split(float dLen, float lenSearched, float& angle)
         }
         case PathCommand::LineTo: {
             auto dp = *pts - *(pts - 1);
-            angle = tvg::atan2(dp.y, dp.x);
+            angle = tvg::atan(dp);
             break;
         }
         case PathCommand::CubicTo: {
@@ -50,29 +50,30 @@ Point LottieTextFollowPath::split(float dLen, float lenSearched, float& angle)
         }
         case PathCommand::Close: {
             auto dp = *start - *(pts - 1);
-            angle = tvg::atan2(dp.y, dp.x);
+            angle = tvg::atan(dp);
             break;
         }
     }
     return {};
 }
 
-/************************************************************************/
-/* External Class Implementation                                        */
-/************************************************************************/
+void LottieTextFollowPath::rewind()
+{
+    pts = path.pts.data;
+    cmds = path.cmds.data;
+    cmdsCnt = path.cmds.count;
+    currentLen = 0.0f;
+}
 
-float LottieTextFollowPath::prepare(LottieMask* mask, float frameNo, float scale, Tween& tween, LottieExpressions* exps)
+float LottieTextFollowPath::prepare(LottieMask* mask, float frameNo, float scale, LottieTween& tween, LottieExpressions* exps)
 {
     this->mask = mask;
     Matrix m{1.0f / scale, 0.0f, 0.0f, 0.0f, 1.0f / scale, 0.0f, 0.0f, 0.0f, 1.0f};
     path.clear();
     mask->pathset(frameNo, path, &m, tween, exps);
 
-    pts = path.pts.data;
-    cmds = path.cmds.data;
-    cmdsCnt = path.cmds.count;
+    rewind();
     totalLen = tvg::length(cmds, cmdsCnt, pts, path.pts.count);
-    currentLen = 0.0f;
     start = pts;
 
     return firstMargin(frameNo, tween, exps) / scale;
@@ -85,17 +86,13 @@ Point LottieTextFollowPath::position(float lenSearched, float& angle)
         //shape is closed -> wrapping
         if (path.cmds.last() == PathCommand::Close) {
             while (lenSearched < 0.0f) lenSearched += totalLen;
-            pts = path.pts.data;
-            cmds = path.cmds.data;
-            cmdsCnt = path.cmds.count;
-            currentLen = 0.0f;
         //linear interpolation
         } else {
             if (cmds >= path.cmds.data + path.cmds.count - 1) return *start;
             switch (*(cmds + 1)) {
                 case PathCommand::LineTo: {
                     auto dp = *(pts + 1) - *pts;
-                    angle = tvg::atan2(dp.y, dp.x);
+                    angle = tvg::atan(dp);
                     return {pts->x + lenSearched * cos(angle), pts->y + lenSearched * sin(angle)};
                 }
                 case PathCommand::CubicTo: {
@@ -125,10 +122,6 @@ Point LottieTextFollowPath::position(float lenSearched, float& angle)
         //shape is closed -> wrapping
         if (path.cmds.last() == PathCommand::Close) {
             while (lenSearched > totalLen) lenSearched -= totalLen;
-            pts = path.pts.data;
-            cmds = path.cmds.data;
-            cmdsCnt = path.cmds.count;
-            currentLen = 0.0f;
         //linear interpolation
         } else {
             while (cmdsCnt > 1) shift();
@@ -139,7 +132,7 @@ Point LottieTextFollowPath::position(float lenSearched, float& angle)
                 case PathCommand::LineTo: {
                     auto len = lenSearched - totalLen;
                     auto dp = *pts - *(pts - 1);
-                    angle = tvg::atan2(dp.y, dp.x);
+                    angle = tvg::atan(dp);
                     return {pts->x + len * cos(angle), pts->y + len * sin(angle)};
                 }
                 case PathCommand::CubicTo: {
@@ -150,7 +143,7 @@ Point LottieTextFollowPath::position(float lenSearched, float& angle)
                 case PathCommand::Close: {
                     auto len = lenSearched - totalLen;
                     auto dp = *start - *(pts - 1);
-                    angle = tvg::atan2(dp.y, dp.x);
+                    angle = tvg::atan(dp);
                     return {(pts - 1)->x + len * cos(angle), (pts - 1)->y + len * sin(angle)};
                 }
             }
@@ -158,12 +151,7 @@ Point LottieTextFollowPath::position(float lenSearched, float& angle)
     }
 
     //reset required if text partially crosses curve start
-    if (lenSearched < currentLen) {
-        pts = path.pts.data;
-        cmds = path.cmds.data;
-        cmdsCnt = path.cmds.count;
-        currentLen = 0.0f;
-    }
+    if (lenSearched < currentLen) rewind();
 
     auto length = [&]() -> float {
         switch (*cmds) {
@@ -187,6 +175,9 @@ Point LottieTextFollowPath::position(float lenSearched, float& angle)
     return {};
 }
 
+/************************************************************************/
+/* LottieSlot                                                           */
+/************************************************************************/
 
 void LottieSlot::reset()
 {
@@ -214,6 +205,9 @@ void LottieSlot::apply(LottieProperty* prop, bool byDefault)
     if (!byDefault) overridden = true;
 }
 
+/************************************************************************/
+/* LottieTextRange                                                      */
+/************************************************************************/
 
 float LottieTextRange::factor(float frameNo, float totalLen, float idx)
 {
@@ -296,32 +290,35 @@ float LottieTextRange::factor(float frameNo, float totalLen, float idx)
     return f * this->maxAmount(frameNo) * 0.01f;
 }
 
+/************************************************************************/
+/* LottieImage                                                          */
+/************************************************************************/
 
-void LottieFont::prepare()
+Picture* LottieImage::get()
 {
-    if (!b64src) return;
+    if (picture) return picture;
 
-    Text::load(name, b64src, size, "ttf", false);
-}
-
-
-void LottieImage::prepare(bool external)
-{
-    LottieObject::type = LottieObject::Image;
-
-    //Prepare the Picture image
-    auto result = Result::Unknown;
-    auto picture = Picture::gen();
-    if (bitmap.size > 0) result = picture->load((const char*)bitmap.data, bitmap.size, bitmap.mimeType);
-    else if (external) result = picture->load(bitmap.path);
-    if (result == Result::Success) resolved = true;
-    picture->size(bitmap.width, bitmap.height);
-    bitmap.picture = picture;
+#ifdef THORVG_MEDIA_LOADER_SUPPORT
+    if (!video) video = Video::gen();
+    picture = video->picture();
+#else
+    picture = Picture::gen();
     picture->ref();
+#endif
+    auto result = Result::Unknown;
+    if (asset.size > 0) result = picture->load(asset.data, asset.size, asset.mimeType);
+    else if (asset.external) result = picture->load(asset.path);
+    picture->size(asset.width, asset.height);
+    valid = (result == Result::Success);
+
+    return picture;
 }
 
+/************************************************************************/
+/* LottieTrimpath                                                       */
+/************************************************************************/
 
-void LottieTrimpath::segment(float frameNo, float& start, float& end, Tween& tween, LottieExpressions* exps)
+void LottieTrimpath::segment(float frameNo, float& start, float& end, LottieTween& tween, LottieExpressions* exps)
 {
     start = tvg::clamp(this->start(frameNo, tween, exps) * 0.01f, 0.0f, 1.0f);
     end = tvg::clamp(this->end(frameNo, tween, exps) * 0.01f, 0.0f, 1.0f);
@@ -346,54 +343,63 @@ void LottieTrimpath::segment(float frameNo, float& start, float& end, Tween& twe
     end += o;
 }
 
+/************************************************************************/
+/* LottieGradient                                                       */
+/************************************************************************/
 
 uint32_t LottieGradient::populate(ColorStop& color, size_t count)
 {
     if (!color.input) return 0;
 
-    uint32_t alphaCnt = (color.input->count - (count * 4)) / 2;
+    auto clast = count * 4;
+    if (color.input->count < clast) {
+        TVGERR("LOTTIE", "Malformed asset!");
+        return 0;
+    }
+
+    // Ignore an incomplete trailing alpha stop.
+    auto inputLast = color.input->count - ((color.input->count - clast) % 2);
+    auto alphaCnt = (inputLast - clast) / 2;
     Array<Fill::ColorStop> output(count + alphaCnt);
     uint32_t cidx = 0;               //color count
-    uint32_t clast = count * 4;
-    if (clast > color.input->count) clast = color.input->count;
     uint32_t aidx = clast;           //alpha count
     Fill::ColorStop cs;
 
     //merge color stops.
-    for (uint32_t i = 0; i < color.input->count; ++i) {
-        if (cidx == clast || aidx == color.input->count) break;
+    for (uint32_t i = 0; i < inputLast; ++i) {
+        if (cidx == clast || aidx == inputLast) break;
         if ((*color.input)[cidx] == (*color.input)[aidx]) {
             cs.offset = (*color.input)[cidx];
-            cs.r = (uint8_t)nearbyint((*color.input)[cidx + 1] * 255.0f);
-            cs.g = (uint8_t)nearbyint((*color.input)[cidx + 2] * 255.0f);
-            cs.b = (uint8_t)nearbyint((*color.input)[cidx + 3] * 255.0f);
-            cs.a = (uint8_t)nearbyint((*color.input)[aidx + 1] * 255.0f);
+            cs.r = remap255((*color.input)[cidx + 1]);
+            cs.g = remap255((*color.input)[cidx + 2]);
+            cs.b = remap255((*color.input)[cidx + 3]);
+            cs.a = remap255((*color.input)[aidx + 1]);
             cidx += 4;
             aidx += 2;
         } else if ((*color.input)[cidx] < (*color.input)[aidx]) {
             cs.offset = (*color.input)[cidx];
-            cs.r = (uint8_t)nearbyint((*color.input)[cidx + 1] * 255.0f);
-            cs.g = (uint8_t)nearbyint((*color.input)[cidx + 2] * 255.0f);
-            cs.b = (uint8_t)nearbyint((*color.input)[cidx + 3] * 255.0f);
+            cs.r = remap255((*color.input)[cidx + 1]);
+            cs.g = remap255((*color.input)[cidx + 2]);
+            cs.b = remap255((*color.input)[cidx + 3]);
             //generate alpha value
             if (output.count > 0) {
                 auto p = ((*color.input)[cidx] - output.last().offset) / ((*color.input)[aidx] - output.last().offset);
-                cs.a = tvg::lerp<uint8_t>(output.last().a, (uint8_t)nearbyint((*color.input)[aidx + 1] * 255.0f), p);
-            } else cs.a = (uint8_t)nearbyint((*color.input)[aidx + 1] * 255.0f);
+                cs.a = tvg::lerp<uint8_t>(output.last().a, remap255((*color.input)[aidx + 1]), p);
+            } else cs.a = remap255((*color.input)[aidx + 1]);
             cidx += 4;
         } else {
             cs.offset = (*color.input)[aidx];
-            cs.a = (uint8_t)nearbyint((*color.input)[aidx + 1] * 255.0f);
+            cs.a = remap255((*color.input)[aidx + 1]);
             //generate color value
             if (output.count > 0) {
                 auto p = ((*color.input)[aidx] - output.last().offset) / ((*color.input)[cidx] - output.last().offset);
-                cs.r = tvg::lerp<uint8_t>(output.last().r, (uint8_t)nearbyint((*color.input)[cidx + 1] * 255.0f), p);
-                cs.g = tvg::lerp<uint8_t>(output.last().g, (uint8_t)nearbyint((*color.input)[cidx + 2] * 255.0f), p);
-                cs.b = tvg::lerp<uint8_t>(output.last().b, (uint8_t)nearbyint((*color.input)[cidx + 3] * 255.0f), p);
+                cs.r = tvg::lerp<uint8_t>(output.last().r, remap255((*color.input)[cidx + 1]), p);
+                cs.g = tvg::lerp<uint8_t>(output.last().g, remap255((*color.input)[cidx + 2]), p);
+                cs.b = tvg::lerp<uint8_t>(output.last().b, remap255((*color.input)[cidx + 3]), p);
             } else {
-                cs.r = (uint8_t)nearbyint((*color.input)[cidx + 1] * 255.0f);
-                cs.g = (uint8_t)nearbyint((*color.input)[cidx + 2] * 255.0f);
-                cs.b = (uint8_t)nearbyint((*color.input)[cidx + 3] * 255.0f);
+                cs.r = remap255((*color.input)[cidx + 1]);
+                cs.g = remap255((*color.input)[cidx + 2]);
+                cs.b = remap255((*color.input)[cidx + 3]);
             }
             aidx += 2;
         }
@@ -404,9 +410,9 @@ uint32_t LottieGradient::populate(ColorStop& color, size_t count)
     //color remains
     while (cidx + 3 < clast) {
         cs.offset = (*color.input)[cidx];
-        cs.r = (uint8_t)nearbyint((*color.input)[cidx + 1] * 255.0f);
-        cs.g = (uint8_t)nearbyint((*color.input)[cidx + 2] * 255.0f);
-        cs.b = (uint8_t)nearbyint((*color.input)[cidx + 3] * 255.0f);
+        cs.r = remap255((*color.input)[cidx + 1]);
+        cs.g = remap255((*color.input)[cidx + 2]);
+        cs.b = remap255((*color.input)[cidx + 3]);
         cs.a = (output.count > 0) ? output.last().a : 255;
         if (cs.a < 255) opaque = false;
         output.push(cs);
@@ -414,9 +420,9 @@ uint32_t LottieGradient::populate(ColorStop& color, size_t count)
     }
 
     //alpha remains
-    while (aidx < color.input->count) {
+    while (aidx < inputLast) {
         cs.offset = (*color.input)[aidx];
-        cs.a = (uint8_t)nearbyint((*color.input)[aidx + 1] * 255.0f);
+        cs.a = remap255((*color.input)[aidx + 1]);
         if (cs.a < 255) opaque = false;
         if (output.count > 0) {
             cs.r = output.last().r;
@@ -437,8 +443,7 @@ uint32_t LottieGradient::populate(ColorStop& color, size_t count)
     return output.count;
 }
 
-
-Fill* LottieGradient::fill(float frameNo, uint8_t opacity, Tween& tween, LottieExpressions* exps)
+Fill* LottieGradient::fill(float frameNo, uint8_t opacity, LottieTween& tween, LottieExpressions* exps)
 {
     if (opacity == 0) return nullptr;
 
@@ -461,7 +466,7 @@ Fill* LottieGradient::fill(float frameNo, uint8_t opacity, Tween& tween, LottieE
         if (tvg::zero(progress)) {
             static_cast<RadialGradient*>(fill)->radial(s.x, s.y, r, s.x, s.y, 0.0f);
         } else {
-            auto startAngle = rad2deg(tvg::atan2(e.y - s.y, e.x - s.x));
+            auto startAngle = rad2deg(tvg::atan(e - s));
             auto angle = deg2rad((startAngle + this->angle(frameNo, tween, exps)));
             auto fx = s.x + cos(angle) * progress * r;
             auto fy = s.y + sin(angle) * progress * r;
@@ -484,8 +489,11 @@ Fill* LottieGradient::fill(float frameNo, uint8_t opacity, Tween& tween, LottieE
     return fill;
 }
 
+/************************************************************************/
+/* LottieGroup                                                          */
+/************************************************************************/
 
-LottieGroup::LottieGroup()
+LottieGroup::LottieGroup(LottieObject::Type type) : LottieObject(type)
 {
     reqFragment = false;
     buildDone = false;
@@ -494,6 +502,11 @@ LottieGroup::LottieGroup()
     allowMerge = true;
 }
 
+void LottieGroup::clear()
+{
+    ARRAY_FOREACH(p, children) delete (*p);
+    children.reset();
+}
 
 LottieProperty* LottieGroup::property(uint16_t ix)
 {
@@ -506,10 +519,8 @@ LottieProperty* LottieGroup::property(uint16_t ix)
 }
 
 
-void LottieGroup::prepare(LottieObject::Type type)
+void LottieGroup::prepare()
 {
-    LottieObject::type = type;
-
     if (children.count == 0) return;
 
     size_t strokeCnt = 0;
@@ -578,6 +589,45 @@ void LottieGroup::prepare(LottieObject::Type type)
     }
 }
 
+/************************************************************************/
+/* LottieRootLayer                                                      */
+/************************************************************************/
+
+float LottieRootLayer::remap(LottieComposition* comp, float frameNo, LottieExpressions* exp)
+{
+    if (timeRemap.frames || timeRemap.value >= 0.0f) return comp->frameAtTime(timeRemap(frameNo, exp));
+    return (frameNo - startFrame) / timeStretch;
+}
+
+LottieLayer* LottieRootLayer::layerById(unsigned long id)
+{
+    ARRAY_FOREACH(p, children) {
+        if ((*p)->type != LottieObject::Type::Layer) continue;
+        auto layer = static_cast<LottieLayer*>(*p);
+        if (layer->id == id) return layer;
+    }
+    return nullptr;
+}
+
+LottieLayer* LottieRootLayer::layerByIdx(int16_t ix)
+{
+    ARRAY_FOREACH(p, children) {
+        if ((*p)->type != LottieObject::Type::Layer) continue;
+        auto layer = static_cast<LottieLayer*>(*p);
+        if (layer->ix == ix) return layer;
+    }
+    return nullptr;
+}
+
+/************************************************************************/
+/* LottieLayer                                                          */
+/************************************************************************/
+
+LottieLayer::LottieLayer() : LottieRootLayer(LottieObject::Layer)
+{
+    autoOrient = false;
+    matteSrc = false;
+}
 
 LottieLayer::~LottieLayer()
 {
@@ -588,9 +638,18 @@ LottieLayer::~LottieLayer()
     ARRAY_FOREACH(p, effects) delete(*p);
 
     delete(transform);
+    delete(audioCtrl);
     tvg::free(name);
 }
 
+void LottieLayer::invalidate()
+{
+    if (type != LottieLayer::Type::Image || children.empty()) return;
+
+    // image layer might have a video, stop any possible working one.
+    auto obj = children.first();
+    if (obj->type == LottieObject::Type::Image) static_cast<LottieImage*>(obj)->stop();
+}
 
 LottieProperty* LottieLayer::property(uint16_t ix)
 {
@@ -608,58 +667,31 @@ void LottieLayer::prepare(RGB32* color)
        so force it to be a Null Layer and release all resource. */
     if (hidden) {
         type = LottieLayer::Null;
-        ARRAY_FOREACH(p, children) delete(*p);
-        children.reset();
+        clear();
         return;
     }
 
-    //prepare the viewport clipper
-    if (type == LottieLayer::Precomp) {
-        auto clipper = Shape::gen();
-        clipper->appendRect(0.0f, 0.0f, w, h);
-        clipper->ref();
-        statical.pooler.push(clipper);
-    //prepare solid fill in advance if it is a layer type.
-    } else if (color && type == LottieLayer::Solid) {
-        auto solidFill = Shape::gen();
-        solidFill->appendRect(0, 0, static_cast<float>(w), static_cast<float>(h));
-        solidFill->fill(color->r, color->g, color->b);
-        solidFill->ref();
-        statical.pooler.push(solidFill);
+    // prepare the viewport clipper or a solid fill in advance if it is a layer type.
+    if (type == LottieLayer::Precomp || (color && type == LottieLayer::Solid)) {
+        auto obj = Shape::gen();
+        obj->appendRect(0.0f, 0.0f, w, h);
+        obj->ref();
+        if (color && type == LottieLayer::Solid) obj->fill(color->r, color->g, color->b);
+        statical.pooler.push(obj);
     }
 
-    LottieGroup::prepare(LottieObject::Layer);
+    LottieGroup::prepare();
 }
 
-
-float LottieLayer::remap(LottieComposition* comp, float frameNo, LottieExpressions* exp)
-{
-    if (timeRemap.frames || timeRemap.value >= 0.0f) {
-        return comp->frameAtTime(timeRemap(frameNo, exp));
-    }
-    return (frameNo - startFrame) / timeStretch;
-}
-
-
-bool LottieLayer::assign(const char* layer, uint32_t ix, const char* var, float val)
-{
-    //find the target layer by name
-    auto target = layerById(djb2Encode(layer));
-    if (!target) return false;
-
-    //find the target property by ix
-    auto property = target->property(ix);
-    if (property && property->exp) return property->exp->assign(var, val);
-
-    return false;
-}
-
+/************************************************************************/
+/* LottieComposition                                                    */
+/************************************************************************/
 
 LottieComposition::~LottieComposition()
 {
     if (!initiated && root) Paint::rel(root->scene);
 
-    delete(root);
+    delete (root);
     tvg::free(version);
     tvg::free(name);
 
@@ -668,8 +700,8 @@ LottieComposition::~LottieComposition()
         tvg::free(*p);
     }
 
-    ARRAY_FOREACH(p, assets) delete(*p);
-    ARRAY_FOREACH(p, fonts) delete(*p);
-    ARRAY_FOREACH(p, slots) delete(*p);
-    ARRAY_FOREACH(p, markers) delete(*p);
+    ARRAY_FOREACH(p, assets) delete (*p);
+    ARRAY_FOREACH(p, fonts) delete (*p);
+    ARRAY_FOREACH(p, slots) delete (*p);
+    ARRAY_FOREACH(p, markers) delete (*p);
 }

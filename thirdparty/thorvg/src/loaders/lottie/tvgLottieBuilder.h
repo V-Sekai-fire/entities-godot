@@ -28,9 +28,10 @@
 #include "tvgShape.h"
 #include "tvgLottieExpressions.h"
 #include "tvgLottieModifier.h"
+#include "tvgLottieTween.h"
+#include "thorvg_lottie.h"
 
 struct LottieComposition;
-struct AssetResolver;
 
 struct RenderRepeater
 {
@@ -107,26 +108,31 @@ struct RenderContext
         fragment = rhs.fragment;
 
         // copy modifiers
-        auto m = rhs.modifiers;
-        while (m) {
+        auto tail = &modifiers;
+        for (auto m = rhs.modifiers; m; m = m->next) {
             switch (m->type) {
                 case LottieModifier::Type::Roundness: {
                     auto roundness = static_cast<LottieRoundnessModifier*>(m);
-                    update(new LottieRoundnessModifier(roundness->buffer, roundness->r));
+                    *tail = new LottieRoundnessModifier(roundness->r);
                     break;
                 }
                 case LottieModifier::Type::Offset: {
                     auto offset = static_cast<LottieOffsetModifier*>(m);
-                    update(new LottieOffsetModifier(offset->buffer, offset->offset, offset->miterLimit, offset->join));
+                    *tail = new LottieOffsetModifier(offset->offset, offset->miterLimit, offset->join);
                     break;
                 }
                 case LottieModifier::Type::PuckerBloat: {
                     auto pucker = static_cast<LottiePuckerBloatModifier*>(m);
-                    update(new LottiePuckerBloatModifier(pucker->buffer, pucker->amount));
+                    *tail = new LottiePuckerBloatModifier(pucker->amount);
+                    break;
+                }
+                case LottieModifier::Type::ZigZag: {
+                    auto zigzag = static_cast<LottieZigZagModifier*>(m);
+                    *tail = new LottieZigZagModifier(zigzag->amp, zigzag->freq, zigzag->point);
                     break;
                 }
             }
-            m = m->next;
+            tail = &(*tail)->next;
         }
 
         if (rhs.transform) {
@@ -137,10 +143,17 @@ struct RenderContext
 
     void update(LottieModifier* next)
     {
-        if (modifiers) modifiers = modifiers->decorate(next);
-        else modifiers = next;
+        next->next = modifiers;
+        modifiers = next;
     }
 };
+
+struct AudioResolver
+{
+    std::function<void(const tvg::LottieAudioResolver& info, void* data)> func;
+    void* data = nullptr;
+};
+
 
 struct LottieBuilder
 {
@@ -159,29 +172,16 @@ struct LottieBuilder
         return exps ? true : false;
     }
 
-    void offTween()
-    {
-        if (tween.active) tween.active = false;
-    }
-
-    void onTween(float to, float progress)
-    {
-        tween.frameNo = to;
-        tween.progress = progress;
-        tween.active = true;
-    }
-
-    bool tweening()
-    {
-        return tween.active;
-    }
-
     bool update(LottieComposition* comp, float progress);
     void build(LottieComposition* comp);
 
     const AssetResolver* resolver = nullptr;  //do not free this
+    AudioResolver audioResolver;
+    LottieTween tween;
+    float volume = 1.0f;
 
 private:
+    void updateAudio(LottieComposition* comp, LottieLayer* layer, float frameNo, bool active);
     void appendRect(LottieRect* rect, Shape* shape, Point& pos, Point& size, float r, bool clockwise, RenderContext* ctx);
     void appendCircle(LottieEllipse* ellipse, Shape* shape, Point& center, Point& radius, bool clockwise, RenderContext* ctx);
     bool fragmented(LottieGroup* parent, LottieObject** child, Inlist<RenderContext>& contexts, RenderContext* ctx, RenderFragment fragment);
@@ -190,11 +190,11 @@ private:
     void updateStrokeEffect(LottieLayer* layer, LottieFxStroke* effect, float frameNo);
     void updateEffect(LottieLayer* layer, float frameNo, uint8_t quality);
     void updateLayer(LottieComposition* comp, Scene* scene, LottieLayer* layer, float frameNo);
-    bool updateMatte(LottieComposition* comp, float frameNo, Scene* scene, LottieLayer* layer);
+    bool updateMatte(LottieComposition* comp, float frameNo, LottieLayer* layer);
     void updatePrecomp(LottieComposition* comp, LottieLayer* precomp, float frameNo);
-    void updatePrecomp(LottieComposition* comp, LottieLayer* precomp, float frameNo, Tween& tween);
+    void updatePrecomp(LottieComposition* comp, LottieLayer* precomp, float frameNo, LottieTween& tween);
     void updateSolid(LottieLayer* layer);
-    void updateImage(LottieGroup* layer);
+    void updateImage(LottieLayer* layer, float frameNo);
     void updateURLFont(LottieLayer* layer, float frameNo, LottieText* text, const TextDocument& doc);
     void updateLocalFont(LottieLayer* layer, float frameNo, LottieText* text, const TextDocument& doc);
     bool updateTextRange(LottieText* text, float frameNo, Shape* shape, const TextDocument& doc, RenderText& ctx);
@@ -212,17 +212,16 @@ private:
     void updateEllipse(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updatePath(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updatePolystar(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
-    void updateStar(LottiePolyStar* star, float frameNo, Matrix* transform, Shape* merging, RenderContext* ctx, Tween& tween, LottieExpressions* exps);
-    void updatePolygon(LottieGroup* parent, LottiePolyStar* star, float frameNo, Matrix* transform, Shape* merging, RenderContext* ctx, Tween& tween, LottieExpressions* exps);
+    void updateStar(LottiePolyStar* star, float frameNo, Matrix* transform, Shape* merging, RenderContext* ctx, LottieTween& tween, LottieExpressions* exps);
+    void updatePolygon(LottiePolyStar* star, float frameNo, Matrix* transform, Shape* merging, RenderContext* ctx, LottieTween& tween, LottieExpressions* exps);
     void updateTrimpath(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updateRepeater(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updateRoundedCorner(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updateOffsetPath(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updatePuckerBloat(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
+    void updateZigZag(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
 
-    RenderPath buffer;   //reusable path
     LottieExpressions* exps;
-    Tween tween;
 };
 
 #endif //_TVG_LOTTIE_BUILDER_H

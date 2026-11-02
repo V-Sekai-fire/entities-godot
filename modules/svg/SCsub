@@ -70,6 +70,7 @@ if env.editor_build:
         "src/loaders/lottie/tvgLottieModifier.cpp",
         "src/loaders/lottie/tvgLottieParser.cpp",
         "src/loaders/lottie/tvgLottieParserHandler.cpp",
+        "src/loaders/lottie/tvgLottieProperty.cpp",
     ]
 
 if env["module_webp_enabled"]:
