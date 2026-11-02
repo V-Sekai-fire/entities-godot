@@ -71,6 +71,19 @@ jobs:
         with:
           submodules: recursive
 
+      - name: FoundationDB client
+        id: fdb-client
+        # modules/sqlite builds with MinGW only: fdb_vfs.c needs pthread.h and unistd.h.
+        if: matrix.compiler == 'llvm-mingw' || matrix.compiler == 'gcc'
+        uses: ./.github/actions/fdb-client
+
+      - name: Add the FoundationDB client flags to the build
+        if: steps.fdb-client.outputs.scons-flags != ''
+        shell: sh
+        # SCons reads SCONSFLAGS itself, so the Compilation step's flag line stays the
+        # one every Windows branch carries and the assembly merges it cleanly.
+        run: echo "SCONSFLAGS=${SCONSFLAGS:+$SCONSFLAGS }${{ steps.fdb-client.outputs.scons-flags }}" >> "$GITHUB_ENV"
+
       - name: Restore Godot build cache
         uses: ./.github/actions/godot-cache-restore
         with:
@@ -125,19 +138,6 @@ jobs:
           7z x -y llvm-mingw.zip > /dev/null
           echo "MINGW_PREFIX=$PWD/llvm-mingw-$ver-ucrt-x86_64" >> "$GITHUB_ENV"
           echo "$PWD/llvm-mingw-$ver-ucrt-x86_64/bin" >> "$GITHUB_PATH"
-
-      - name: FoundationDB client
-        id: fdb-client
-        # modules/sqlite builds with MinGW only: fdb_vfs.c needs pthread.h and unistd.h.
-        if: matrix.compiler == 'llvm-mingw' || matrix.compiler == 'gcc'
-        uses: ./.github/actions/fdb-client
-
-      - name: Add the FoundationDB client flags to the build
-        if: steps.fdb-client.outputs.scons-flags != ''
-        shell: sh
-        # SCons reads SCONSFLAGS itself, so the Compilation step's flag line stays the
-        # one every Windows branch carries and the assembly merges it cleanly.
-        run: echo "SCONSFLAGS=${SCONSFLAGS:+$SCONSFLAGS }${{ steps.fdb-client.outputs.scons-flags }}" >> "$GITHUB_ENV"
 
       - name: Compilation
         uses: ./.github/actions/godot-build
