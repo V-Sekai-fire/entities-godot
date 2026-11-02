@@ -68,6 +68,12 @@ jobs:
           cache-name: ${{ matrix.cache-name }}
         continue-on-error: true
 
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          install_runtime: false
+          cache: true
+
       - name: Setup Python and SCons
         uses: ./.github/actions/godot-deps
 
@@ -104,12 +110,6 @@ jobs:
             echo "::warning::AccessKit SDK installation failed, building without AccessKit support."
             echo "ACCESSKIT_ENABLED=no" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Install Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1
-        with:
-          install_runtime: false
-          cache: true
 
       - name: Compilation
         uses: ./.github/actions/godot-build
