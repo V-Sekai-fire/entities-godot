@@ -226,7 +226,6 @@ void MovieWriter::set_extensions_hint() {
 	ProjectSettings::get_singleton()->set_custom_property_info(PropertyInfo(Variant::STRING, "editor/movie_writer/movie_file", PROPERTY_HINT_GLOBAL_SAVE_FILE, ext_hint));
 }
 
-
 // Must run on the rendering thread, as texture_get_data_async is render thread guarded.
 void MovieWriter::_request_frame_async(RID p_viewport_texture, uint64_t p_index) {
 #ifdef RD_ENABLED
@@ -313,7 +312,6 @@ Ref<Image> MovieWriter::_image_from_readback(const PendingFrame &p_frame) const 
 	}
 	return img;
 }
-
 
 void MovieWriter::_write_one(const Ref<Image> &p_image, const int32_t *p_audio) {
 	uint64_t encoding_start_usec = Time::get_singleton()->get_ticks_usec();
