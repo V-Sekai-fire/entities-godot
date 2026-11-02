@@ -132,10 +132,17 @@ jobs:
         if: matrix.compiler == 'llvm-mingw' || matrix.compiler == 'gcc'
         uses: ./.github/actions/fdb-client
 
+      - name: Add the FoundationDB client flags to the build
+        if: steps.fdb-client.outputs.scons-flags != ''
+        shell: sh
+        # SCons reads SCONSFLAGS itself, so the Compilation step's flag line stays the
+        # one every Windows branch carries and the assembly merges it cleanly.
+        run: echo "SCONSFLAGS=${SCONSFLAGS:+$SCONSFLAGS }${{ steps.fdb-client.outputs.scons-flags }}" >> "$GITHUB_ENV"
+
       - name: Compilation
         uses: ./.github/actions/godot-build
         with:
-          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }} ${{ steps.fdb-client.outputs.scons-flags }} ${{ matrix.compiler == 'llvm-mingw' && format('mingw_prefix={0}', env.MINGW_PREFIX) || '' }} d3d12=${{ steps.d3d12-sdk.outputs.D3D12_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }}
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }} ${{ matrix.compiler == 'llvm-mingw' && format('mingw_prefix={0}', env.MINGW_PREFIX) || '' }} d3d12=${{ steps.d3d12-sdk.outputs.D3D12_ENABLED }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }} angle=${{ steps.angle-sdk.outputs.ANGLE_ENABLED }}
           platform: windows
           target: ${{ matrix.target }}
 
