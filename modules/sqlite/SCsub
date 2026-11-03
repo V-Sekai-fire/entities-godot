@@ -29,7 +29,7 @@ env.Append(CPPPATH=["#modules/sqlite/thirdparty", "#modules/sqlite"])
 import os.path
 
 if not os.path.isfile(os.path.join(env["fdb_include"], "fdb_c.h")):
-    print_error(
+    print("ERROR: " + 
         "modules/sqlite needs the FoundationDB client: fdb_c.h not found in fdb_include=%s. "
         "Install foundationdb-clients or pass fdb_include=<dir> fdb_libpath=<dir>." % env["fdb_include"]
     )
@@ -38,6 +38,20 @@ if not os.path.isfile(os.path.join(env["fdb_include"], "fdb_c.h")):
 env.Append(CPPPATH=[env["fdb_include"]], LIBPATH=[env["fdb_libpath"]], LIBS=["fdb_c"])
 if env["platform"] == "windows":
     env.Append(LIBS=["pthread"])
+if env["platform"] == "macos":
+    # The binary links @rpath/libfdb_c.dylib and carries the rpaths @executable_path and
+    # @executable_path/../Frameworks, so the client library has to ship next to it. Without this
+    # the editor only starts when DYLD_LIBRARY_PATH points at the FoundationDB install.
+    import shutil
+
+    _fdb_dylib = os.path.join(env["fdb_libpath"], "libfdb_c.dylib")
+    if os.path.isfile(_fdb_dylib):
+        _bin_dir = Dir("#bin").abspath
+        os.makedirs(_bin_dir, exist_ok=True)
+        shutil.copy2(_fdb_dylib, os.path.join(_bin_dir, "libfdb_c.dylib"))
+    else:
+        print("ERROR: " + "modules/sqlite: %s not found; the macOS binary cannot bundle the FoundationDB client." % _fdb_dylib)
+        Exit(255)
 
 env["builtin_zstd"] = False
 
