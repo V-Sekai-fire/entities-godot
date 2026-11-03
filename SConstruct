@@ -8,6 +8,7 @@ EnsurePythonVersion(3, 10)
 import glob
 import os
 import pickle
+import re
 import sys
 from collections import OrderedDict
 from importlib.util import module_from_spec, spec_from_file_location
@@ -795,6 +796,20 @@ elif env.msvc:
         )
         Exit(255)
 
+# AVX is blocklisted: no x86 binary of ours may need it. Refuse a build that asks for it, because a later
+# `-march=x86-64` would otherwise override the request without saying so.
+if env["arch"] in ("x86_64", "x86_32"):
+    _avx_request = re.compile(
+        r"^(-m(avx\w*|fma|f16c|bmi2?|lzcnt|xop)|-march=(?!x86-64$).+|/arch:(AVX\w*|AVX2|AVX512))$"
+    )
+    for _flag in list(env.get("CCFLAGS", [])) + list(env.get("CXXFLAGS", [])):
+        if isinstance(_flag, str) and _avx_request.match(_flag):
+            print_error(
+                f'"{_flag}" would let the compiler emit AVX-era instructions. AVX is blocklisted in this '
+                "engine; the x86 baseline is SSE4.2 with POPCNT. Remove it from ccflags/cxxflags."
+            )
+            Exit(255)
+
 # Set x86 CPU instruction sets to use by the compiler's autovectorization.
 if env["arch"] == "x86_64":
     # On 64-bit x86, enable SSE 4.2 and prior instruction sets (SSE3/SSSE3/SSE4/SSE4.1) to improve performance.
@@ -804,8 +819,11 @@ if env["arch"] == "x86_64":
         # https://stackoverflow.com/questions/64053597/how-do-i-enable-sse4-1-and-sse3-but-not-avx-in-msvc/69328426
         env.Append(CCFLAGS=["/d2archSSE42"])
     else:
+        # Pin the baseline. Without `-march`, the compiler's own default decides, and some distributions
+        # default to x86-64-v3 (AlmaLinux 10 does), which defines `__AVX__` and makes embree skip the
+        # `BVHN<4>` code it expects an AVX object to provide, so the link fails.
         # `-msse2` is implied when compiling for x86_64.
-        env.Append(CCFLAGS=["-msse4.2", "-mpopcnt"])
+        env.Append(CCFLAGS=["-march=x86-64", "-msse4.2", "-mpopcnt"])
 elif env["arch"] == "x86_32":
     # Be more conservative with instruction sets on 32-bit x86 to improve compatibility.
     # SSE and SSE2 are present on all CPUs that support 64-bit, even if running a 32-bit OS.
