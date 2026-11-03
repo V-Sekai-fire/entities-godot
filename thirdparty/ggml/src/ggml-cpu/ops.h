@@ -2,6 +2,12 @@
 
 #include "ggml.h"
 
+#ifdef __cplusplus
+// std::hardware_destructive_interference_size is declared in <new>. libc++ can define the feature
+// macro through another header without it, so llvm-mingw saw the macro and not the name.
+#include <new>
+#endif
+
 //
 // cache line
 //
