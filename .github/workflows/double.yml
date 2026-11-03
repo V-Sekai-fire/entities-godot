@@ -1,0 +1,221 @@
+# The engine at precision=double, for the three hosts the rung runs on (RFD 2293):
+# windows x86_64 (the Steam Frame through its compatibility layer), linux x86_64
+# (the Fly ghost servers, headless) and macos arm64 (the desk, the desktop client
+# and the GPU sidecar). Editor and template_release each. Nothing is built by hand.
+#
+# This file reaches entities-zone through entities-assembly. Each release tag the
+# assembler pushes there (v0.0.0-<UTC time>-<commit>, RFD66606-2312) builds the
+# tree it names and publishes the six binaries and their sha256s as a release on
+# that tag. A dispatch with release_tag set publishes the same way.
+name: double
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: publish a release under this tag (empty for artifacts only)
+        default: ""
+  push:
+    tags: ["v0.0.0-*"]
+env:
+  LLVM_MINGW: "20260922"
+  # The flags every job shares. No dev_mode: these are the binaries the rung
+  # runs, not a lint of the engine.
+  SCONS_FLAGS: >-
+    precision=double
+    module_text_server_fb_enabled=yes
+    optimize=speed
+    d3d12=no
+    angle=no
+    accesskit=no
+permissions:
+  contents: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: editor
+            cache-name: windows-editor-double
+            flags: debug_symbols=no
+            bin: godot.windows.editor.double.x86_64.llvm.exe
+          - target: template_release
+            cache-name: windows-template-double
+            # Symbols on, for the StringName fault RFD 2287 step 1 diagnoses.
+            flags: debug_symbols=yes separate_debug_symbols=yes
+            bin: godot.windows.template_release.double.x86_64.llvm.exe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Restore the SCons cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: ${{ matrix.cache-name }}
+        continue-on-error: true
+      - uses: ./.github/actions/godot-deps
+      - name: llvm-mingw, the compiler the headset build used
+        shell: sh
+        run: |
+          ver=$LLVM_MINGW
+          curl -fsSL -o llvm-mingw.zip "https://github.com/mstorsjo/llvm-mingw/releases/download/$ver/llvm-mingw-$ver-ucrt-x86_64.zip"
+          7z x -y llvm-mingw.zip > /dev/null
+          echo "MINGW_PREFIX=$PWD/llvm-mingw-$ver-ucrt-x86_64" >> "$GITHUB_ENV"
+          echo "$PWD/llvm-mingw-$ver-ucrt-x86_64/bin" >> "$GITHUB_PATH"
+      - name: Compile
+        uses: ./.github/actions/godot-build
+        with:
+          platform: windows
+          target: ${{ matrix.target }}
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.flags }} arch=x86_64 use_mingw=yes use_llvm=yes mingw_prefix=${{ env.MINGW_PREFIX }}
+      - name: Save the SCons cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: ${{ matrix.cache-name }}
+        continue-on-error: true
+      - name: The binary runs
+        shell: sh
+        run: |
+          ls -l bin/
+          test -f "bin/${{ matrix.bin }}"
+          if [ "${{ matrix.target }}" = editor ]; then ./bin/${{ matrix.bin }} --headless --version; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.cache-name }}
+          path: bin/*
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: editor
+            cache-name: linux-editor-double
+            flags: debug_symbols=no
+            bin: godot.linuxbsd.editor.double.x86_64
+          - target: template_release
+            cache-name: linux-template-double
+            flags: debug_symbols=no
+            bin: godot.linuxbsd.template_release.double.x86_64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: wayland-scanner, the one library the engine cannot wrap
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libwayland-bin
+      - name: Restore the SCons cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: ${{ matrix.cache-name }}
+        continue-on-error: true
+      - uses: ./.github/actions/godot-deps
+      - name: Compile
+        uses: ./.github/actions/godot-build
+        with:
+          platform: linuxbsd
+          target: ${{ matrix.target }}
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.flags }} arch=x86_64
+      - name: Save the SCons cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: ${{ matrix.cache-name }}
+        continue-on-error: true
+      - name: The binary runs headless
+        run: |
+          ls -l bin/
+          test -f "bin/${{ matrix.bin }}"
+          if [ "${{ matrix.target }}" = editor ]; then ./bin/${{ matrix.bin }} --headless --version; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.cache-name }}
+          path: bin/*
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: editor
+            cache-name: macos-editor-double
+            flags: debug_symbols=no
+            bin: godot.macos.editor.double.arm64
+          - target: template_release
+            cache-name: macos-template-double
+            flags: debug_symbols=no
+            bin: godot.macos.template_release.double.arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Restore the SCons cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: ${{ matrix.cache-name }}
+        continue-on-error: true
+      - uses: ./.github/actions/godot-deps
+      - name: Vulkan SDK (MoltenVK), beside Metal
+        id: vulkan-sdk
+        run: |
+          if sh misc/scripts/install_vulkan_sdk_macos.sh; then
+            echo "VULKAN_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::macOS: Vulkan SDK installation failed, building without Vulkan support."
+            echo "VULKAN_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
+        continue-on-error: true
+      - name: Compile
+        uses: ./.github/actions/godot-build
+        with:
+          platform: macos
+          target: ${{ matrix.target }}
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.flags }} arch=arm64 vulkan=${{ steps.vulkan-sdk.outputs.VULKAN_ENABLED }}
+      - name: Save the SCons cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: ${{ matrix.cache-name }}
+        continue-on-error: true
+      - name: The binary runs headless
+        run: |
+          ls -l bin/
+          test -f "bin/${{ matrix.bin }}"
+          if [ "${{ matrix.target }}" = editor ]; then ./bin/${{ matrix.bin }} --headless --version; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.cache-name }}
+          path: bin/*
+          if-no-files-found: error
+
+  release:
+    needs: [windows, linux, macos]
+    if: ${{ inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - name: One directory, one sha256 line per binary
+        run: |
+          mkdir -p release
+          find out -type f -exec mv -t release/ {} +
+          cd release && sha256sum * | tee SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.release_tag || github.ref_name }}"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$tag" \
+            --notes "${GITHUB_REPOSITORY} ${GITHUB_SHA} at precision=double: windows x86_64 (llvm-mingw ${LLVM_MINGW}), linux x86_64, macos arm64; editor and template_release. Flags: ${SCONS_FLAGS}" \
+            release/* || gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber release/*
