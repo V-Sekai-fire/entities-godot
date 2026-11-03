@@ -2387,7 +2387,11 @@ void main() {
 	// The splat pass writes one sample per tile, at the tile centre. Look up exactly there: read the transmittance at the tile centre and give it this surface's depth at that point (this pixel's depth carried along the surface slope), so a sloped surface meets its own splat in the same slice and shades neither itself nor its neighbours.
 	vec2 oit_tile_uv = (floor(screen_uv * vec2(oit_params.froxel_dims.xy)) + 0.5) / vec2(oit_params.froxel_dims.xy);
 	vec2 oit_d_px = (oit_tile_uv - screen_uv) / vec2(dFdx(screen_uv.x), dFdy(screen_uv.y));
-	float oit_lookup_z = max(-vertex.z + dFdx(-vertex.z) * oit_d_px.x + dFdy(-vertex.z) * oit_d_px.y, 0.0001);
+	// 1 / z is linear across a flat triangle, z is not: carry the inverse depth to the tile centre (exact for a plane), then step a hair toward the camera so rounding never lands the lookup in this surface's own slice (which would shade it by its own extinction).
+	float oit_inv_z = 1.0 / max(-vertex.z, 0.0001);
+	float oit_inv_c = oit_inv_z + dFdx(oit_inv_z) * oit_d_px.x + dFdy(oit_inv_z) * oit_d_px.y;
+	float oit_lookup_z = oit_inv_c > 0.0 ? 1.0 / oit_inv_c : -vertex.z;
+	oit_lookup_z = max(oit_lookup_z * (1.0 - 4.0e-5), 0.0001);
 #ifdef MODE_OIT_ACCUMULATE
 	float oit_front = oit_transmittance_in_front(oit_tile_uv, uint(ViewIndex), oit_lookup_z);
 #else
