@@ -1150,6 +1150,9 @@
 		<member name="editor/import/use_multiple_threads" type="bool" setter="" getter="" default="true">
 			If [code]true[/code] importing of resources is run on multiple threads.
 		</member>
+		<member name="editor/movie_writer/async_readback" type="bool" setter="" getter="" default="true">
+			If [code]true[/code], viewport frames are read back from the GPU asynchronously, so a frame is encoded while the next one renders. Disable this only to rule out the readback path when diagnosing a recording problem, as it makes every frame wait for its own transfer.
+		</member>
 		<member name="editor/movie_writer/audio_bit_depth" type="int" setter="" getter="" default="16">
 			Number of bits per audio sample written to the [code].avi[/code] file. Only 16 and 32-bit are supported.
 		</member>
@@ -1182,6 +1185,9 @@
 		</member>
 		<member name="editor/movie_writer/ogv/keyframe_interval" type="int" setter="" getter="" default="64" keywords="theora">
 			Forces keyframes at the specified interval (in frame count). Higher values can improve compression up to a certain level at the expense of higher latency when seeking.
+		</member>
+		<member name="editor/movie_writer/size_mismatch_action" type="int" setter="" getter="" default="0">
+			What to do when the movie size and the window size differ. [code]0[/code] resizes every frame to the movie size, which is the behavior of previous versions and can cost several times more than encoding. [code]1[/code] records at the window size instead. [code]2[/code] refuses to start recording. A mismatch is easy to cause without noticing, as the display server is free to grant a window smaller than the one requested.
 		</member>
 		<member name="editor/movie_writer/speaker_mode" type="int" setter="" getter="" default="0" keywords="stereo, surround">
 			The speaker mode to use in the recorded audio when writing a movie. See [enum AudioServer.SpeakerMode] for possible values.
