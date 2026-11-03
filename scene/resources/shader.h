@@ -36,6 +36,8 @@
 class Texture;
 class Texture2D;
 
+class ShaderTemplate;
+
 class Shader : public Resource {
 	GDCLASS(Shader, Resource);
 	OBJ_SAVE_TYPE(Shader);
@@ -58,6 +60,7 @@ private:
 	mutable Mutex shader_rid_mutex;
 
 	Mode mode = MODE_SPATIAL;
+	Ref<ShaderTemplate> shader_template;
 	HashSet<Ref<ShaderInclude>> include_dependencies;
 	String code;
 	String include_path;
