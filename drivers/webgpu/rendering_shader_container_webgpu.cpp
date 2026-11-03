@@ -489,7 +489,7 @@ RenderingDeviceCommons::ShaderLanguageVersion RenderingShaderContainerFormatWebG
 	return SHADER_LANGUAGE_VULKAN_VERSION_1_1;
 }
 
-RenderingDeviceCommons::ShaderSpirvVersion RenderingShaderContainerFormatWebGpu::get_shader_spirv_version() const {
+RenderingDeviceCommons::ShaderSpirvVersion RenderingShaderContainerFormatWebGpu::get_shader_spirv_version(ShaderStage p_stage) const {
 	return SHADER_SPIRV_VERSION_1_3;
 }
 
