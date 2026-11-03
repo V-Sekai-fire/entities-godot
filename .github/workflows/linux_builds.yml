@@ -188,7 +188,7 @@ jobs:
 
       - name: FoundationDB client
         id: fdb-client
-        uses: ./.github/actions/fdb-client
+        uses: V-Sekai-fire/datasource-foundationdb/.github/actions/fdb-client@d57b8f5e60e30afbc3edce8bb29684b8b808b244
 
       - name: Compilation
         uses: ./.github/actions/godot-build

@@ -36,6 +36,17 @@ jobs:
         with:
           submodules: recursive
 
+      - name: FoundationDB client
+        id: fdb-client
+        # modules/sqlite builds in the arm64 pass and links libfdb_c.
+        uses: V-Sekai-fire/datasource-foundationdb/.github/actions/fdb-client@d57b8f5e60e30afbc3edce8bb29684b8b808b244
+
+      - name: Add the FoundationDB client flags to the build
+        shell: sh
+        # SCons reads SCONSFLAGS itself, so the Compilation steps' flag lines stay the ones
+        # every macOS branch carries and the assembly merges them cleanly.
+        run: echo "SCONSFLAGS=${SCONSFLAGS:+$SCONSFLAGS }${{ steps.fdb-client.outputs.scons-flags }}" >> "$GITHUB_ENV"
+
       - name: Restore Godot build cache
         uses: ./.github/actions/godot-cache-restore
         with:
