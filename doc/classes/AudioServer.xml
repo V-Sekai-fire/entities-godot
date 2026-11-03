@@ -103,6 +103,13 @@
 				Returns the name of the bus that the bus at index [param bus_idx] sends to.
 			</description>
 		</method>
+		<method name="get_bus_type" qualifiers="const">
+			<return type="int" enum="AudioServer.BusType" />
+			<param index="0" name="bus_idx" type="int" />
+			<description>
+				Returns the [enum BusType] of the bus at index [param bus_idx].
+			</description>
+		</method>
 		<method name="get_bus_volume_db" qualifiers="const">
 			<return type="float" />
 			<param index="0" name="bus_idx" type="int" />
@@ -326,6 +333,14 @@
 				If [code]true[/code], the bus at index [param bus_idx] is in solo mode.
 			</description>
 		</method>
+		<method name="set_bus_type">
+			<return type="void" />
+			<param index="0" name="bus_idx" type="int" />
+			<param index="1" name="type" type="int" enum="AudioServer.BusType" />
+			<description>
+				Sets the [enum BusType] of the bus at index [param bus_idx]. A bus set to [constant BUS_TYPE_SPATIAL_3D] is mixed through the spatial audio path; a bus set to [constant BUS_TYPE_CONVENTIONAL] follows the ordinary channel mix.
+			</description>
+		</method>
 		<method name="set_bus_volume_db">
 			<return type="void" />
 			<param index="0" name="bus_idx" type="int" />
@@ -431,6 +446,12 @@
 		</constant>
 		<constant name="PLAYBACK_TYPE_MAX" value="3" enum="PlaybackType" experimental="">
 			Represents the size of the [enum PlaybackType] enum.
+		</constant>
+		<constant name="BUS_TYPE_CONVENTIONAL" value="0" enum="BusType">
+			The bus mixes through the ordinary channel path, without spatial-audio processing.
+		</constant>
+		<constant name="BUS_TYPE_SPATIAL_3D" value="1" enum="BusType">
+			The bus is routed through the 3D spatial-audio mixer.
 		</constant>
 	</constants>
 </class>

@@ -517,6 +517,7 @@
 /servers/rendering/                           @godotengine/rendering
 /servers/rendering/**/*.py                    @godotengine/rendering @godotengine/buildsystem
 /servers/rendering/**/SCsub                   @godotengine/rendering @godotengine/buildsystem
+/servers/resonance_audio/                     @fire
 /servers/text/                                @godotengine/gui-nodes
 /servers/text/**/SCsub                        @godotengine/gui-nodes @godotengine/buildsystem
 /servers/xr/                                  @godotengine/xr
