@@ -45,7 +45,8 @@ ggml_cpp_sources = [
     tp + "ggml/src/ggml-backend.cpp",
     tp + "ggml/src/ggml-backend-reg.cpp",
     tp + "ggml/src/ggml-backend-meta.cpp",
-    # ggml-backend-dl.cpp omitted: dynamic loading disabled (no GGML_BACKEND_DL).
+    # ggml-backend-reg.cpp calls dl_load_library and friends, as upstream builds it.
+    tp + "ggml/src/ggml-backend-dl.cpp",
     tp + "ggml/src/ggml-threading.cpp",
     tp + "ggml/src/ggml-opt.cpp",
     tp + "ggml/src/gguf.cpp",
@@ -69,6 +70,8 @@ if env["platform"] == "web":
         ggml_cpu_src + "traits.cpp",
         ggml_cpu_src + "unary-ops.cpp",
         ggml_cpu_src + "vec.cpp",
+        ggml_cpu_src + "tiled/tiled.cpp",
+        ggml_cpu_src + "tiled/tiled-kernel.cpp",
     ]
 else:
     ggml_cpu_sources = [
@@ -81,6 +84,8 @@ else:
         ggml_cpu_src + "traits.cpp",
         ggml_cpu_src + "unary-ops.cpp",
         ggml_cpu_src + "vec.cpp",
+        ggml_cpu_src + "tiled/tiled.cpp",
+        ggml_cpu_src + "tiled/tiled-kernel.cpp",
     ]
 
     # Architecture-specific CPU implementations
@@ -140,13 +145,15 @@ sys.path.insert(0, Dir("#modules/llm").abspath)
 
 # ── Metal: macOS and iOS ──────────────────────────────────────────────────────
 if platform in ("macos", "ios"):
-    from metal_builders import generate_metal_embed
+    from metal_builders import generate_metal_embed, metal_embed_sources
 
     metal_src = tp + "ggml/src/ggml-metal/"
     backend_sources += [
         metal_src + "ggml-metal.cpp",
         metal_src + "ggml-metal-ops.cpp",
         metal_src + "ggml-metal-common.cpp",
+        metal_src + "ggml-metal-fusion.cpp",
+        metal_src + "ggml-metal-tuning.cpp",
         # .m files compiled below (after env_tp) with -fno-objc-arc
     ]
     backend_defines += ["GGML_USE_METAL"]
@@ -160,14 +167,10 @@ if platform in ("macos", "ios"):
             "CoreGraphics",
         ]
     )
-    # Embed Metal source as a C char array (metal_builders.py gen.cpp pattern).
-    # Metal compiles it at runtime via newLibraryWithSource: — no xcrun needed.
-    _metal_dir = Dir(metal_src).abspath + "/"
-    _metal_src_file = _metal_dir + "ggml-metal.metal"
-    _metal_common = Dir(tp_abs + "ggml/src/").abspath + "/ggml-common.h"
-    _metal_impl = _metal_dir + "ggml-metal-impl.h"
+    # Embed one Metal source per kernel library (metal_builders.py gen.cpp pattern).
+    # Metal compiles them at runtime via newLibraryWithSource: — no xcrun needed.
     _embed_gen = Dir("#thirdparty/llama_cpp/ggml/src/ggml-metal").abspath + "/ggml-metal-embed.gen.cpp"
-    env.Command(_embed_gen, [_metal_src_file, _metal_common, _metal_impl], generate_metal_embed)
+    env.Command(_embed_gen, metal_embed_sources(Dir(metal_src).abspath), generate_metal_embed)
     backend_sources += [_embed_gen]
     backend_defines += ["GGML_METAL_EMBED_LIBRARY"]
 
