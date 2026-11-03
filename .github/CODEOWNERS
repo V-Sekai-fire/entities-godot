@@ -207,6 +207,8 @@
 /modules/ktx/                                 @godotengine/asset-pipeline
 /modules/ktx/**/*.py                          @godotengine/asset-pipeline @godotengine/buildsystem
 /modules/ktx/**/SCsub                         @godotengine/asset-pipeline @godotengine/buildsystem
+/modules/llm/                                 @godotengine/asset-pipeline
+/modules/squish/                              @godotengine/asset-pipeline
 /modules/svg/                                 @godotengine/asset-pipeline
 /modules/svg/**/*.py                          @godotengine/asset-pipeline @godotengine/buildsystem
 /modules/svg/**/SCsub                         @godotengine/asset-pipeline @godotengine/buildsystem
