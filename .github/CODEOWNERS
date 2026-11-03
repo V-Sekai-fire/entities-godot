@@ -555,3 +555,8 @@ SCsub                                         @godotengine/buildsystem
 /modules/native_media/doc_classes/            @v-sekai-multiplayer-fabric/multiplayer-fabric @godotengine/documentation
 /modules/motion_bricks/                               @fire
 /modules/pixal3d/                                     @fire
+/modules/xr_grid/                             @v-sekai-multiplayer-fabric/multiplayer-fabric
+/modules/xr_grid/doc_classes/                 @v-sekai-multiplayer-fabric/multiplayer-fabric @godotengine/documentation
+/modules/cassie/                              @v-sekai-multiplayer-fabric/multiplayer-fabric
+/modules/cassie/doc_classes/                  @v-sekai-multiplayer-fabric/multiplayer-fabric @godotengine/documentation
+/modules/http3/                               @v-sekai-multiplayer-fabric/multiplayer-fabric
