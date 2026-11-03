@@ -1,0 +1,397 @@
+#include "sandbox.h"
+
+#include <libriscv/native_heap.hpp>
+
+#include <cstring>
+
+#ifndef __has_feature
+#define __has_feature(x) 0
+#endif
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_UNDEFINED__) || __has_feature(address_sanitizer) || __has_feature(undefined_behavior_sanitizer)
+#define GUEST_SANITIZER_ACTIVE 1
+#endif
+
+inline void guest_memcpy(void *dst, const void *src, std::size_t bytes) noexcept {
+#ifdef GUEST_SANITIZER_ACTIVE
+	if (bytes != 0)
+#endif
+		std::memcpy(dst, src, bytes);
+}
+inline int guest_memcmp(const void *a, const void *b, std::size_t bytes) noexcept {
+#ifdef GUEST_SANITIZER_ACTIVE
+	if (bytes != 0)
+		return std::memcmp(a, b, bytes);
+	return 0;
+#else
+	return std::memcmp(a, b, bytes);
+#endif
+}
+
+// -= Fast-path Variant Arguments =-
+
+struct GDNativeVariant {
+	uint8_t type;
+	uint8_t padding[7];
+	union {
+		struct {
+			double flt;
+			uint64_t flt_padding1;
+		};
+		struct {
+			uint64_t value;
+			uint64_t i64_padding;
+		};
+		struct {
+			real_t vec2_flt[2];
+		};
+		struct {
+			int32_t ivec2_int[2];
+		};
+		struct {
+			real_t vec3_flt[3];
+		};
+		struct {
+			int32_t ivec3_int[3];
+		};
+		struct {
+			real_t vec4_flt[4];
+		};
+		struct {
+			int32_t ivec4_int[4];
+		};
+		struct {
+			float color_flt[4];
+		};
+		struct {
+			uint64_t object_id;
+			GodotObject *object_ptr;
+		};
+	};
+
+	godot::Object *to_object() const {
+		if (object_ptr == nullptr)
+			return nullptr;
+		return internal::get_object_instance_binding(object_ptr);
+	}
+
+} __attribute__((packed));
+
+// Inline payload size for types Godot stores by value. -1 for pointer-backed types.
+inline constexpr int variant_inline_payload_bytes(int type) noexcept {
+	switch (type) {
+		case Variant::NIL:
+			return 0;
+		case Variant::BOOL:
+			return sizeof(bool);
+		case Variant::INT:
+		case Variant::FLOAT:
+			return 8;
+		default:
+			break;
+	}
+	if constexpr (sizeof(real_t) != sizeof(float)) {
+		return -1;
+	} else {
+		switch (type) {
+			case Variant::VECTOR2:
+			case Variant::VECTOR2I:
+				return 8;
+			case Variant::VECTOR3:
+			case Variant::VECTOR3I:
+				return 12;
+			case Variant::RECT2:
+			case Variant::RECT2I:
+			case Variant::VECTOR4:
+			case Variant::VECTOR4I:
+			case Variant::COLOR:
+			case Variant::PLANE:
+				return 16;
+			default:
+				return -1;
+		}
+	}
+}
+
+// -= Guest Data Types =-
+struct GuestStdU32String {
+	gaddr_t ptr;
+	gaddr_t size;
+	gaddr_t capacity;
+
+	char32_t *to_array(const machine_t &machine) const {
+		return machine.memory.memarray<char32_t>(ptr, size);
+	}
+	std::u32string to_u32string(const machine_t &machine, std::size_t max_len = 4UL << 20) const {
+		if (size > max_len)
+			throw std::runtime_error("Guest std::u32string too large (size > 4MB)");
+		// Copy the string from guest memory
+		const std::u32string_view view{ to_array(machine), size_t(size) };
+		return std::u32string(view.begin(), view.end());
+	}
+
+	String to_godot_string(const machine_t &machine, std::size_t max_len = 1UL << 20) const {
+		if (size > max_len)
+			throw std::runtime_error("Guest std::u32string too large (size > 4MB)");
+		// A view of the string plus the character that follows it, so that the branch below
+		// can tell whether it is already null-terminated. The extra character has to be part
+		// of the bounds check: validating only size characters and then reading size + 1 runs
+		// off the end of guest memory for a string that ends exactly at the arena boundary.
+		const std::u32string_view view{ machine.memory.memarray<char32_t>(ptr, size + 1), size_t(size + 1) };
+		if (view.back() == U'\0') {
+			// Convert the string to a godot String directly
+			return String(view.data());
+		} else {
+			// Use a temporary std::u32string to convert the string to a godot String
+			std::u32string str(view.begin(), view.end() - 1);
+			return String(str.c_str());
+		}
+	}
+
+	void set_string(machine_t &machine, gaddr_t self, const char32_t *str, std::size_t len) {
+		// Allocate memory for the string
+		this->ptr = machine.arena().malloc(len * sizeof(char32_t));
+		this->size = len;
+		this->capacity = len;
+		// Copy the string to guest memory
+		char32_t *guest_ptr = machine.memory.memarray<char32_t>(this->ptr, len);
+		guest_memcpy(guest_ptr, str, len * sizeof(char32_t));
+	}
+
+	void free(machine_t &machine) {
+		if (ptr != 0x0)
+			machine.arena().free(ptr);
+	}
+};
+
+struct GuestVariant {
+	/**
+	 * @brief Creates a new godot Variant from a GuestVariant that comes from a sandbox.
+	 *
+	 * @param emu The sandbox that the GuestVariant comes from.
+	 * @return Variant The new godot Variant.
+	 **/
+	Variant toVariant(const Sandbox &emu) const;
+	void toVariant(const Sandbox &emu, Variant &r_out) const;
+
+	/**
+	 * @brief Returns a pointer to a Variant that comes from a sandbox. This Variant must be
+	 * already stored in the sandbox's state. This usually means it's a complex Variant that is
+	 * never copied to the guest memory. Most complex types are stored in the call state and are
+	 * referenced by their index.
+	 *
+	 * @param emu The sandbox that the GuestVariant comes from.
+	 * @return const Variant* The pointer to the Variant.
+	 **/
+	const Variant *toVariantPtr(const Sandbox &emu) const;
+
+	/**
+	 * @brief Sets the value of the GuestVariant from a godot Variant.
+	 *
+	 * @param emu The sandbox that the GuestVariant comes from.
+	 * @param value The godot Variant.
+	 * @param implicit_trust If true, creating a complex type will not throw an error.
+	 * @throw std::runtime_error If the type is not supported.
+	 * @throw std::runtime_error If the type is complex and implicit_trust is false.
+	 **/
+	void set(Sandbox &emu, const Variant &value, bool implicit_trust = false);
+
+	/**
+	 * @brief Sets the value of the GuestVariant to a godot Object. The object is added to the
+	 * scoped objects list and the GuestVariant stores the untranslated address to the object.
+	 * @warning The object is implicitly trusted, treated as allowed.
+	 *
+	 * @param emu The sandbox that the GuestVariant comes from.
+	 * @param obj The godot Object.
+	 **/
+	void set_object(Sandbox &emu, godot::Object *obj);
+
+	/**
+	 * @brief Creates a new GuestVariant from a godot Variant. Trust is implicit for complex types.
+	 * The variant is constructed directly into the call state, and the GuestVariant is an index
+	 * to it. For objects, the object is added to the scoped objects list and the GuestVariant
+	 * stores the untranslated address to the object.
+	 *
+	 * @param emu The sandbox that the GuestVariant comes from.
+	 * @param value The godot Variant.
+	 * @throw std::runtime_error If the type is not supported.
+	 **/
+	void create(Sandbox &emu, Variant &&value);
+
+	/**
+	 * @brief Like the rvalue form, but copies instead of moving.
+	 * Inline values are copied directly; pointer-backed types are scoped.
+	 **/
+	void create(Sandbox &emu, const Variant &value);
+
+	/**
+	 * @brief Copies a Variant that is stored inline (scalars, vectors, colors, planes)
+	 * straight out of its payload, bypassing godot-cpp's out-of-line accessors.
+	 *
+	 * @param value The godot Variant.
+	 * @return true If the value was inlined into this GuestVariant. False means the type
+	 * is not stored inline and the caller has to fall back to scoping it.
+	 **/
+	bool set_inlined(const Variant &value) noexcept;
+
+	/**
+	 * @brief Check if the GuestVariant is implemented using an index to a scoped Variant.
+	 *
+	 * @return true If the type of the GuestVariant is implemented using an index to a scoped Variant.
+	 */
+	bool is_scoped_variant() const noexcept;
+
+	int32_t type = Variant::NIL;
+	union alignas(8) {
+		int64_t i = 0;
+		bool b;
+		uint8_t b_bits;
+		double f;
+		std::array<real_t, 2> v2f;
+		std::array<real_t, 3> v3f;
+		std::array<real_t, 4> v4f;
+		std::array<int32_t, 2> v2i;
+		std::array<int32_t, 3> v3i;
+		std::array<int32_t, 4> v4i;
+	} v;
+
+	void free(Sandbox &emu);
+
+	static const char *type_name(int type);
+	static const char *type_name(Variant::Type type) { return type_name(int(type)); }
+};
+
+inline bool GuestVariant::is_scoped_variant() const noexcept {
+	switch (type) {
+		case Variant::STRING:
+		case Variant::TRANSFORM2D:
+		case Variant::QUATERNION:
+		case Variant::AABB:
+		case Variant::BASIS:
+		case Variant::TRANSFORM3D:
+		case Variant::PROJECTION:
+		case Variant::DICTIONARY:
+		case Variant::ARRAY:
+		case Variant::CALLABLE:
+		case Variant::SIGNAL:
+		case Variant::STRING_NAME:
+		case Variant::NODE_PATH:
+		case Variant::RID:
+		case Variant::PACKED_BYTE_ARRAY:
+		case Variant::PACKED_FLOAT32_ARRAY:
+		case Variant::PACKED_FLOAT64_ARRAY:
+		case Variant::PACKED_INT32_ARRAY:
+		case Variant::PACKED_INT64_ARRAY:
+		case Variant::PACKED_VECTOR2_ARRAY:
+		case Variant::PACKED_VECTOR3_ARRAY:
+		case Variant::PACKED_VECTOR4_ARRAY:
+		case Variant::PACKED_COLOR_ARRAY:
+		case Variant::PACKED_STRING_ARRAY: {
+			return true;
+		}
+		case Variant::OBJECT: // Objects are raw pointers.
+		default:
+			return false;
+	}
+}
+
+// Read-only Variant view valid for the duration of one syscall. Inline types
+// are built in place; pointer-backed types borrow the scoped Variant directly.
+class BorrowedVariant {
+public:
+	BorrowedVariant(const Sandbox &emu, const GuestVariant &gv) {
+		const int bytes = variant_inline_payload_bytes(gv.type);
+		if (LIKELY(bytes >= 0)) {
+			GDNativeVariant *inner = (GDNativeVariant *)m_storage;
+			std::memset(m_storage, 0, sizeof(uint64_t));
+			inner->type = uint8_t(gv.type);
+			if (LIKELY(bytes <= int(sizeof(uint64_t)))) {
+				inner->value = UNLIKELY(gv.type == Variant::BOOL)
+					? uint64_t(gv.v.b_bits != 0)
+					: uint64_t(gv.v.i);
+			} else {
+				guest_memcpy(&inner->value, &gv.v, bytes);
+			}
+			m_ptr = (const Variant *)m_storage;
+			return;
+		}
+		borrow_uncommon(emu, gv);
+	}
+	~BorrowedVariant() {
+		if (UNLIKELY(m_constructed))
+			reinterpret_cast<Variant *>(m_storage)->~Variant();
+	}
+	BorrowedVariant(const BorrowedVariant &) = delete;
+	BorrowedVariant(BorrowedVariant &&) = delete;
+	BorrowedVariant &operator=(const BorrowedVariant &) = delete;
+
+	const Variant &operator*() const noexcept { return *m_ptr; }
+	const Variant *operator->() const noexcept { return m_ptr; }
+
+private:
+	void borrow_uncommon(const Sandbox &emu, const GuestVariant &gv);
+
+	const Variant *m_ptr = nullptr;
+	bool m_constructed = false;
+	alignas(8) uint8_t m_storage[sizeof(Variant)];
+};
+
+// A stack-only INT Variant for one syscall. Not owned, not destroyed.
+class InlineIntVariant {
+public:
+	explicit InlineIntVariant(int64_t value) {
+		std::memset(m_storage, 0, sizeof(uint64_t));
+		GDNativeVariant *inner = (GDNativeVariant *)m_storage;
+		inner->type = uint8_t(Variant::INT);
+		inner->value = uint64_t(value);
+	}
+	InlineIntVariant(const InlineIntVariant &) = delete;
+	InlineIntVariant &operator=(const InlineIntVariant &) = delete;
+
+	const Variant &operator*() const noexcept { return *(const Variant *)m_storage; }
+	const Variant *operator->() const noexcept { return (const Variant *)m_storage; }
+
+private:
+	alignas(8) uint8_t m_storage[sizeof(Variant)];
+};
+
+// Store a guest value in an existing engine Variant. Replacing one inline value
+// with another. Pointer-backed values still go through Variant assignment so the
+// old value is released and the new one is retained correctly.
+static inline void store_guest_variant(
+	Variant &slot, const GuestVariant &gv, const Sandbox &emu) {
+	// Only for single-precision builds atm.
+	if constexpr (sizeof(real_t) == sizeof(float)) {
+		const int bytes = variant_inline_payload_bytes(gv.type);
+		GDNativeVariant *inner = reinterpret_cast<GDNativeVariant *>(slot._native_ptr());
+		if (LIKELY(bytes >= 0 && variant_inline_payload_bytes(inner->type) >= 0)) {
+			inner->type = uint8_t(gv.type);
+			std::memset(&inner->value, 0, sizeof(inner->value));
+			if (UNLIKELY(gv.type == Variant::BOOL)) {
+				inner->value = (gv.v.b_bits != 0);
+			} else {
+				guest_memcpy(&inner->value, &gv.v, bytes);
+			}
+			return;
+		}
+	}
+	slot = gv.toVariant(emu);
+}
+
+static inline void hash_combine(gaddr_t &seed, gaddr_t hash) {
+	hash += 0x9e3779b9 + (seed << 6) + (seed >> 2);
+	seed ^= hash;
+}
+
+#include "syscalls_helpers.hpp"
+
+inline String to_godot_string(const riscv::CppString *string, machine_t &machine, std::size_t max_len = 4UL << 20) {
+	std::string_view view = string->to_view(machine, max_len);
+	return String::utf8(view.data(), view.size());
+}
+inline PackedByteArray to_godot_packed_byte_array(const riscv::CppString *string, machine_t &machine, std::size_t max_len = 4UL << 20) {
+	std::string_view view = string->to_view(machine, max_len);
+	PackedByteArray arr;
+	arr.resize(view.size());
+	std::memcpy(arr.ptrw(), view.data(), view.size());
+	return arr;
+}

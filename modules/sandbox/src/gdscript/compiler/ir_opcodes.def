@@ -1,0 +1,369 @@
+// The one place an IR opcode is described.
+//
+//   IR_OPCODE(opcode, mnemonic, signature, effects)
+//
+// Everything a pass could want to know about an opcode is declared here: its
+// name, the role of each of its operands, and whether it can be moved or
+// deleted. The enum, ir_opcode_name(), the destination-operand lookup, the
+// read-operand test, the purity test dead-code elimination needs and the
+// verifier's arity checks are all derived from this list, so adding an opcode
+// without declaring its operand roles does not compile. That is the point:
+// before this table, adding an opcode and forgetting to update five passes
+// compiled fine and miscompiled quietly.
+//
+// signature -- SIG(...) over the operand kinds, in order:
+//
+//   DST       destination register: the operand the instruction defines
+//   SRC       source register: an operand the instruction reads
+//   IMM       immediate integer
+//   FIMM      immediate double
+//   STR       inline string (a name, not an index into the string constants)
+//   LBL       branch target label
+//   CNT       immediate holding the length of the trailing list
+//   CNT2      immediate holding half the length of the trailing list (pairs)
+//   SRC_LIST  trailing run of zero or more source registers
+//   ARG_LIST  trailing run of zero or more source registers and/or immediates
+//   LBL_LIST  trailing run of zero or more branch target labels
+//
+// A signature ending in SRC_LIST, ARG_LIST or LBL_LIST is variadic; everything
+// else has exactly as many operands as it lists.
+//
+// effects -- a bitmask of IREffect. IR_PURE is the empty mask, and says the
+// instruction can be deleted when its result is unused and moved when its
+// inputs allow. Anything a pass must not delete or reorder carries
+// IR_SIDE_EFFECTS.
+
+// -= Loads, stores and moves =-
+
+IR_OPCODE(LOAD_IMM,        "LOAD_IMM",        SIG(DST, IMM),       IR_PURE | IR_SIMPLE_LOAD)
+IR_OPCODE(LOAD_FLOAT_IMM,  "LOAD_FLOAT_IMM",  SIG(DST, FIMM),      IR_PURE | IR_SIMPLE_LOAD)
+IR_OPCODE(LOAD_BOOL,       "LOAD_BOOL",       SIG(DST, IMM),       IR_PURE | IR_SIMPLE_LOAD)
+IR_OPCODE(LOAD_STRING,     "LOAD_STRING",     SIG(DST, IMM),       IR_PURE | IR_SIMPLE_LOAD)
+
+// LOAD_STRING + Variant type tag (STRING_NAME or NODE_PATH).
+IR_OPCODE(LOAD_STRING_AS,  "LOAD_STRING_AS",  SIG(DST, IMM, IMM),  IR_PURE | IR_SIMPLE_LOAD)
+IR_OPCODE(LOAD_GLOBAL,     "LOAD_GLOBAL",     SIG(DST, IMM),       IR_PURE | IR_READS_GLOBAL)
+IR_OPCODE(STORE_GLOBAL,    "STORE_GLOBAL",    SIG(IMM, SRC),       IR_SIDE_EFFECTS | IR_WRITES_GLOBAL)
+IR_OPCODE(MOVE,            "MOVE",            SIG(DST, SRC),       IR_PURE | IR_SIMPLE_LOAD)
+// A Variant of one type rebuilt as another: target in the type hint, source
+// type in the immediate. Both ends have to be known, because the expansion
+// reads the payload with no type check and the widths differ -- a BOOL payload
+// is one byte, an INT eight.
+IR_OPCODE(CONVERT,         "CONVERT",         SIG(DST, SRC, IMM),  IR_PURE)
+
+IR_OPCODE(COERCE,          "COERCE",          SIG(DST, SRC),       IR_PURE)
+
+// `x is int`: dst is true when the Variant in `src` carries the type tag in the
+// immediate (a Variant::Type). The tag is the first field of every Variant, so
+// this is a 4-byte load and a compare, never a host call. Exact tag compare, not
+// convertibility: 1.0 is not an int.
+IR_OPCODE(TYPE_TEST,       "TYPE_TEST",       SIG(DST, SRC, IMM),  IR_PURE)
+
+IR_OPCODE(TYPE_TEST_MASK,  "TYPE_TEST_MASK",  SIG(DST, SRC, IMM),  IR_PURE)
+
+// Dynamic OBJECT arm of `value is Trait`. Immediate indexes
+// IRProgram::trait_signatures. Backend expands the guest-side cache + ecall.
+IR_OPCODE(TRAIT_TEST, "TRAIT_TEST", SIG(DST, SRC, IMM),  IR_SIDE_EFFECTS)
+
+// Builds the Variant that refers to a host-side scoped variant: type tag from
+// the immediate (a Variant::Type), payload the index in `src`. The counterpart
+// of a syscall that answers with an index instead of writing a Variant, which
+// is how ECALL_STRING_BATCH hands back a run of characters at once.
+IR_OPCODE(MAKE_SCOPED,     "MAKE_SCOPED",     SIG(DST, SRC, IMM),  IR_PURE)
+
+// Copy one Variant out of the consecutive guest-slot buffer filled by
+// ECALL_ARRAY_BATCH. IMM is the first vreg/slot; SRC is a zero-based index.
+IR_OPCODE(BATCH_GET,       "BATCH_GET",       SIG(DST, IMM, SRC),  IR_PURE)
+
+// Load one raw UTF-32 code point from the guest buffer filled by
+// ECALL_STRING_CODEPOINT_BATCH and box it as an INT Variant.  The compiler
+// uses this only when the loop body's uses are proven not to observe String
+// identity, so it never consumes a scoped Variant slot.
+IR_OPCODE(CODEPOINT_GET,   "CODEPOINT_GET",   SIG(DST, IMM, SRC),  IR_PURE)
+
+// Immediate is a scope id (frame slot index), not a register.
+IR_OPCODE(SCOPE_MARK,      "SCOPE_MARK",      SIG(IMM),            IR_SIDE_EFFECTS)
+IR_OPCODE(SCOPE_RELEASE,   "SCOPE_RELEASE",   SIG(IMM),            IR_SIDE_EFFECTS)
+
+// `breakpoint`: an unconditional ECALL_BREAKPOINT at the line it was written on.
+// Carries no operands -- the line is the instruction's own.
+IR_OPCODE(BREAKPOINT,      "BREAKPOINT",      SIG(),               IR_SIDE_EFFECTS)
+// typeof(): tag as INT. Same load as TYPE_TEST, no compare.
+IR_OPCODE(TYPE_OF,         "TYPE_OF",         SIG(DST, SRC),       IR_PURE)
+
+// Decimal digit count of str(src) for an int. Used by sink_lazy_strings.
+IR_OPCODE(DECIMAL_LENGTH,  "DECIMAL_LENGTH",  SIG(DST, SRC),       IR_PURE)
+
+// NIL Variant (distinct from INT 0).
+IR_OPCODE(LOAD_NIL,        "LOAD_NIL",        SIG(DST),            IR_PURE | IR_SIMPLE_LOAD)
+
+// -= Arithmetic =-
+
+IR_OPCODE(ADD,             "ADD",             SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(SUB,             "SUB",             SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(MUL,             "MUL",             SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(DIV,             "DIV",             SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(MOD,             "MOD",             SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(NEG,             "NEG",             SIG(DST, SRC),       IR_PURE | IR_ARITHMETIC)
+
+// `a ** b`. No RISC-V instruction, and no inline expansion reproduces Godot's
+// answer for every type pair: int ** int stays an int, int ** negative is a
+// float, float ** float is libm's pow. Always goes to the host via OP_POWER, and
+// carries no type hint that could tempt the backend onto a native path.
+IR_OPCODE(POW,             "POW",             SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+
+// -= Comparison (sets the destination to 0 or 1) =-
+
+IR_OPCODE(CMP_EQ,          "CMP_EQ",          SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC | IR_COMPARISON)
+IR_OPCODE(CMP_NEQ,         "CMP_NEQ",         SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC | IR_COMPARISON)
+IR_OPCODE(CMP_LT,          "CMP_LT",          SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC | IR_COMPARISON)
+IR_OPCODE(CMP_LTE,         "CMP_LTE",         SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC | IR_COMPARISON)
+IR_OPCODE(CMP_GT,          "CMP_GT",          SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC | IR_COMPARISON)
+IR_OPCODE(CMP_GTE,         "CMP_GTE",         SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC | IR_COMPARISON)
+
+// -= Logical =-
+
+IR_OPCODE(AND,             "AND",             SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(OR,              "OR",              SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(NOT,             "NOT",             SIG(DST, SRC),       IR_PURE)
+
+// -= Bitwise =-
+
+IR_OPCODE(BIT_AND,         "BIT_AND",         SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(BIT_OR,          "BIT_OR",          SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(BIT_XOR,         "BIT_XOR",         SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(BIT_NOT,         "BIT_NOT",         SIG(DST, SRC),       IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(SHL,             "SHL",             SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+IR_OPCODE(SHR,             "SHR",             SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+
+// -= Containment =-
+//
+// `a in b`: OP_IN. The meaning is the container's -- Array member, Dictionary
+// key, String substring -- and only the host knows which `b` is, so like POW
+// there is no native path.
+IR_OPCODE(IN,              "IN",              SIG(DST, SRC, SRC),  IR_PURE | IR_ARITHMETIC)
+
+// -= Control flow =-
+//
+// All of these carry IR_SIDE_EFFECTS: control flow is the side effect, and a
+// pass that deletes or reorders one changes where the program goes.
+
+IR_OPCODE(LABEL,           "LABEL",           SIG(LBL),            IR_SIDE_EFFECTS | IR_LABEL)
+IR_OPCODE(JUMP,            "JUMP",            SIG(LBL),            IR_SIDE_EFFECTS | IR_TERMINATOR)
+IR_OPCODE(BRANCH_ZERO,     "BRANCH_ZERO",     SIG(SRC, LBL),       IR_SIDE_EFFECTS | IR_BRANCH)
+IR_OPCODE(BRANCH_NOT_ZERO, "BRANCH_NOT_ZERO", SIG(SRC, LBL),       IR_SIDE_EFFECTS | IR_BRANCH)
+IR_OPCODE(BRANCH_EQ,       "BRANCH_EQ",       SIG(SRC, SRC, LBL),  IR_SIDE_EFFECTS | IR_BRANCH | IR_FUSED_BRANCH)
+IR_OPCODE(BRANCH_NEQ,      "BRANCH_NEQ",      SIG(SRC, SRC, LBL),  IR_SIDE_EFFECTS | IR_BRANCH | IR_FUSED_BRANCH)
+IR_OPCODE(BRANCH_LT,       "BRANCH_LT",       SIG(SRC, SRC, LBL),  IR_SIDE_EFFECTS | IR_BRANCH | IR_FUSED_BRANCH)
+IR_OPCODE(BRANCH_LTE,      "BRANCH_LTE",      SIG(SRC, SRC, LBL),  IR_SIDE_EFFECTS | IR_BRANCH | IR_FUSED_BRANCH)
+IR_OPCODE(BRANCH_GT,       "BRANCH_GT",       SIG(SRC, SRC, LBL),  IR_SIDE_EFFECTS | IR_BRANCH | IR_FUSED_BRANCH)
+IR_OPCODE(BRANCH_GTE,      "BRANCH_GTE",      SIG(SRC, SRC, LBL),  IR_SIDE_EFFECTS | IR_BRANCH | IR_FUSED_BRANCH)
+
+// Dense integer switch, the dispatch a `match` on an opcode wants.
+//
+//     SWITCH subject, base, count, label[0], label[1], ... label[count-1]
+//
+// For an integer v in `subject` with base <= v < base + count, control goes to
+// label[v - base]. Anything else -- out of range, or not an integer -- falls
+// through to the next instruction, where the code generator puts the rest of the
+// match: a jump to the wildcard for a subject known to be an integer, otherwise
+// the full compare chain, since `match 3.0` must reach the `3:` arm.
+//
+// Holes in the range get a label too, pointing where falling through would go,
+// so the table is always exactly `count` entries and needs no per-entry test.
+IR_OPCODE(SWITCH,          "SWITCH",          SIG(SRC, IMM, CNT, LBL_LIST), IR_SIDE_EFFECTS | IR_BRANCH)
+
+// -= Function calls =-
+//
+// CALL is the reason ir_destination_operand_index() exists: the callee name
+// occupies operand 0, so the destination register is operand 1.
+
+IR_OPCODE(CALL,            "CALL",            SIG(STR, DST, CNT, SRC_LIST), IR_SIDE_EFFECTS | IR_CALL)
+
+IR_OPCODE(CALL_HOSTED,     "CALL_HOSTED",     SIG(STR, DST, CNT, SRC_LIST), IR_SIDE_EFFECTS | IR_CALL)
+IR_OPCODE(CALL_SYSCALL,    "CALL_SYSCALL",    SIG(DST, IMM, ARG_LIST),      IR_SIDE_EFFECTS | IR_CALL)
+
+// get_node() with a compile-time path ($Name, %Unique, self).
+// ECALL_GET_NODE takes raw characters, not a Variant; run-time paths use VCALL.
+IR_OPCODE(GET_NODE,        "GET_NODE",        SIG(DST, STR),                IR_SIDE_EFFECTS | IR_CALL)
+
+// load(): ECALL_LOAD, answering an Object the host has scoped. The host puts
+// the path to the project's resource-allowed callback first and refuses one it
+// declines, so this is a call with side effects and is never folded away.
+//
+// Two forms, for the reason GET_NODE embeds its path: a literal path is
+// characters in the instruction and costs no String Variant, while a path
+// computed at run time is a Variant already and is handed over as one
+// (ECALL_LOAD_PATH_IS_VARIANT).
+// ECALL_CALLABLE_CREATE over STR function address; SRC is the bound Array (or NIL).
+IR_OPCODE(MAKE_CALLABLE,   "MAKE_CALLABLE",   SIG(DST, STR, SRC),           IR_SIDE_EFFECTS | IR_CALL)
+
+IR_OPCODE(LOAD_RESOURCE,     "LOAD_RESOURCE",     SIG(DST, STR),            IR_SIDE_EFFECTS | IR_CALL)
+IR_OPCODE(LOAD_RESOURCE_VAR, "LOAD_RESOURCE_VAR", SIG(DST, SRC),            IR_SIDE_EFFECTS | IR_CALL)
+IR_OPCODE(RETURN,          "RETURN",          SIG(),                        IR_SIDE_EFFECTS | IR_TERMINATOR)
+
+// -= Variant operations (through syscalls) =-
+//
+// VSET writes into the object held by operand 0, which it reads rather than
+// defines, so it has no DST at all.
+
+IR_OPCODE(VCALL,           "VCALL",           SIG(DST, SRC, STR, CNT, SRC_LIST), IR_SIDE_EFFECTS | IR_CALL)
+IR_OPCODE(VGET,            "VGET",            SIG(DST, SRC, IMM, IMM),           IR_SIDE_EFFECTS)
+IR_OPCODE(VSET,            "VSET",            SIG(SRC, IMM, IMM, SRC),           IR_SIDE_EFFECTS)
+IR_OPCODE(VARIANT_SET,     "VARIANT_SET",     SIG(INOUT, SRC, SRC),              IR_SIDE_EFFECTS)
+
+// -= Global functions =-
+//
+// GDScript's globals are not methods on the owner node, so they cannot go
+// through VCALL: `print(x)` lowered to `self.print(x)` reaches a Node that has
+// no such method, and Godot drops the call without a word. Each global that the
+// host exposes as a syscall gets an opcode here instead.
+//
+// PRINT's destination is the call's value. GDScript's print() returns null, so
+// codegen writes NIL there rather than reading anything back from the host.
+//
+// First immediate is Print_Channel. Channel PRINT uses ECALL_PRINT (no selector).
+
+IR_OPCODE(PRINT,           "PRINT",           SIG(DST, IMM, CNT, SRC_LIST),      IR_SIDE_EFFECTS | IR_CALL)
+
+// assert() failing arm. Calls ECALL_THROW (does not return).
+// Both strings are literal bytes read via memview.
+
+// The trailing register, when there is one, is a computed message: the literal
+// second operand stays as the fallback the host reports if it is not a String.
+IR_OPCODE(THROW,           "THROW",           SIG(STR, STR, CNT, SRC_LIST),      IR_SIDE_EFFECTS | IR_CALL)
+
+// Every other global -- abs, sin, clamp, str, len, the lot -- is one opcode
+// carrying a GlobalFn (see globals.h) as its first immediate. The table there
+// says how the backend performs it: inline integer or floating-point code, a
+// call to the host through ECALL_UTILITY, or a run-time choice between an
+// integer and a floating-point form when the argument types are not known.
+//
+// The second immediate says the arguments are already Variants of the type the
+// chosen form works in, which is what lets the backend load them without
+// testing their type first. The code generator sets it from the argument type
+// hints, and inserts the int-to-float conversions that make it true.
+//
+// It is pure. None of these globals has a side effect, so a result nobody reads
+// means a call nobody has to make.
+
+IR_OPCODE(GLOBAL_CALL,     "GLOBAL_CALL",     SIG(DST, IMM, IMM, CNT, SRC_LIST), IR_PURE)
+
+// -= Inline primitive construction (no syscalls) =-
+
+IR_OPCODE(MAKE_VECTOR2,    "MAKE_VECTOR2",    SIG(DST, SRC, SRC),            IR_PURE)
+IR_OPCODE(MAKE_VECTOR3,    "MAKE_VECTOR3",    SIG(DST, SRC, SRC, SRC),       IR_PURE)
+IR_OPCODE(MAKE_VECTOR4,    "MAKE_VECTOR4",    SIG(DST, SRC, SRC, SRC, SRC),  IR_PURE)
+IR_OPCODE(MAKE_VECTOR2I,   "MAKE_VECTOR2I",   SIG(DST, SRC, SRC),            IR_PURE)
+IR_OPCODE(MAKE_VECTOR3I,   "MAKE_VECTOR3I",   SIG(DST, SRC, SRC, SRC),       IR_PURE)
+IR_OPCODE(MAKE_VECTOR4I,   "MAKE_VECTOR4I",   SIG(DST, SRC, SRC, SRC, SRC),  IR_PURE)
+IR_OPCODE(MAKE_COLOR,      "MAKE_COLOR",      SIG(DST, SRC, SRC, SRC, SRC),  IR_PURE)
+IR_OPCODE(MAKE_RECT2,      "MAKE_RECT2",      SIG(DST, SRC, SRC, SRC, SRC),  IR_PURE)
+IR_OPCODE(MAKE_RECT2I,     "MAKE_RECT2I",     SIG(DST, SRC, SRC, SRC, SRC),  IR_PURE)
+IR_OPCODE(MAKE_PLANE,      "MAKE_PLANE",      SIG(DST, SRC, SRC, SRC, SRC),  IR_PURE)
+
+// -= Host-side construction (ECALL_VCONSTRUCT) =-
+//
+// Transform2D, Basis, Quaternion and the rest hold more than a Variant's 16
+// inline bytes, so there is nothing to build in guest memory. One syscall hands
+// the arguments to the engine's own constructor table, which settles overload
+// choice and conversion. IMM is the Variant type.
+IR_OPCODE(CONSTRUCT,       "CONSTRUCT",       SIG(DST, IMM, CNT, SRC_LIST),  IR_PURE)
+
+// -= Array element access =-
+//
+// `a[i]` and `a[i] = v` on a known Array with a known int index: ECALL_ARRAY_AT
+// rather than Variant::call("get"/"set"), which builds a StringName and looks a
+// builtin method up by it per element touched -- the cost that dominates a
+// fetch-decode-execute loop.
+//
+// The index is GDScript's, so a negative one counts from the end. The backend
+// normalises it with one ECALL_ARRAY_SIZE, on a branch a non-negative index
+// never takes; `Array.get(-1)`, which the VCALL path reached, does not wrap and
+// errors instead.
+//
+// Both carry IR_SIDE_EFFECTS: an out-of-range index throws, so neither may be
+// deleted or reordered.
+
+IR_OPCODE(ARRAY_GET,       "ARRAY_GET",       SIG(DST, SRC, SRC), IR_SIDE_EFFECTS)
+IR_OPCODE(ARRAY_SET,       "ARRAY_SET",       SIG(SRC, SRC, SRC), IR_SIDE_EFFECTS)
+
+// -= Typed array windows =-
+//
+// A loop that touches a typed array only through `a[k]` reads and writes up to
+// 256 raw elements in a frame buffer, so an element costs a bounds compare and
+// a load rather than an ecall. The immediate is a token naming the window in
+// IRFunction::array_windows, which says how its elements are laid out. Each
+// window keeps its first index, element count and a dirty flag in the frame.
+//
+// WINDOW_OPEN empties the window; the loop does it on entry, since what was
+// loaded on the last entry may have changed since. WINDOW_GET and WINDOW_SET
+// take the int index in their second operand; outside the loaded run, they ask
+// the host (ECALL_ARRAY_WINDOW_SEEK) to write a dirty run back and load one
+// holding that index, which wraps a negative index and throws for one out of
+// range, as `a[k]` does. Random access moves the whole array into a heap copy
+// the guest then indexes itself. WINDOW_FLUSH writes a dirty window back, frees
+// a heap copy and empties it, which every exit from the loop does before
+// anything else can read it.
+IR_OPCODE(WINDOW_OPEN,     "WINDOW_OPEN",     SIG(IMM),                IR_SIDE_EFFECTS)
+IR_OPCODE(WINDOW_GET,      "WINDOW_GET",      SIG(DST, SRC, SRC, IMM), IR_SIDE_EFFECTS)
+IR_OPCODE(WINDOW_SET,      "WINDOW_SET",      SIG(SRC, SRC, SRC, IMM), IR_SIDE_EFFECTS)
+IR_OPCODE(WINDOW_FLUSH,    "WINDOW_FLUSH",    SIG(SRC, IMM),           IR_SIDE_EFFECTS)
+
+// `a.append(v)` and `a.push_back(v)` on a known Array, through ECALL_ARRAY_OPS.
+// Like PRINT, the destination is the call's value rather than a host result:
+// Array.append() answers null, so codegen writes NIL there.
+IR_OPCODE(ARRAY_APPEND,    "ARRAY_APPEND",    SIG(DST, SRC, SRC), IR_SIDE_EFFECTS)
+
+// `d[k] = v` on a known Dictionary, through ECALL_DICTIONARY_OPS. The read is
+// an ordinary CALL_SYSCALL with a destination; the write has none -- operand 0
+// is the Dictionary it writes into, read rather than defined.
+IR_OPCODE(DICT_SET,        "DICT_SET",        SIG(SRC, SRC, SRC), IR_SIDE_EFFECTS)
+
+// Constant-key forms avoid constructing a scoped String Variant.  The
+// immediate is an index into IRProgram::string_constants.
+IR_OPCODE(DICT_GET_CONST,  "DICT_GET_CONST",  SIG(DST, SRC, IMM), IR_SIDE_EFFECTS)
+IR_OPCODE(DICT_SET_CONST,  "DICT_SET_CONST",  SIG(SRC, IMM, SRC), IR_SIDE_EFFECTS)
+// Like DICT_SET_CONST but stores a String key (plain Dictionaries need String).
+IR_OPCODE(DICT_SET_CONST_STR, "DICT_SET_CONST_STR", SIG(SRC, IMM, SRC), IR_SIDE_EFFECTS)
+IR_OPCODE(DICT_HAS_CONST,  "DICT_HAS_CONST",  SIG(DST, SRC, IMM), IR_SIDE_EFFECTS)
+
+// Fused d[k] op= v. IMM is the Variant::Operator. Nothing is defined.
+// CONST form: string-constant key index, last IMM = 1 for String / 0 for StringName.
+IR_OPCODE(DICT_OPERATE,       "DICT_OPERATE",       SIG(SRC, SRC, SRC, IMM),      IR_SIDE_EFFECTS)
+IR_OPCODE(DICT_OPERATE_CONST, "DICT_OPERATE_CONST", SIG(SRC, IMM, SRC, IMM, IMM), IR_SIDE_EFFECTS)
+
+// Exact struct shape test.  The trailing immediates are string-constant
+// indices; the backend materializes one table of UTF-8 views for the syscall.
+IR_OPCODE(STRUCT_CHECK,    "STRUCT_CHECK",    SIG(DST, SRC, CNT, ARG_LIST), IR_SIDE_EFFECTS)
+
+// -= Array and Dictionary construction (via the VCREATE syscall) =-
+
+IR_OPCODE(MAKE_ARRAY,      "MAKE_ARRAY",      SIG(DST, CNT, SRC_LIST),  IR_PURE)
+IR_OPCODE(MAKE_DICTIONARY, "MAKE_DICTIONARY", SIG(DST, CNT2, SRC_LIST), IR_PURE)
+// Trailing pairs are (string-constant index, value register).
+IR_OPCODE(MAKE_DICTIONARY_KEYED, "MAKE_DICTIONARY_KEYED", SIG(DST, CNT2, ARG_LIST), IR_SIDE_EFFECTS)
+
+// -= Packed array construction (via the VCREATE syscall) =-
+
+IR_OPCODE(MAKE_PACKED_BYTE_ARRAY,    "MAKE_PACKED_BYTE_ARRAY",    SIG(DST, CNT, SRC_LIST), IR_PURE)
+IR_OPCODE(MAKE_PACKED_INT32_ARRAY,   "MAKE_PACKED_INT32_ARRAY",   SIG(DST, CNT, SRC_LIST), IR_PURE)
+IR_OPCODE(MAKE_PACKED_INT64_ARRAY,   "MAKE_PACKED_INT64_ARRAY",   SIG(DST, CNT, SRC_LIST), IR_PURE)
+IR_OPCODE(MAKE_PACKED_FLOAT32_ARRAY, "MAKE_PACKED_FLOAT32_ARRAY", SIG(DST, CNT, SRC_LIST), IR_PURE)
+IR_OPCODE(MAKE_PACKED_FLOAT64_ARRAY, "MAKE_PACKED_FLOAT64_ARRAY", SIG(DST, CNT, SRC_LIST), IR_PURE)
+IR_OPCODE(MAKE_PACKED_STRING_ARRAY,  "MAKE_PACKED_STRING_ARRAY",  SIG(DST, CNT, SRC_LIST), IR_PURE)
+IR_OPCODE(MAKE_PACKED_VECTOR2_ARRAY, "MAKE_PACKED_VECTOR2_ARRAY", SIG(DST, CNT, SRC_LIST), IR_PURE)
+IR_OPCODE(MAKE_PACKED_VECTOR3_ARRAY, "MAKE_PACKED_VECTOR3_ARRAY", SIG(DST, CNT, SRC_LIST), IR_PURE)
+IR_OPCODE(MAKE_PACKED_COLOR_ARRAY,   "MAKE_PACKED_COLOR_ARRAY",   SIG(DST, CNT, SRC_LIST), IR_PURE)
+IR_OPCODE(MAKE_PACKED_VECTOR4_ARRAY, "MAKE_PACKED_VECTOR4_ARRAY", SIG(DST, CNT, SRC_LIST), IR_PURE)
+
+// Suspend at `await src`, copy the slot array to host, resume via second entry.
+// Full clobber barrier: vreg slots are authoritative, no liveness analysis needed.
+// Non-Signal operand writes dst immediately and falls through without suspending.
+IR_OPCODE(AWAIT,           "AWAIT",           SIG(DST, SRC),      IR_SIDE_EFFECTS | IR_CALL)
+
+// -= Inline member access (no syscalls) =-
+
+IR_OPCODE(VGET_INLINE,     "VGET_INLINE",     SIG(DST, SRC, STR, IMM),      IR_PURE)
+// Object operand is read-modify-write: replaces one component, keeps the Variant.
+IR_OPCODE(VSET_INLINE,     "VSET_INLINE",     SIG(INOUT, STR, IMM, SRC, IMM), IR_SIDE_EFFECTS)

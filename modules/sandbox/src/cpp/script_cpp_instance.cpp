@@ -1,0 +1,408 @@
+#include "script_cpp_instance.h"
+
+#include "../elf/script_elf.h"
+#include "../elf/script_instance.h"
+#include "../elf/script_instance_helper.h"
+#include "../fast_cast.hpp"
+#include "../sandbox.h"
+#include "../scoped_tree_base.h"
+#include "script_cpp.h"
+#include "script_language_cpp.h"
+#include <godot_cpp/core/object.hpp>
+#include <godot_cpp/templates/local_vector.hpp>
+static constexpr bool VERBOSE_LOGGING = false;
+
+struct SandboxAndCount {
+	Sandbox *sandbox = nullptr;
+	unsigned count = 0;
+};
+static std::unordered_map<CPPScript *, SandboxAndCount> sandbox_instances;
+
+Sandbox *CPPScriptInstance::create_sandbox(Object *p_owner, const Ref<CPPScript> &p_script) {
+	auto it = sandbox_instances.find(p_script.ptr());
+	if (it != sandbox_instances.end()) {
+		it->second.count++;
+		return it->second.sandbox;
+	}
+
+	Sandbox *sandbox_ptr = memnew(Sandbox);
+	sandbox_ptr->set_tree_base(fast_cast_to<Node>(p_owner));
+	sandbox_instances.insert_or_assign(p_script.ptr(), SandboxAndCount{ sandbox_ptr, 1 });
+
+	const Ref<ELFScript> &elf = p_script->get_elf_script();
+	if (elf.is_valid()) {
+		sandbox_ptr->set_program(elf);
+	}
+
+	return sandbox_ptr;
+}
+
+void CPPScriptInstance::reset_to(const Ref<ELFScript> &p_elf_script) {
+	Sandbox *sandbox = current_sandbox;
+	if (sandbox != nullptr && sandbox->get_program() != p_elf_script) {
+		sandbox->set_program(p_elf_script);
+	}
+}
+
+void CPPScriptInstance::set_new_elf_script(ELFScript* p_elf_script) {
+	this->script->set_elf_script(Ref<ELFScript>(p_elf_script));
+}
+
+bool CPPScriptInstance::set(const StringName &p_name, const Variant &p_value) {
+	static const StringName s_script("script");
+	static const StringName s_program("program");
+	static const StringName s_associated_script("associated_script");
+	if (p_name == s_script || p_name == s_program) {
+		return false;
+	} else if (p_name == s_associated_script) {
+		Object *object = p_value.operator Object *();
+		if (object == nullptr) { // Unset the script
+			this->set_new_elf_script(nullptr);
+			return true;
+		}
+		ELFScript *new_elf_script = fast_cast_to<ELFScript>(object);
+		if (new_elf_script != nullptr) {
+			this->set_new_elf_script(new_elf_script);
+			return true;
+		} else {
+			return false;
+		}
+	}
+
+	Sandbox *sandbox = current_sandbox;
+	if (sandbox == nullptr) {
+		return false;
+	}
+	ScopedTreeBase stb(sandbox, fast_cast_to<Node>(this->owner));
+	if (sandbox->set_property(p_name, p_value)) {
+		return true;
+	}
+	return false;
+}
+
+bool CPPScriptInstance::get(const StringName &p_name, Variant &r_ret) const {
+	static const StringName s_script("script");
+	static const StringName s_associated_script("associated_script");
+	if (p_name == s_script) {
+		r_ret = this->script;
+		return true;
+	} else if (p_name == s_associated_script) {
+		r_ret = this->script->get_elf_script();
+		return true;
+	}
+
+	Sandbox *sandbox = current_sandbox;
+	if (sandbox == nullptr) {
+		return false;
+	}
+	ScopedTreeBase stb(sandbox, fast_cast_to<Node>(this->owner));
+	if (sandbox->get_property(p_name, r_ret)) {
+		return true;
+	}
+	return false;
+}
+
+godot::String CPPScriptInstance::to_string(bool *r_is_valid) {
+	return "<CPPScript>";
+}
+
+void CPPScriptInstance::notification(int32_t p_what, bool p_reversed) {
+}
+
+void CPPScriptInstance::callp(
+		const StringName &p_method,
+		const Variant **p_args, const int p_argument_count,
+		Variant &r_return, GDExtensionCallError &r_error)
+{
+	static const StringName s_get_associated_script("get_associated_script");
+	static const StringName s_set_associated_script("set_associated_script");
+
+	if (stringname_equals(p_method, s_get_associated_script)) {
+		r_error.error = GDEXTENSION_CALL_OK;
+		r_return = this->script->get_elf_script();
+		return;
+	} else if (stringname_equals(p_method, s_set_associated_script)) {
+		if (p_argument_count != 1) {
+			r_error.error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT;
+			r_return = Variant();
+			return;
+		}
+		Object *object = p_args[0]->operator Object *();
+		if (object == nullptr) { // Unset the script
+			this->set_new_elf_script(nullptr);
+        	r_error.error = GDEXTENSION_CALL_OK;
+			r_return = Variant();
+			return;
+		}
+		ELFScript *new_elf_script = fast_cast_to<ELFScript>(object);
+		if (new_elf_script != nullptr) {
+			this->set_new_elf_script(new_elf_script);
+			r_error.error = GDEXTENSION_CALL_OK;
+			r_return = Variant();
+			return;
+		} else {
+			r_error.error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT;
+			r_return = Variant();
+			return;
+		}
+	}
+
+	Sandbox *sandbox = current_sandbox;
+	const auto address = sandbox->cached_address_of(p_method);
+	if (address == 0) {
+		const bool found = sandbox->is_sandbox_function(p_method);
+		if (!found) {
+			r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
+			r_return = Variant();
+			return;
+		}
+		Array args;
+		for (int i = 0; i < p_argument_count; i++) {
+			args.push_back(*p_args[i]);
+		}
+		r_error.error = GDEXTENSION_CALL_OK;
+		r_return = sandbox->callv(p_method, args);
+		return;
+	}
+
+	ScopedTreeBase stb(sandbox, this->owner_node);
+	sandbox->vmcall_address(address, p_args, p_argument_count, r_return, r_error);
+}
+
+const GDExtensionMethodInfo *CPPScriptInstance::get_method_list(uint32_t *r_count) const {
+	const int size = script->methods_info.size();
+	GDExtensionMethodInfo *list = memnew_arr(GDExtensionMethodInfo, size);
+	int i = 0;
+	for (const godot::MethodInfo &method_info : script->methods_info) {
+		if constexpr (VERBOSE_LOGGING) {
+			ERR_PRINT("CPPScriptInstance::get_method_list: method " + String(method_info.name));
+		}
+		list[i] = create_method_info(method_info);
+		i++;
+	}
+	*r_count = size;
+
+	return list;
+}
+
+static void set_property_info(
+		GDExtensionPropertyInfo &p_info,
+		const StringName &p_name,
+		const StringName &p_class_name,
+		GDExtensionVariantType p_type,
+		uint32_t p_hint,
+		const String &p_hint_string,
+		uint32_t p_usage)
+{
+	p_info.name = stringname_alloc(p_name);
+	p_info.class_name = stringname_alloc(p_class_name);
+	p_info.type = p_type;
+	p_info.hint = p_hint;
+	p_info.hint_string = string_alloc(p_hint_string);
+	p_info.usage = p_usage;
+}
+
+const GDExtensionPropertyInfo *CPPScriptInstance::get_property_list(uint32_t *r_count) const {
+	Sandbox *sandbox = current_sandbox;
+	if (sandbox == nullptr) {
+		*r_count = 0;
+		return nullptr;
+	}
+
+	std::vector<PropertyInfo> prop_list = sandbox->create_sandbox_property_list();
+	const std::vector<SandboxProperty> &properties = sandbox->get_properties();
+
+	*r_count = properties.size() + prop_list.size();
+	GDExtensionPropertyInfo *list = memnew_arr(GDExtensionPropertyInfo, *r_count + 2);
+	const GDExtensionPropertyInfo *list_ptr = list;
+
+	for (const SandboxProperty &property : properties) {
+		if constexpr (VERBOSE_LOGGING) {
+			printf("CPPScriptInstance::get_property_list %s\n", String(property.name()).utf8().ptr());
+			fflush(stdout);
+		}
+		list->name = stringname_alloc(property.name());
+		list->class_name = stringname_alloc("Variant");
+		list->type = (GDExtensionVariantType)property.type();
+		list->hint = 0;
+		list->hint_string = string_alloc("");
+		list->usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_SCRIPT_VARIABLE | PROPERTY_USAGE_NIL_IS_VARIANT;
+		list++;
+	}
+	for (int i = 0; i < prop_list.size(); i++) {
+		const PropertyInfo &prop = prop_list[i];
+		if constexpr (VERBOSE_LOGGING) {
+			printf("CPPScriptInstance::get_property_list %s\n", String(prop.name).utf8().ptr());
+			fflush(stdout);
+		}
+		// Rewrite "program" property to "associated_script", disallowing 'program'
+		// and publishing associated_script instead.
+		if (prop.name == StringName("program")) {
+			set_property_info(
+				*list,
+				"associated_script",
+				"",
+				GDEXTENSION_VARIANT_TYPE_OBJECT,
+				PROPERTY_HINT_RESOURCE_TYPE,
+				"ELFScript",
+				PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NODE_PATH_FROM_SCENE_ROOT);
+			list++;
+			continue;
+		}
+		list->name = stringname_alloc(prop.name);
+		list->class_name = stringname_alloc(prop.class_name);
+		list->type = (GDExtensionVariantType) int(prop.type);
+		list->hint = prop.hint;
+		list->hint_string = string_alloc(prop.hint_string);
+		list->usage = prop.usage;
+		list++;
+	}
+	return list_ptr;
+}
+
+void CPPScriptInstance::free_property_list(const GDExtensionPropertyInfo *p_list, uint32_t p_count) const {
+	if (p_list) {
+		memdelete_arr(p_list);
+	}
+}
+
+Variant::Type CPPScriptInstance::get_property_type(const StringName &p_name, bool *r_is_valid) const {
+	if constexpr (VERBOSE_LOGGING) {
+		ERR_PRINT("CPPScriptInstance::get_property_type " + p_name);
+	}
+	if (p_name == StringName("associated_script")) {
+		if (r_is_valid)
+			*r_is_valid = true;
+		return Variant::OBJECT;
+	}
+	Sandbox *sandbox = current_sandbox;
+	if (sandbox == nullptr) {
+		*r_is_valid = false;
+		return Variant::NIL;
+	}
+	if (const SandboxProperty *prop = sandbox->find_property_or_null(p_name)) {
+		*r_is_valid = true;
+		return prop->type();
+	}
+	*r_is_valid = false;
+	return Variant::NIL;
+}
+
+void CPPScriptInstance::get_property_state(GDExtensionScriptInstancePropertyStateAdd p_add_func, void *p_userdata) {
+}
+
+bool CPPScriptInstance::validate_property(GDExtensionPropertyInfo &p_property) const {
+	if constexpr (VERBOSE_LOGGING) {
+		ERR_PRINT("CPPScriptInstance::validate_property");
+	}
+	return true;
+}
+
+GDExtensionInt CPPScriptInstance::get_method_argument_count(const StringName &p_method, bool &r_valid) const {
+	r_valid = false;
+	return 0;
+}
+
+bool CPPScriptInstance::has_method(const StringName &p_name) const {
+	if constexpr (VERBOSE_LOGGING) {
+		ERR_PRINT("CPPScriptInstance::has_method " + p_name);
+	}
+	if (p_name == StringName("set_associated_script")
+		|| p_name == StringName("get_associated_script")) {
+		return true; // These methods are always available
+	}
+	for (const godot::MethodInfo &method_info : script->methods_info) {
+		if (method_info.name == p_name) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void CPPScriptInstance::free_method_list(const GDExtensionMethodInfo *p_list, uint32_t p_count) const {
+	if (p_list) {
+		for (uint32_t i = 0; i < p_count; i++) {
+			const GDExtensionMethodInfo &method_info = p_list[i];
+			if (method_info.arguments) {
+				memdelete_arr(method_info.arguments);
+			}
+		}
+		memdelete_arr(p_list);
+	}
+}
+
+bool CPPScriptInstance::property_can_revert(const StringName &p_name) const {
+	if constexpr (VERBOSE_LOGGING) {
+		ERR_PRINT("CPPScriptInstance::property_can_revert " + p_name);
+	}
+	return false;
+}
+
+bool CPPScriptInstance::property_get_revert(const StringName &p_name, Variant &r_ret) const {
+	if constexpr (VERBOSE_LOGGING) {
+		ERR_PRINT("CPPScriptInstance::property_get_revert " + p_name);
+	}
+	r_ret = Variant();
+	return false;
+}
+
+void CPPScriptInstance::refcount_incremented() {
+}
+
+bool CPPScriptInstance::refcount_decremented() {
+	return false;
+}
+
+Object *CPPScriptInstance::get_owner() {
+	return owner;
+}
+
+Ref<Script> CPPScriptInstance::get_script() const {
+	return script;
+}
+
+bool CPPScriptInstance::is_placeholder() const {
+	return false;
+}
+
+void CPPScriptInstance::property_set_fallback(const StringName &p_name, const Variant &p_value, bool *r_valid) {
+	*r_valid = false;
+}
+
+Variant CPPScriptInstance::property_get_fallback(const StringName &p_name, bool *r_valid) {
+	*r_valid = false;
+	return Variant::NIL;
+}
+
+ScriptLanguage *CPPScriptInstance::_get_language() {
+	return CPPScriptLanguage::get_singleton();
+}
+
+CPPScriptInstance::CPPScriptInstance(Object *p_owner, const Ref<CPPScript> p_script) :
+		owner(p_owner), owner_node(fast_cast_to<Node>(p_owner)), script(p_script)
+{
+	if (script->get_elf_script().is_null()) {
+		script->detect_script_instance();
+	}
+	this->current_sandbox = create_sandbox(p_owner, p_script);
+	if (this->current_sandbox != nullptr) {
+		this->current_sandbox->set_tree_base(fast_cast_to<godot::Node>(owner));
+	}
+}
+
+CPPScriptInstance::~CPPScriptInstance() {
+	auto it = sandbox_instances.find(script.ptr());
+	if (it != sandbox_instances.end()) {
+		it->second.count--;
+		if (it->second.count == 0) {
+			it->second.sandbox->queue_free();
+			sandbox_instances.erase(it);
+		} else if (Node *owner_node = fast_cast_to<Node>(this->owner)) {
+			if (it->second.sandbox->get_tree_base_id() == godot::ObjectID(owner_node->get_instance_id())) {
+				it->second.sandbox->set_tree_base(nullptr);
+			}
+		}
+	}
+	this->current_sandbox = nullptr;
+	script->remove_instance(this);
+}

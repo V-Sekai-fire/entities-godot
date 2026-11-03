@@ -581,3 +581,10 @@ def configure(env: "SConsEnvironment"):
     else:
         if env["use_llvm"] and platform.system() != "FreeBSD":
             env.Append(LIBS=["atomic"])
+
+    # SCons runs each command as `sh -c "<line>"`, so the whole line is one argument, and Linux
+    # caps one argument at 128 KiB (MAX_ARG_STRLEN). A module with over a thousand objects passes
+    # that in its ar line, so archive through a response file, as the Windows platform does.
+    env["ARCOM_ORIG"] = env["ARCOM"]
+    env["ARCOM"] = "${TEMPFILE('$ARCOM_ORIG', '$ARCOMSTR')}"
+    env["TEMPFILESUFFIX"] = ".rsp"

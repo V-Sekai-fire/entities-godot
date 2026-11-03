@@ -1,0 +1,37 @@
+name: Godot Builds
+on:
+  workflow_call:
+
+jobs:
+  godot:
+    runs-on: ubuntu-26.04
+    name: Copy addon files
+
+    steps:
+      - uses: actions/checkout@v5
+      - name: Upload
+        uses: actions/upload-artifact@v6
+        with:
+          name: godot-sandbox-gdextension
+          # Only the addon itself ships; bin/ is also a test project, and
+          # everything else in it (cmake/, src/, project.godot, ...) is scaffolding.
+          path: |
+            bin
+            !bin/.godot
+            !bin/.godot/**
+            !bin/cmake
+            !bin/cmake/**
+            !bin/src
+            !bin/src/**
+            !bin/.gitattributes
+            !bin/.gitignore
+            !bin/icon.svg
+            !bin/test.elf
+            !bin/icon.svg.import
+            !bin/export_presets.cfg
+            !bin/project.godot
+            !bin/test.gd
+            !bin/test.tscn
+            !bin/icon.png
+            !bin/icon.png.import
+          if-no-files-found: error
