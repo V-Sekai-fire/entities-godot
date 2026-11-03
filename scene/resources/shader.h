@@ -60,7 +60,8 @@ private:
 	mutable Mutex shader_rid_mutex;
 
 	Mode mode = MODE_SPATIAL;
-	Ref<ShaderTemplate> shader_template;
+	mutable Ref<ShaderTemplate> shader_template; // Resolved lazily with the RID (see _check_shader_rid).
+
 	HashSet<Ref<ShaderInclude>> include_dependencies;
 	String code;
 	String include_path;

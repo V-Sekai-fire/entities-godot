@@ -53,7 +53,19 @@ Shader::Mode Shader::get_mode() const {
 void Shader::_check_shader_rid() const {
 	MutexLock lock(shader_rid_mutex);
 	if (shader_rid.is_null() && !preprocessed_code.is_empty()) {
-		shader_rid = RenderingServer::get_singleton()->shader_create_from_code(preprocessed_code, get_path());
+		// set_code only resolves the shader template when the RID already exists, so a shader whose RID is created here, from
+		// its code (every shader loaded from a file, or created in a script before it is used), would be compiled with the
+		// built-in template. Resolve it first and set it before the code, as set_code does.
+		const String shader_template_path = ShaderLanguage::get_shader_template(preprocessed_code);
+		if (shader_template_path.is_empty()) {
+			shader_rid = RenderingServer::get_singleton()->shader_create_from_code(preprocessed_code, get_path());
+		} else {
+			shader_template = ResourceLoader::load(shader_template_path);
+			shader_rid = RenderingServer::get_singleton()->shader_create();
+			RenderingServer::get_singleton()->shader_set_path_hint(shader_rid, get_path());
+			RenderingServer::get_singleton()->shader_set_shader_template(shader_rid, shader_template.is_valid() ? shader_template->get_rid() : RID(), true);
+			RenderingServer::get_singleton()->shader_set_code(shader_rid, preprocessed_code);
+		}
 		preprocessed_code = String();
 	}
 }
