@@ -147,3 +147,112 @@ inline bool oit_auto_range(float p_min_z, float p_max_z, float p_margin, float &
 	r_linearization = k < 0.001f ? 0.001f : (k > 1.0e18f ? 1.0e18f : k);
 	return true;
 }
+
+// Depth intervals. One global auto range gives every slice the same relative thickness, so a far window
+// next to hair coarsens the hair layers until they merge. The translucent bounds are merged into up to
+// OIT_MAX_INTERVALS depth intervals instead, and the slices are shared out between them: the depths
+// where nothing translucent exists get no slices. One interval is the same curve as oit_auto_range.
+// Mirrors Oit.SliceCurve.intervalSlice (the shader's oit_slice_pos).
+#define OIT_MAX_INTERVALS 8
+
+struct OITIntervalSet {
+	float lo[OIT_MAX_INTERVALS + 1];
+	float hi[OIT_MAX_INTERVALS + 1];
+	int count = 0;
+
+	void add(float p_lo, float p_hi) {
+		if (!(p_hi > 0.0f) || !(p_hi >= p_lo)) {
+			return;
+		}
+		// Merge with everything it touches; a grown interval can touch more, so repeat.
+		bool changed = true;
+		while (changed) {
+			changed = false;
+			for (int i = 0; i < count; i++) {
+				if (p_lo <= hi[i] && p_hi >= lo[i]) {
+					p_lo = p_lo < lo[i] ? p_lo : lo[i];
+					p_hi = p_hi > hi[i] ? p_hi : hi[i];
+					lo[i] = lo[count - 1];
+					hi[i] = hi[count - 1];
+					count--;
+					changed = true;
+					break;
+				}
+			}
+		}
+		lo[count] = p_lo;
+		hi[count] = p_hi;
+		count++;
+		if (count > OIT_MAX_INTERVALS) {
+			sort();
+			// Join the two neighbours with the smallest gap in relative terms (a gap of 1 mm at 2 m is
+			// worth less than a gap of 10 m at 20 m).
+			int best = 0;
+			float best_gap = 1.0e30f;
+			for (int i = 0; i + 1 < count; i++) {
+				float a = hi[i] > 0.01f ? hi[i] : 0.01f;
+				float gap = std::log((lo[i + 1] > 0.01f ? lo[i + 1] : 0.01f) / a);
+				if (gap < best_gap) {
+					best_gap = gap;
+					best = i;
+				}
+			}
+			hi[best] = hi[best + 1];
+			for (int i = best + 1; i + 1 < count; i++) {
+				lo[i] = lo[i + 1];
+				hi[i] = hi[i + 1];
+			}
+			count--;
+		}
+	}
+
+	void sort() {
+		for (int i = 1; i < count; i++) {
+			float l = lo[i];
+			float h = hi[i];
+			int j = i - 1;
+			while (j >= 0 && lo[j] > l) {
+				lo[j + 1] = lo[j];
+				hi[j + 1] = hi[j];
+				j--;
+			}
+			lo[j + 1] = l;
+			hi[j + 1] = h;
+		}
+	}
+};
+
+// Fills r_ranges[i] = {near, far, linearization, first slice} for the sorted intervals, an equal share of
+// the slices each. Returns the interval count (0 when there is nothing to fit).
+inline int oit_interval_ranges(OITIntervalSet &p_set, int p_slices, float p_margin, float r_ranges[OIT_MAX_INTERVALS][4]) {
+	p_set.sort();
+	int n = p_set.count;
+	if (n == 0) {
+		return 0;
+	}
+	int share = p_slices / n;
+	for (int i = 0; i < n; i++) {
+		float near_z, far_z, k;
+		oit_auto_range(p_set.lo[i], p_set.hi[i], p_margin, near_z, far_z, k);
+		r_ranges[i][0] = near_z;
+		r_ranges[i][1] = far_z;
+		r_ranges[i][2] = k;
+		r_ranges[i][3] = float(share * i);
+	}
+	return n;
+}
+
+// The slice coordinate (0 to slices) of a view depth; mirrors the shader.
+inline float oit_interval_slice(const float p_ranges[OIT_MAX_INTERVALS][4], int p_count, int p_slices, float p_z) {
+	int i = 0;
+	while (i + 1 < p_count && p_z > p_ranges[i][1]) {
+		i++;
+	}
+	float end = i + 1 < p_count ? p_ranges[i + 1][3] : float(p_slices);
+	float k = p_ranges[i][2] > 0.001f ? p_ranges[i][2] : 0.001f;
+	float span = p_ranges[i][1] - p_ranges[i][0];
+	float lin = (p_z - p_ranges[i][0]) / (span > 0.001f ? span : 0.001f);
+	lin = lin < 0.0f ? 0.0f : (lin > 1.0f ? 1.0f : lin);
+	float t = std::log(1.0f + k * lin) / std::log(1.0f + k);
+	return p_ranges[i][3] + t * (end - p_ranges[i][3]);
+}

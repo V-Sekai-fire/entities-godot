@@ -528,6 +528,9 @@ layout(set = 1, binding = 39) uniform sampler3D oit_transmittance;
 layout(set = 1, binding = 40, std140) uniform OITParams {
 	vec4 slice_curve;
 	uvec4 froxel_dims;
+	// Depth intervals (near, far, linearization, first slice); range_info.x is how many, 1 or fewer means the single slice_curve.
+	vec4 ranges[8];
+	uvec4 range_info;
 }
 oit_params;
 
@@ -544,9 +547,51 @@ float oit_slice_uv(float view_z) {
 	return log(1.0 + k * linear_z) / log(1.0 + k);
 }
 
+float oit_slice_pos(float view_z) {
+	float slices = oit_params.slice_curve.w;
+	uint n = oit_params.range_info.x;
+	if (n <= 1u) {
+		return oit_slice_uv(view_z) * slices;
+	}
+	// Unrolled with constant indices: a dynamic index into the uniform array cost 30% of the frame on a scene of 60 full-screen layers.
+	vec4 r = oit_params.ranges[0];
+	float slice_end = oit_params.ranges[1].w;
+	if (n > 1u && view_z > r.y) {
+		r = oit_params.ranges[1];
+		slice_end = (n > 2u ? oit_params.ranges[2].w : slices);
+	}
+	if (n > 2u && view_z > r.y) {
+		r = oit_params.ranges[2];
+		slice_end = (n > 3u ? oit_params.ranges[3].w : slices);
+	}
+	if (n > 3u && view_z > r.y) {
+		r = oit_params.ranges[3];
+		slice_end = (n > 4u ? oit_params.ranges[4].w : slices);
+	}
+	if (n > 4u && view_z > r.y) {
+		r = oit_params.ranges[4];
+		slice_end = (n > 5u ? oit_params.ranges[5].w : slices);
+	}
+	if (n > 5u && view_z > r.y) {
+		r = oit_params.ranges[5];
+		slice_end = (n > 6u ? oit_params.ranges[6].w : slices);
+	}
+	if (n > 6u && view_z > r.y) {
+		r = oit_params.ranges[6];
+		slice_end = (n > 7u ? oit_params.ranges[7].w : slices);
+	}
+	if (n > 7u && view_z > r.y) {
+		r = oit_params.ranges[7];
+		slice_end = slices;
+	}
+	float k = max(r.z, 0.001);
+	float linear_z = clamp((view_z - r.x) / max(r.y - r.x, 0.001), 0.0, 1.0);
+	return r.w + log(1.0 + k * linear_z) / log(1.0 + k) * (slice_end - r.w);
+}
+
 uint oit_depth_to_slice(float view_z) {
 	float slices = oit_params.slice_curve.w;
-	return uint(clamp(oit_slice_uv(view_z) * slices, 0.0, slices - 1.0));
+	return uint(clamp(oit_slice_pos(view_z), 0.0, slices - 1.0));
 }
 
 // Views pack side by side along X; froxel_dims.w is the view count and 0 means OIT is off.

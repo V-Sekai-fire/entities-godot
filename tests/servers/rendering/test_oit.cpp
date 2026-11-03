@@ -679,4 +679,61 @@ TEST_CASE("[OIT] auto range: bounds plus a margin, thin layers land in different
 	CHECK(oit_depth_to_slice(n, f, k, 512, 2.300f) != oit_depth_to_slice(n, f, k, 512, 2.302f));
 }
 
+TEST_CASE("[OIT] depth intervals: a far window does not coarsen the hair layers") {
+	const int slices = 512;
+	float r[OIT_MAX_INTERVALS][4];
+
+	// One object: one interval, the same curve as the single auto range.
+	OITIntervalSet one;
+	one.add(1.98f, 2.02f);
+	CHECK(oit_interval_ranges(one, slices, 0.0f, r) == 1);
+	float n = 0.0f, f = 0.0f, k = 0.0f;
+	CHECK(oit_auto_range(1.98f, 2.02f, 0.0f, n, f, k));
+	CHECK(r[0][0] == doctest::Approx(n));
+	CHECK(r[0][1] == doctest::Approx(f));
+
+	// Hair at 2 m and a window at 25 m: two intervals. Layers 2 mm apart separate; with one range spanning both they merge.
+	OITIntervalSet two;
+	two.add(1.98f, 2.02f);
+	two.add(24.98f, 25.02f);
+	int count = oit_interval_ranges(two, slices, 0.0f, r);
+	CHECK(count == 2);
+	CHECK(Math::floor(oit_interval_slice(r, count, slices, 2.000f)) != Math::floor(oit_interval_slice(r, count, slices, 2.002f)));
+	OITIntervalSet merged;
+	merged.add(1.98f, 25.02f);
+	int merged_count = oit_interval_ranges(merged, slices, 0.0f, r);
+	CHECK(Math::floor(oit_interval_slice(r, merged_count, slices, 2.000f)) == Math::floor(oit_interval_slice(r, merged_count, slices, 2.002f)));
+
+	// The slice coordinate never goes backwards with depth, also across the gap.
+	count = oit_interval_ranges(two, slices, 0.0f, r);
+	float last = -1.0f;
+	for (float z = 0.5f; z < 40.0f; z += 0.01f) {
+		float s = oit_interval_slice(r, count, slices, z);
+		CHECK(s >= last);
+		last = s;
+	}
+
+	// Overlapping bounds merge, and more than eight separate objects are joined at their smallest gaps.
+	OITIntervalSet many;
+	for (int i = 0; i < 20; i++) {
+		many.add(1.0f + float(i) * 3.0f, 1.5f + float(i) * 3.0f);
+	}
+	CHECK(many.count == OIT_MAX_INTERVALS);
+	OITIntervalSet overlap;
+	overlap.add(2.0f, 3.0f);
+	overlap.add(2.5f, 4.0f);
+	overlap.add(3.9f, 5.0f);
+	CHECK(overlap.count == 1);
+	CHECK(overlap.lo[0] == doctest::Approx(2.0f));
+	CHECK(overlap.hi[0] == doctest::Approx(5.0f));
+
+	// Solar scale: planets at 1e9 m and 1e11 m, layers 1% apart at 1e9 m separate.
+	OITIntervalSet solar;
+	solar.add(1.0e9f, 1.1e9f);
+	solar.add(1.0e11f, 1.5e11f);
+	count = oit_interval_ranges(solar, slices, 0.0f, r);
+	CHECK(count == 2);
+	CHECK(Math::floor(oit_interval_slice(r, count, slices, 1.00e9f)) != Math::floor(oit_interval_slice(r, count, slices, 1.01e9f)));
+}
+
 } // namespace TestOIT

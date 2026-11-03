@@ -3716,6 +3716,8 @@ void RenderForwardMobile::_oit_ensure_defaults() {
 	struct SceneOITParams {
 		float slice_curve[4];
 		uint32_t froxel_dims[4];
+		float ranges[OIT_MAX_INTERVALS][4];
+		uint32_t range_info[4];
 	};
 	SceneOITParams zero_params = {};
 	oit_default_params_buffer = rd->uniform_buffer_create(sizeof(SceneOITParams));
@@ -3890,8 +3892,10 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data, const SceneS
 	struct SceneOITParams {
 		float slice_curve[4];
 		uint32_t froxel_dims[4];
+		float ranges[OIT_MAX_INTERVALS][4];
+		uint32_t range_info[4];
 	};
-	SceneOITParams sp;
+	SceneOITParams sp = {};
 	float oit_near = float(GLOBAL_GET("rendering/oit/near_plane"));
 	float oit_far = float(GLOBAL_GET("rendering/oit/far_plane"));
 	float oit_k = float(GLOBAL_GET("rendering/oit/linearization_factor"));
@@ -3900,22 +3904,34 @@ void RenderForwardMobile::_oit_prepass(RenderDataRD *p_render_data, const SceneS
 		Transform3D view_xf = p_render_data->scene_data->cam_transform.affine_inverse();
 		float lo = Math::INF;
 		float hi = -Math::INF;
+		OITIntervalSet interval_set;
+		float margin = float(GLOBAL_GET("rendering/oit/auto_range_margin"));
+		for (uint32_t v = 0; v < view_count; v++) {
+			margin = MAX(margin, float(p_render_data->scene_data->get_view_eye_offset(v).length()));
+		}
 		for (const GeometryInstanceSurfaceDataCache *surf : render_list[RENDER_LIST_ALPHA].elements) {
 			if (surf == nullptr || surf->owner == nullptr) {
 				continue;
 			}
 			const AABB &bb = surf->owner->transformed_aabb;
+			float s_lo = Math::INF;
+			float s_hi = -Math::INF;
 			for (int c = 0; c < 8; c++) {
 				float z = -view_xf.xform(bb.get_endpoint(c)).z;
-				lo = MIN(lo, z);
-				hi = MAX(hi, z);
+				s_lo = MIN(s_lo, z);
+				s_hi = MAX(s_hi, z);
 			}
-		}
-		float margin = float(GLOBAL_GET("rendering/oit/auto_range_margin"));
-		for (uint32_t v = 0; v < view_count; v++) {
-			margin = MAX(margin, float(p_render_data->scene_data->get_view_eye_offset(v).length()));
+			lo = MIN(lo, s_lo);
+			hi = MAX(hi, s_hi);
+			// The padding grows with depth: at planet scale the fixed margin is below the float resolution of the fragment depth, and a layer would fall just outside its own interval.
+			interval_set.add(s_lo - MAX(margin, s_lo * 2.0e-6f), s_hi + MAX(margin, s_hi * 2.0e-6f));
 		}
 		oit_auto_range(lo, hi, margin, oit_near, oit_far, oit_k);
+		// Slices go to the depths that hold translucent geometry; the compute splat keeps the single range. The intervals carry the margin already.
+		if (splat_mode == 0 && interval_set.count > 1) {
+			int n = oit_interval_ranges(interval_set, slice_count, 0.0f, sp.ranges);
+			sp.range_info[0] = uint32_t(n);
+		}
 	}
 	sp.slice_curve[0] = oit_near;
 	sp.slice_curve[1] = oit_far;
