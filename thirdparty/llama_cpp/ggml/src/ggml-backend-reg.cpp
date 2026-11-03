@@ -1,13 +1,10 @@
 #include "ggml-backend-impl.h"
 #include "ggml-backend.h"
 #include "ggml-backend-dl.h"
-#include "ggml-backend-moe-cache.h"
 #include "ggml-impl.h"
 #include <algorithm>
 #include <cstring>
-#ifdef GGML_BACKEND_DL
 #include <filesystem>
-#endif
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -93,7 +90,6 @@
 #include "ggml-et.h"
 #endif
 
-#ifdef GGML_BACKEND_DL
 namespace fs = std::filesystem;
 
 static std::string path_str(const fs::path & path) {
@@ -110,13 +106,10 @@ static std::string path_str(const fs::path & path) {
         return std::string();
     }
 }
-#endif // GGML_BACKEND_DL
 
 struct ggml_backend_reg_entry {
     ggml_backend_reg_t reg;
-#ifdef GGML_BACKEND_DL
     dl_handle_ptr handle;
-#endif
 };
 
 struct ggml_backend_registry {
@@ -181,7 +174,6 @@ struct ggml_backend_registry {
     }
 
     ~ggml_backend_registry() {
-#ifdef GGML_BACKEND_DL
         // FIXME: backends cannot be safely unloaded without a function to destroy all the backend resources,
         // since backend threads may still be running and accessing resources from the dynamic library
         for (auto & entry : backends) {
@@ -189,14 +181,9 @@ struct ggml_backend_registry {
                 entry.handle.release(); // NOLINT
             }
         }
-#endif
     }
 
-    void register_backend(ggml_backend_reg_t reg
-#ifdef GGML_BACKEND_DL
-        , dl_handle_ptr handle = nullptr
-#endif
-    ) {
+    void register_backend(ggml_backend_reg_t reg, dl_handle_ptr handle = nullptr) {
         if (!reg) {
             return;
         }
@@ -211,11 +198,7 @@ struct ggml_backend_registry {
         GGML_LOG_DEBUG("%s: registered backend %s (%zu devices)\n",
             __func__, ggml_backend_reg_name(reg), ggml_backend_reg_dev_count(reg));
 #endif
-        backends.push_back({ reg
-#ifdef GGML_BACKEND_DL
-            , std::move(handle)
-#endif
-        });
+        backends.push_back({ reg, std::move(handle) });
         for (size_t i = 0; i < ggml_backend_reg_dev_count(reg); i++) {
             register_device(ggml_backend_reg_dev_get(reg, i));
         }
@@ -234,7 +217,6 @@ struct ggml_backend_registry {
         devices.push_back(device);
     }
 
-#ifdef GGML_BACKEND_DL
     ggml_backend_reg_t load_backend(const fs::path & path, bool silent) {
         dl_handle_ptr handle { dl_load_library(path) };
         if (!handle) {
@@ -296,8 +278,6 @@ struct ggml_backend_registry {
             GGML_LOG_DEBUG("%s: unloading %s backend\n", __func__, ggml_backend_reg_name(reg));
         }
 
-        ggml_moe_cache_unregister(reg);
-
         // remove devices
         devices.erase(
             std::remove_if(devices.begin(), devices.end(),
@@ -307,7 +287,6 @@ struct ggml_backend_registry {
         // remove backend
         backends.erase(it);
     }
-#endif // GGML_BACKEND_DL
 };
 
 static ggml_backend_registry & get_reg() {
@@ -411,7 +390,6 @@ ggml_backend_t ggml_backend_init_best(void) {
 }
 
 // Dynamic loading
-#ifdef GGML_BACKEND_DL
 ggml_backend_reg_t ggml_backend_load(const char * path) {
     return get_reg().load_backend(path, false);
 }
@@ -512,7 +490,13 @@ static ggml_backend_reg_t ggml_backend_load_best(const char * name, bool silent,
 #endif
         // default search paths: executable directory, current directory
         search_paths.push_back(get_executable_path());
-        search_paths.push_back(fs::current_path());
+        std::error_code cwd_ec;
+        const fs::path cwd = fs::current_path(cwd_ec);
+        if (cwd_ec) {
+            GGML_LOG_DEBUG("%s: failed to get current directory: %s\n", __func__, cwd_ec.message().c_str());
+        } else {
+            search_paths.push_back(cwd);
+        }
     } else {
         search_paths.push_back(fs::u8path(user_search_path));
     }
@@ -522,16 +506,11 @@ static ggml_backend_reg_t ggml_backend_load_best(const char * name, bool silent,
     std::error_code ec;
 
     for (const auto & search_path : search_paths) {
-        if (!fs::exists(search_path, ec)) {
-            if (ec) {
-                GGML_LOG_DEBUG("%s: posix_stat(%s) failure, error-message: %s\n", __func__, path_str(search_path).c_str(), ec.message().c_str());
-            } else {
-                GGML_LOG_DEBUG("%s: search path %s does not exist\n", __func__, path_str(search_path).c_str());
-            }
-            continue;
-        }
-        fs::directory_iterator dir_it(search_path, fs::directory_options::skip_permission_denied);
-        for (const auto & entry : dir_it) {
+        std::error_code dir_ec;
+        fs::directory_iterator dir_it(search_path, dir_ec);
+
+        for (const fs::directory_iterator end; dir_it != end; dir_it.increment(dir_ec)) {
+            const auto & entry = *dir_it;
             if (entry.is_regular_file(ec)) {
                 auto filename = entry.path().filename();
                 auto ext = entry.path().extension();
@@ -559,6 +538,10 @@ static ggml_backend_reg_t ggml_backend_load_best(const char * name, bool silent,
                     }
                 }
             }
+        }
+
+        if (dir_ec) {
+            GGML_LOG_DEBUG("%s: failed to enumerate %s: %s\n", __func__, path_str(search_path).c_str(), dir_ec.message().c_str());
         }
     }
 
@@ -613,12 +596,3 @@ void ggml_backend_load_all_from_path(const char * dir_path) {
         ggml_backend_load(backend_path);
     }
 }
-
-#else // GGML_BACKEND_DL
-
-ggml_backend_reg_t ggml_backend_load(const char * path) { (void)path; return nullptr; }
-void ggml_backend_unload(ggml_backend_reg_t reg) { (void)reg; }
-void ggml_backend_load_all() {}
-void ggml_backend_load_all_from_path(const char * dir_path) { (void)dir_path; }
-
-#endif // GGML_BACKEND_DL

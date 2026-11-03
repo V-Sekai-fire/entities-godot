@@ -1,7 +1,5 @@
 #pragma once
 
-#ifdef GGML_BACKEND_DL
-
 #ifdef _WIN32
 #   define WIN32_LEAN_AND_MEAN
 #   ifndef NOMINMAX
@@ -44,6 +42,4 @@ using dl_handle_ptr = std::unique_ptr<dl_handle, dl_handle_deleter>;
 dl_handle * dl_load_library(const fs::path & path);
 void * dl_get_sym(dl_handle * handle, const char * name);
 const char * dl_error();
-
-#endif // GGML_BACKEND_DL
 

@@ -106,7 +106,7 @@ static void split_params_parse_ex(int argc, const char ** argv, split_params & p
             split_print_usage(argv[0]);
             exit(0);
         } else if (arg == "--version") {
-            fprintf(stderr, "version: %d (%s)\n", llama_build_number(), llama_commit());
+            fprintf(stderr, "version: %s (build %d, commit %s)\n", llama_version(), llama_build_number(), llama_commit());
             fprintf(stderr, "built with %s for %s\n", llama_compiler(), llama_build_target());
             exit(0);
         } else if (arg == "--dry-run") {
@@ -362,6 +362,10 @@ struct split_strategy {
         }
         f_in.seekg(in_offset);
         f_in.read((char *)read_buf.data(), len);
+        if (!f_in) {
+            fprintf(stderr, "%s: failed to read %zu bytes at offset %zu, input file may be truncated\n", __func__, len, in_offset);
+            exit(EXIT_FAILURE);
+        }
         f_out.write((const char *)read_buf.data(), len);
     }
 };
@@ -549,6 +553,10 @@ static void gguf_merge(const split_params & split_params) {
             auto offset = gguf_get_data_offset(ctx_gguf) + gguf_get_tensor_offset(ctx_gguf, i_tensor);
             f_input.seekg(offset);
             f_input.read((char *)read_data.data(), n_bytes);
+            if (!f_input) {
+                fprintf(stderr, "%s: failed to read %zu bytes at offset %zu, input file may be truncated\n", __func__, n_bytes, offset);
+                exit(EXIT_FAILURE);
+            }
             if (!split_params.dry_run) {
                 // write tensor data + padding
                 fout.write((const char *)read_data.data(), n_bytes);

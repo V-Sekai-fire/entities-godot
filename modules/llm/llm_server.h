@@ -56,7 +56,7 @@
 //   LLM_PORT                listen port         (default 8080)
 //   LLM_ALIAS               served model id     (default gemma-4-12b)
 //   LLM_CTX                 context window      (default 32768)
-//   LLM_CTK / LLM_CTV       KV cache types      (default q8_0 / turbo4)
+//   LLM_CTK / LLM_CTV       KV cache types      (default q8_0 / q8_0)
 //   LLM_NGL                 GPU layers          (default -1, all)
 //   LLM_THREADS             CPU threads         (default 8)
 //

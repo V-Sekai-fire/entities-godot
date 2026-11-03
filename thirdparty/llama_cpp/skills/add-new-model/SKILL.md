@@ -5,8 +5,6 @@ description: Guided workflow for adding a new model architecture to llama.cpp. U
 
 # Add a new model architecture to llama.cpp
 
-**Fork context:** this repo is the TurboQuant fork. The upstream-facing rules below (maintainer discussions, CPU-first follow-ups, PR conventions) apply to work destined for ggml-org, but most model work here is fork-internal. Read the `AGENTS.md` overview first if not in context - in particular, a new architecture must work with the fork's turbo KV cache types and TQ weight types, and the shared files a model touches (`llama-arch.h`, `llama-graph.cpp`, `llama-context.cpp`) carry turbo wiring that must not be disturbed. The fork-specific additions at the end take precedence where they conflict.
-
 This skill walks a contributor through adding a new model architecture. AI-generated code is permitted in this project, so you may write full implementations for the steps below rather than only pointing at patterns - but follow `AGENTS.md`'s AI usage policy throughout:
 
 - The contributor is 100% responsible for every line, however it was produced. They must be able to explain and defend any part of it to a reviewer. Check in with them as you go (don't silently generate everything and hand over a finished diff) so they actually absorb what was written.
@@ -25,7 +23,7 @@ Before starting, read `CONTRIBUTING.md`, `AGENTS.md` and `docs/development/HOWTO
 Ask the contributor:
 1. Which model (HF repo id or name)? Is it text-only or does it have a multimodal (vision/audio) encoder?
 2. Do they already have the HF `config.json`/weights available locally?
-3. Have they checked for an existing PR/issue on this model? Suggest `gh search issues "<model name>"` and `gh search prs "<model name>"` in the `ggml-org/llama.cpp` repo. In this fork, also check for in-flight work: `git branch -r | grep <model>` and `gh search prs --repo TheTom/llama-cpp-turboquant "<model name>"` - model work often lives in fork experiment branches (e.g. the existing `origin/feat/gemma4-mtp`, `origin/feat/gemma4uv`, `origin/oscar` branches). If an existing PR covers it, the contributor should comment there and collaborate rather than open a duplicate (per CONTRIBUTING.md's AI Usage Policy).
+3. Have they checked for an existing PR/issue on this model? Suggest `gh search issues "<model name>"` and `gh search prs "<model name>"` in the `ggml-org/llama.cpp` repo. If an existing PR covers it, the contributor should comment there and collaborate rather than open a duplicate (per CONTRIBUTING.md's AI Usage Policy).
 4. What existing supported architecture is this model closest to (e.g. "Llama-like with sliding window", "MoE like DBRX", "BERT-style encoder")?
 
 If the contributor doesn't know the closest reference architecture, you may grep `conversion/*.py` and `src/models/*.cpp` for architectures with a similar config shape (layer count, head count, MoE expert count, norm placement) and suggest 1-2 candidates - but let the contributor confirm the choice rather than picking one yourself; this choice is a design decision they need to own.
@@ -68,7 +66,7 @@ These recur often enough in review comments on past add-model PRs that they're w
 - Optional hparams that are genuinely absent from some configs (e.g. a shared-expert count) should be read with an explicit optional/fallback accessor, not assumed present.
 - Hparams that are actually load-bearing (the model produces wrong output or crashes without them, e.g. `sliding_window_pattern`, norm-eps) must hard-error if missing, not silently fall back to a default.
 - Don't bake a default chat template into the C++ binary - inject it into the GGUF at conversion time instead, since one `llm_arch` can be reused by multiple fine-tunes with different templates, and a baked-in C++ default fails silently for those.
-- Before writing a dedicated tool-call/output parser, check whether the existing autoparser already handles the template (`llama-debug-template-parser <jinja>` shows what it detects).
+- Before writing a dedicated tool-call/output parser, check whether the existing autoparser already handles the template (`test-chat-auto-parser <jinja>` shows what it detects).
 - Marking a custom EOS/closing-tag token as `eot` at conversion time isn't always sufficient - in long/agentic generations a model can emit the closing sequence as literal text instead of the token, so generation never stops on EOG and raw text leaks past the parser. Verify this case, not just the token path.
 - If reusing or aliasing an existing pre-tokenizer for convenience, justify and test that choice explicitly - silent reuse is an easy source of subtle tokenizer bugs.
 - Watch for excessive graph splits caused by building per-layer view/index tensors inside the layer loop - hoist tensors that don't vary per layer out of the loop (relevant if you hit `GGML_SCHED_MAX_SPLIT_INPUTS`).
@@ -89,20 +87,8 @@ Reference: `examples/model-conversion/README.md`.
 3. Quantize (including QAT variants if relevant) and re-verify.
 4. Run perplexity evaluation (simple and full).
 5. Sanity-check across `tools/cli`, `tools/completion`, `tools/imatrix`, `tools/quantize`, and `tools/server`.
-6. CPU backend first; other backends (CUDA, Metal, ...) can be separate follow-up PRs per `CONTRIBUTING.md` (relaxed in this fork - fork-internal model work may bundle backends, but CPU-first still catches the most bugs cheapest).
-7. **Fork-specific:** run the model with turbo KV cache types, not just f16/q8_0 - `-ctk q8_0 -ctv turbo3` (and turbo2/turbo4), with flash attention. This exercises the rotation/padding path: head dims not a multiple of 128 must zero-pad correctly, and MLA/DeepSeek4 archs must use identical K/V types. Also quantize a copy to `TQ4_1S` and confirm it loads, decodes coherently, and runs on the CUDA kernels (TQ weights are arch-agnostic, but a new arch's graph must route them through the fused-TQ path, not the mmvq abort).
-8. Re-review every changed file against the coding/naming guidelines in `AGENTS.md` (and `CONTRIBUTING.md`'s "Coding guidelines"/"Naming guidelines" sections) - this is a separate pass from functional testing and is just as important: no forced line-wrapping, no unicode punctuation, minimal/non-redundant comments, `snake_case` naming (`kebab-case` for file names), matching indentation/brace style, etc.
-
-## Fork-specific additions (TurboQuant)
-
-Take precedence over the upstream-facing rules where they conflict:
-
-- **Shared files carry turbo wiring:** a new arch registers tensors in `src/llama-arch.h/.cpp` and builds its graph in `src/models/<name>.cpp`, but `src/llama-graph.cpp` also carries the fork's inverse-WHT post-processing (FA and non-FA paths) and `src/llama-context.cpp` carries the turbo FA auto-enable, head-dim padding, and MLA K/V equality checks. Do not refactor or reformat those blocks while adding a model; a structural change there that breaks turbo semantics is worse than a cosmetic diff.
-- **Turbo cache types are the point of this fork:** a new arch must be verified with turbo KV (`-ctv turbo3`), not just default f16. If the model's head dims are not multiples of 128, exercise the zero-padding path explicitly. If it is MLA-family, K and V cache types must match and V rotation/padding is skipped - the existing DeepSeek4 handling is the reference.
-- **TQ weight types:** new archs should be quantizable with `llama-quantize ... TQ4_1S` and the result must run (CUDA fused-TQ path; MoE models auto-disable CUDA graphs for TQ `MUL_MAT_ID` - do not try to re-enable).
-- **Rebase hygiene:** keep `src/models/<name>.cpp` and conversion code structurally close to upstream style so the next upstream rebase stays clean; add a `fork:` tag comment on any deliberately fork-divergent block (see the code-review skill's TurboQuant section).
-- **Backend bundling:** upstream's "CPU first, backends as follow-ups" is relaxed here for fork-internal work, but do not silently ship an unvalidated backend path - each claimed backend must have been run, not just compiled.
-- **Model files are the cleanest part of the tree:** the fork's model support (`src/models/`, `conversion/`, `gguf-py/`) mostly matches upstream; if a merge/rebase produced stacked duplicates in `gguf-py/gguf/constants.py` (it has before - `import gguf` crashes), that is a separate cleanup, not part of the model PR.
+6. CPU backend first; other backends (CUDA, Metal, ...) can be separate follow-up PRs per `CONTRIBUTING.md`.
+7. Re-review every changed file against the coding/naming guidelines in `AGENTS.md` (and `CONTRIBUTING.md`'s "Coding guidelines"/"Naming guidelines" sections) - this is a separate pass from functional testing and is just as important: no forced line-wrapping, no unicode punctuation, minimal/non-redundant comments, `snake_case` naming (`kebab-case` for file names), matching indentation/brace style, etc.
 
 ## Before opening a PR
 

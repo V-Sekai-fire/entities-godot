@@ -38,7 +38,6 @@ ggml_c_sources = [
     # SCons basename collision between ggml-cpu/quants.c and arch/x86/quants.c,
     # not a conflict with this file.
     tp + "ggml/src/ggml-quants.c",
-    tp + "ggml/src/ggml-turbo-quant.c",
 ]
 
 ggml_cpp_sources = [
@@ -228,9 +227,6 @@ env_tp.Append(
         # On wasm32, no x86/arm SIMD — select scalar fallbacks via arch-fallback.h
         # (mirrors what upstream CMakeLists does for generic/non-SIMD platforms).
         *(["GGML_CPU_GENERIC"] if env["platform"] == "web" else []),
-        # cmake-generated version strings
-        'GGML_VERSION=\\"0.10.0\\"',
-        'GGML_COMMIT=\\"turboquant-kv-cache\\"',
     ]
     + backend_defines
 )

@@ -106,8 +106,8 @@ void LLMServer::initialize() {
 	context->set_n_ctx(env_int("LLM_CTX", 32768));
 	context->set_n_threads(env_int("LLM_THREADS", 8));
 	context->set_cache_type_k(env_str("LLM_CTK", "q8_0"));
-	context->set_cache_type_v(env_str("LLM_CTV", "turbo4"));
-	context->set_flash_attn(true); // required by the turbo V codecs
+	context->set_cache_type_v(env_str("LLM_CTV", "q8_0"));
+	context->set_flash_attn(true); // required by a quantized V cache
 
 	chat.instantiate();
 	chat->connect("token_generated", callable_mp(this, &LLMServer::_on_token));

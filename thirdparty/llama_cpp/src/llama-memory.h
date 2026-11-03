@@ -64,15 +64,6 @@ struct llama_memory_context_i {
 
     // get the status of the memory context - used for error handling and checking if any updates would be applied
     virtual llama_memory_status get_status() const = 0;
-
-    // TurboQuant: get rotation tensors for pre-rotate-queries optimization
-    // Returns null for non-turbo memory types. Override in KV cache contexts.
-    virtual ggml_tensor * get_turbo_rot_forward() const { return nullptr; }
-    virtual ggml_tensor * get_turbo_rot_inverse() const { return nullptr; }
-
-    // TurboQuant InnerQ: get per-channel scale_inv tensor for Q/V equalization
-    // Returns nullptr when InnerQ is not active. Override in KV cache contexts.
-    virtual ggml_tensor * get_turbo_innerq_scale_inv() const { return nullptr; }
 };
 
 using llama_memory_context_ptr = std::unique_ptr<llama_memory_context_i>;
@@ -94,6 +85,7 @@ struct llama_memory_i {
     // split the input batch into a set of ubatches and verify that they can fit into the cache
     // return a context object containing the ubatches and memory state required to process them
     // check the llama_memory_context_i::get_status() for the result
+    // embd_all: keep all the tokens of a sequence in one ubatch (all tokens are output, or the attention is non-causal)
     virtual llama_memory_context_ptr init_batch(
             llama_batch_allocr & balloc,
             uint32_t n_ubatch,

@@ -41,13 +41,13 @@
 #include <thirdparty/llama_cpp/include/llama.h>
 
 // Inference context wrapping llama_context*.
-// KV cache types: "f16", "q8_0", "q4_0", "turbo2", "turbo3", "turbo4"
+// KV cache types: "f16", "q8_0", "q4_0"
 //
 // GDScript:
 //   var ctx = LLMContext.new()
 //   ctx.n_ctx = 32768
 //   ctx.cache_type_k = "q8_0"
-//   ctx.cache_type_v = "turbo4"
+//   ctx.cache_type_v = "q8_0"
 //   ctx.created.connect(func(): chat.setup(model, ctx))
 //   ctx.create(model)
 class LLMContext : public RefCounted {
@@ -57,7 +57,7 @@ class LLMContext : public RefCounted {
 	int n_threads = 4;
 	bool flash_attn = true;
 	String cache_type_k = "q8_0";
-	String cache_type_v = "turbo4";
+	String cache_type_v = "q8_0";
 
 	llama_context *ctx = nullptr;
 	Thread worker;

@@ -1,19 +1,18 @@
 #pragma once
 
 #include <sycl/sycl.hpp>
+#include <sycl/ext/intel/experimental/grf_size_properties.hpp>
 #include "dpct/helper.hpp"
 #include "common.hpp"
 #include "convert.hpp"
 #include "vecdotq.hpp"
-#include "fattn-buffers.hpp"
-#include "turbo-quant.hpp"
+#include "fattn.hpp"
 
 #include "ggml.h"
 
 #include <cstdint>
 #include <cmath>
 #include <float.h>
-#include <type_traits>
 
 
 #define FATTN_KQ_STRIDE       256
@@ -576,321 +575,6 @@ static __dpct_inline__ void dequantize_V_q8_0(const void * __restrict__ vx, void
     }
 }
 
-// ---- Turbo KQ dot products (non-LUT scalar path) ----
-
-template <int D, int nthreads>
-static __dpct_inline__ float vec_dot_fattn_vec_KQ_turbo3_0(
-    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
-
-    const block_turbo3_0 * K_turbo = (const block_turbo3_0 *) K_c;
-    GGML_UNUSED(Q_q8);
-    GGML_UNUSED(Q_ds_v);
-
-    constexpr int cpy_nb = ggml_sycl_get_max_cpy_bytes();
-    constexpr int cpy_ne = cpy_nb / 4;
-
-    float sum = 0.0f;
-
-#pragma unroll
-    for (int k_KQ_0 = 0; k_KQ_0 < D/2; k_KQ_0 += nthreads*cpy_ne) {
-#pragma unroll
-        for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
-            const int k_KQ = k_KQ_0 + (sycl::ext::oneapi::this_work_item::get_nd_item<3>().get_local_id(2) % nthreads)*cpy_ne + k_KQ_1;
-
-            const int elem0 = k_KQ * 2;
-            const int ib    = elem0 / QK_TURBO3;
-            const int j0    = elem0 % QK_TURBO3;
-
-            const float     norm     = static_cast<float>(K_turbo[ib].norm);
-            const uint8_t   qs_byte  = K_turbo[ib].qs[j0 / 4];
-            const uint8_t   sgn_byte = K_turbo[ib].signs[j0 / 8];
-
-            const int     shift  = (j0 % 4) * 2;
-            const uint8_t idx0   = ((qs_byte >> shift)     & 0x3) | (((sgn_byte >> (j0 % 8))     & 0x1) << 2);
-            const uint8_t idx1   = ((qs_byte >> (shift+2)) & 0x3) | (((sgn_byte >> (j0 % 8 + 1)) & 0x1) << 2);
-
-            sycl::float2 kv;
-            kv.x() = TURBO_CENTROIDS_3BIT[idx0] * norm;
-            kv.y() = TURBO_CENTROIDS_3BIT[idx1] * norm;
-
-#ifdef GGML_SYCL_F16
-            const sycl::half2 qv = ((const sycl::half2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1];
-            ggml_sycl_mad(sum, kv, qv.template convert<float, sycl::rounding_mode::automatic>());
-#else
-            const sycl::float2 qv = ((const sycl::float2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1];
-            sum += kv.x() * qv.x() + kv.y() * qv.y();
-#endif // GGML_SYCL_F16
-        }
-    }
-
-    return sum;
-}
-
-template <int D, int nthreads>
-static __dpct_inline__ float vec_dot_fattn_vec_KQ_turbo2_0(
-    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
-
-    const block_turbo2_0 * K_turbo = (const block_turbo2_0 *) K_c;
-    GGML_UNUSED(Q_q8);
-    GGML_UNUSED(Q_ds_v);
-
-    constexpr int cpy_nb = ggml_sycl_get_max_cpy_bytes();
-    constexpr int cpy_ne = cpy_nb / 4;
-
-    float sum = 0.0f;
-
-#pragma unroll
-    for (int k_KQ_0 = 0; k_KQ_0 < D/2; k_KQ_0 += nthreads*cpy_ne) {
-#pragma unroll
-        for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
-            const int k_KQ = k_KQ_0 + (sycl::ext::oneapi::this_work_item::get_nd_item<3>().get_local_id(2) % nthreads)*cpy_ne + k_KQ_1;
-
-            const int elem0 = k_KQ * 2;
-            const int ib    = elem0 / QK_TURBO2;
-            const int j0    = elem0 % QK_TURBO2;
-
-            const float     norm     = static_cast<float>(K_turbo[ib].norm);
-            const uint8_t   qs_byte  = K_turbo[ib].qs[j0 / 4];
-
-            const int     shift  = (j0 % 4) * 2;
-            const uint8_t idx0   = (qs_byte >> shift)     & 0x3;
-            const uint8_t idx1   = (qs_byte >> (shift+2)) & 0x3;
-
-            sycl::float2 kv;
-            kv.x() = TURBO_CENTROIDS_2BIT[idx0] * norm;
-            kv.y() = TURBO_CENTROIDS_2BIT[idx1] * norm;
-
-#ifdef GGML_SYCL_F16
-            const sycl::half2 qv = ((const sycl::half2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1];
-            ggml_sycl_mad(sum, kv, qv.template convert<float, sycl::rounding_mode::automatic>());
-#else
-            const sycl::float2 qv = ((const sycl::float2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1];
-            sum += kv.x() * qv.x() + kv.y() * qv.y();
-#endif // GGML_SYCL_F16
-        }
-    }
-
-    return sum;
-}
-
-template <int D, int nthreads>
-static __dpct_inline__ float vec_dot_fattn_vec_KQ_turbo4_0(
-    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
-
-    const block_turbo4_0 * K_turbo = (const block_turbo4_0 *) K_c;
-    GGML_UNUSED(Q_q8);
-    GGML_UNUSED(Q_ds_v);
-
-    constexpr int cpy_nb = ggml_sycl_get_max_cpy_bytes();
-    constexpr int cpy_ne = cpy_nb / 4;
-
-    float sum = 0.0f;
-
-#pragma unroll
-    for (int k_KQ_0 = 0; k_KQ_0 < D/2; k_KQ_0 += nthreads*cpy_ne) {
-#pragma unroll
-        for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
-            const int k_KQ = k_KQ_0 + (sycl::ext::oneapi::this_work_item::get_nd_item<3>().get_local_id(2) % nthreads)*cpy_ne + k_KQ_1;
-
-            const int elem0 = k_KQ * 2;
-            const int ib    = elem0 / QK_TURBO4;
-            const int j0    = elem0 % QK_TURBO4;
-
-            const float   norm    = static_cast<float>(K_turbo[ib].norm);
-            const uint8_t qs_byte = K_turbo[ib].qs[j0 / 2];
-
-            const uint8_t idx0 = (qs_byte >> 0) & 0xF;
-            const uint8_t idx1 = (qs_byte >> 4) & 0xF;
-
-            sycl::float2 kv;
-            kv.x() = TURBO_CENTROIDS_4BIT[idx0] * norm;
-            kv.y() = TURBO_CENTROIDS_4BIT[idx1] * norm;
-
-#ifdef GGML_SYCL_F16
-            const sycl::half2 qv = ((const sycl::half2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1];
-            ggml_sycl_mad(sum, kv, qv.template convert<float, sycl::rounding_mode::automatic>());
-#else
-            const sycl::float2 qv = ((const sycl::float2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1];
-            sum += kv.x() * qv.x() + kv.y() * qv.y();
-#endif // GGML_SYCL_F16
-        }
-    }
-
-    return sum;
-}
-
-// ---- Turbo V dequantize functions ----
-
-template <typename T, int ne>
-static __dpct_inline__ void dequantize_V_turbo3_0(const void * __restrict__ vx, void * __restrict__ dst, const int64_t i0) {
-    const block_turbo3_0 * x = (const block_turbo3_0 *) vx;
-
-    const int64_t ib   = i0 / QK_TURBO3;
-    const int     j0   = i0 % QK_TURBO3;
-    const float   norm = static_cast<float>(x[ib].norm);
-
-    static_assert(ne == 2 || ne == 4, "bad ne");
-
-    if constexpr (ne == 4) {
-        const uint8_t qs_byte  = x[ib].qs[j0 / 4];
-        const uint8_t sgn_byte = x[ib].signs[j0 / 8];
-        const int     shift_s  = j0 % 8;
-        // Inside if constexpr (ne == 4): j0 advances in steps of 4 within a QK_TURBO3-sized block,
-        // so j0 % 8 is always 0 or 4. Max shift = shift_s+3 = 7, safe for uint8_t.
-
-        const uint8_t idx0 = ((qs_byte >> 0) & 0x3) | (((sgn_byte >> (shift_s+0)) & 0x1) << 2);
-        const uint8_t idx1 = ((qs_byte >> 2) & 0x3) | (((sgn_byte >> (shift_s+1)) & 0x1) << 2);
-        const uint8_t idx2 = ((qs_byte >> 4) & 0x3) | (((sgn_byte >> (shift_s+2)) & 0x1) << 2);
-        const uint8_t idx3 = ((qs_byte >> 6) & 0x3) | (((sgn_byte >> (shift_s+3)) & 0x1) << 2);
-
-#ifdef GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, sycl::half>) {
-            ((sycl::half2 *) dst)[0] = make_half2(
-                sycl::half(TURBO_CENTROIDS_3BIT[idx0] * norm),
-                sycl::half(TURBO_CENTROIDS_3BIT[idx1] * norm));
-            ((sycl::half2 *) dst)[1] = make_half2(
-                sycl::half(TURBO_CENTROIDS_3BIT[idx2] * norm),
-                sycl::half(TURBO_CENTROIDS_3BIT[idx3] * norm));
-        } else
-#endif // GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, float>) {
-            ((sycl::float2 *) dst)[0] = make_float2(
-                TURBO_CENTROIDS_3BIT[idx0] * norm,
-                TURBO_CENTROIDS_3BIT[idx1] * norm);
-            ((sycl::float2 *) dst)[1] = make_float2(
-                TURBO_CENTROIDS_3BIT[idx2] * norm,
-                TURBO_CENTROIDS_3BIT[idx3] * norm);
-        } else {
-            static_assert(std::is_same_v<T, void>, "unsupported type");
-        }
-    } else { // ne == 2
-#ifdef GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, sycl::half>) {
-            float v0 = turbo3_dequant_element(&x[ib], j0,   norm);
-            float v1 = turbo3_dequant_element(&x[ib], j0+1, norm);
-            ((sycl::half2 *) dst)[0] = make_half2(sycl::half(v0), sycl::half(v1));
-        } else
-#endif // GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, float>) {
-            ((float *) dst)[0] = turbo3_dequant_element(&x[ib], j0,   norm);
-            ((float *) dst)[1] = turbo3_dequant_element(&x[ib], j0+1, norm);
-        } else {
-            static_assert(std::is_same_v<T, void>, "unsupported type");
-        }
-    }
-}
-
-template <typename T, int ne>
-static __dpct_inline__ void dequantize_V_turbo2_0(const void * __restrict__ vx, void * __restrict__ dst, const int64_t i0) {
-    const block_turbo2_0 * x = (const block_turbo2_0 *) vx;
-
-    const int64_t ib   = i0 / QK_TURBO2;
-    const int     j0   = i0 % QK_TURBO2;
-    const float   norm = static_cast<float>(x[ib].norm);
-
-    static_assert(ne == 2 || ne == 4, "bad ne");
-
-    if constexpr (ne == 4) {
-        const uint8_t qs_byte = x[ib].qs[j0 / 4];
-
-        const uint8_t idx0 = (qs_byte >> 0) & 0x3;
-        const uint8_t idx1 = (qs_byte >> 2) & 0x3;
-        const uint8_t idx2 = (qs_byte >> 4) & 0x3;
-        const uint8_t idx3 = (qs_byte >> 6) & 0x3;
-
-#ifdef GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, sycl::half>) {
-            ((sycl::half2 *) dst)[0] = make_half2(
-                sycl::half(TURBO_CENTROIDS_2BIT[idx0] * norm),
-                sycl::half(TURBO_CENTROIDS_2BIT[idx1] * norm));
-            ((sycl::half2 *) dst)[1] = make_half2(
-                sycl::half(TURBO_CENTROIDS_2BIT[idx2] * norm),
-                sycl::half(TURBO_CENTROIDS_2BIT[idx3] * norm));
-        } else
-#endif // GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, float>) {
-            ((sycl::float2 *) dst)[0] = make_float2(
-                TURBO_CENTROIDS_2BIT[idx0] * norm,
-                TURBO_CENTROIDS_2BIT[idx1] * norm);
-            ((sycl::float2 *) dst)[1] = make_float2(
-                TURBO_CENTROIDS_2BIT[idx2] * norm,
-                TURBO_CENTROIDS_2BIT[idx3] * norm);
-        } else {
-            static_assert(std::is_same_v<T, void>, "unsupported type");
-        }
-    } else { // ne == 2
-#ifdef GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, sycl::half>) {
-            float v0 = turbo2_dequant_element(&x[ib], j0,   norm);
-            float v1 = turbo2_dequant_element(&x[ib], j0+1, norm);
-            ((sycl::half2 *) dst)[0] = make_half2(sycl::half(v0), sycl::half(v1));
-        } else
-#endif // GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, float>) {
-            ((float *) dst)[0] = turbo2_dequant_element(&x[ib], j0,   norm);
-            ((float *) dst)[1] = turbo2_dequant_element(&x[ib], j0+1, norm);
-        } else {
-            static_assert(std::is_same_v<T, void>, "unsupported type");
-        }
-    }
-}
-
-template <typename T, int ne>
-static __dpct_inline__ void dequantize_V_turbo4_0(const void * __restrict__ vx, void * __restrict__ dst, const int64_t i0) {
-    const block_turbo4_0 * x = (const block_turbo4_0 *) vx;
-
-    const int64_t ib   = i0 / QK_TURBO4;
-    const int     j0   = i0 % QK_TURBO4;
-    const float   norm = static_cast<float>(x[ib].norm);
-
-    static_assert(ne == 2 || ne == 4, "bad ne");
-
-    if constexpr (ne == 4) {
-        const uint8_t qs_byte0 = x[ib].qs[j0 / 2];
-        const uint8_t qs_byte1 = x[ib].qs[j0 / 2 + 1];
-
-        const uint8_t idx0 = (qs_byte0 >> 0) & 0xF;
-        const uint8_t idx1 = (qs_byte0 >> 4) & 0xF;
-        const uint8_t idx2 = (qs_byte1 >> 0) & 0xF;
-        const uint8_t idx3 = (qs_byte1 >> 4) & 0xF;
-
-#ifdef GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, sycl::half>) {
-            ((sycl::half2 *) dst)[0] = make_half2(
-                sycl::half(TURBO_CENTROIDS_4BIT[idx0] * norm),
-                sycl::half(TURBO_CENTROIDS_4BIT[idx1] * norm));
-            ((sycl::half2 *) dst)[1] = make_half2(
-                sycl::half(TURBO_CENTROIDS_4BIT[idx2] * norm),
-                sycl::half(TURBO_CENTROIDS_4BIT[idx3] * norm));
-        } else
-#endif // GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, float>) {
-            ((sycl::float2 *) dst)[0] = make_float2(
-                TURBO_CENTROIDS_4BIT[idx0] * norm,
-                TURBO_CENTROIDS_4BIT[idx1] * norm);
-            ((sycl::float2 *) dst)[1] = make_float2(
-                TURBO_CENTROIDS_4BIT[idx2] * norm,
-                TURBO_CENTROIDS_4BIT[idx3] * norm);
-        } else {
-            static_assert(std::is_same_v<T, void>, "unsupported type");
-        }
-    } else { // ne == 2
-#ifdef GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, sycl::half>) {
-            float v0 = turbo4_dequant_element(&x[ib], j0,   norm);
-            float v1 = turbo4_dequant_element(&x[ib], j0+1, norm);
-            ((sycl::half2 *) dst)[0] = make_half2(sycl::half(v0), sycl::half(v1));
-        } else
-#endif // GGML_SYCL_F16
-        if constexpr (std::is_same_v<T, float>) {
-            ((float *) dst)[0] = turbo4_dequant_element(&x[ib], j0,   norm);
-            ((float *) dst)[1] = turbo4_dequant_element(&x[ib], j0+1, norm);
-        } else {
-            static_assert(std::is_same_v<T, void>, "unsupported type");
-        }
-    }
-}
-
 template <int type_K, int D, int nthreads, int warp_size>
 constexpr vec_dot_KQ_t get_vec_dot_KQ() {
     if constexpr (type_K == GGML_TYPE_F16) {
@@ -905,12 +589,6 @@ constexpr vec_dot_KQ_t get_vec_dot_KQ() {
         return vec_dot_fattn_vec_KQ_q5_1<D, nthreads, warp_size>;
     } else if constexpr (type_K == GGML_TYPE_Q8_0) {
         return vec_dot_fattn_vec_KQ_q8_0<D, nthreads, warp_size>;
-    } else if constexpr (type_K == GGML_TYPE_TURBO3_0) {
-        return vec_dot_fattn_vec_KQ_turbo3_0<D, nthreads>;
-    } else if constexpr (type_K == GGML_TYPE_TURBO2_0) {
-        return vec_dot_fattn_vec_KQ_turbo2_0<D, nthreads>;
-    } else if constexpr (type_K == GGML_TYPE_TURBO4_0) {
-        return vec_dot_fattn_vec_KQ_turbo4_0<D, nthreads>;
     } else {
         static_assert(type_K == -1, "bad type");
         return nullptr;
@@ -931,12 +609,6 @@ constexpr dequantize_V_t get_dequantize_V() {
         return dequantize_V_q5_1<T, ne>;
     } else if constexpr (type_V == GGML_TYPE_Q8_0) {
         return dequantize_V_q8_0<T, ne>;
-    } else if constexpr (type_V == GGML_TYPE_TURBO3_0) {
-        return dequantize_V_turbo3_0<T, ne>;
-    } else if constexpr (type_V == GGML_TYPE_TURBO2_0) {
-        return dequantize_V_turbo2_0<T, ne>;
-    } else if constexpr (type_V == GGML_TYPE_TURBO4_0) {
-        return dequantize_V_turbo4_0<T, ne>;
     } else {
         static_assert(type_V == -1, "bad type");
         return nullptr;
@@ -1160,7 +832,30 @@ static void flash_attn_combine_results(const float * __restrict__ VKQ_parts,
     dst[tid] = VKQ_numerator / VKQ_denominator;
 }
 
-template <fattn_kernel_t fattn_kernel, int warp_size>
+// Carries the sub-group size (and grf_size_automatic when use_large_grf) as
+// kernel properties via get(properties_tag), in place of the
+// reqd_sub_group_size attribute and the deprecated parallel_for overload.
+template <typename KernelFunc, uint32_t Size, bool UseGrf>
+struct props_kernel {
+    KernelFunc kernel;
+
+    void operator()(sycl::nd_item<3> item) const {
+        kernel(item);
+    }
+
+    auto get(sycl::ext::oneapi::experimental::properties_tag) const {
+        if constexpr (UseGrf) {
+            return sycl::ext::oneapi::experimental::properties{
+                sycl::ext::intel::experimental::grf_size_automatic,
+                sycl::ext::oneapi::experimental::sub_group_size<Size> };
+        } else {
+            return sycl::ext::oneapi::experimental::properties{
+                sycl::ext::oneapi::experimental::sub_group_size<Size> };
+        }
+    }
+};
+
+template <fattn_kernel_t fattn_kernel, int warp_size, bool use_large_grf = false>
 static void lauch_kernel(
     dpct::dim3 group_range,
     dpct::dim3 local_range,
@@ -1204,23 +899,28 @@ static void lauch_kernel(
     const int32_t nb32,
     const int64_t nb33) {
     GGML_UNUSED(local_mem_size);
+
+    const auto rng = sycl::nd_range<3>(
+        static_cast<sycl::range<3>>(group_range * local_range),
+        static_cast<sycl::range<3>>(local_range));
+
+    const auto kernel = [=](sycl::nd_item<3> item_ct1) {
+        GGML_UNUSED(item_ct1);
+        fattn_kernel(Q, K, V, mask, sinks, KV_max, dst, dst_meta, scale,
+                     max_bias, m0, m1, n_head_log2, logit_softcap, ne00,
+                     ne01, ne02, ne03, nb01, nb02, nb03, ne10, ne11,
+                     ne12, ne13, nb11, nb12, nb13, nb21, nb22, nb23,
+                     ne31, ne32, ne33, nb31, nb32, nb33);
+    };
+
     q->submit([&](sycl::handler &cgh) {
-        cgh.parallel_for(
-            sycl::nd_range<3>(
-                static_cast<sycl::range<3>>(group_range * local_range),
-                static_cast<sycl::range<3>>(local_range)),
-            [=](sycl::nd_item<3> item_ct1) [[sycl::reqd_sub_group_size(warp_size)]] {
-                GGML_UNUSED(item_ct1);
-                fattn_kernel(Q, K, V, mask, sinks, KV_max, dst, dst_meta, scale,
-                             max_bias, m0, m1, n_head_log2, logit_softcap, ne00,
-                             ne01, ne02, ne03, nb01, nb02, nb03, ne10, ne11,
-                             ne12, ne13, nb11, nb12, nb13, nb21, nb22, nb23,
-                             ne31, ne32, ne33, nb31, nb32, nb33);
-            });
+        // grf_size_automatic lets the compiler use the large register file when the kernel needs it. grf_size<256> would say the same but is undefined on devices that do not have it.
+        cgh.parallel_for(rng, props_kernel<decltype(kernel), warp_size, use_large_grf>{kernel});
     });
 }
 
-template <int DV, int ncols1, int ncols2, fattn_kernel_t fattn_kernel, int warp_size>
+// use_large_grf lets the compiler choose the large register file. Opt in where spilling limits the kernel, not thread occupancy.
+template <int DV, int ncols1, int ncols2, fattn_kernel_t fattn_kernel, int warp_size, bool use_large_grf = false>
 void launch_fattn(
     ggml_backend_sycl_context & ctx, ggml_tensor * dst, const int nwarps, const size_t nbytes_shared,
     const int nbatch_fa, const bool need_f16_K, const bool need_f16_V, const bool stream_k) {
@@ -1248,13 +948,11 @@ void launch_fattn(
     GGML_ASSERT(!mask || mask->type == GGML_TYPE_F16);
 
     ggml_sycl_pool & pool = ctx.pool();
-    ggml_sycl_fattn_kv_buffers & fbuf = ctx.fattn_buffers();
     dpct::queue_ptr  main_stream = ctx.stream();
     const int id  = ggml_sycl_get_device();
     const int nsm = ggml_sycl_info().devices[id].nsm;
 
-    ggml_sycl_fattn_alloc        K_f16(fbuf.K);
-    ggml_sycl_fattn_alloc        V_f16(fbuf.V);
+    const ggml_sycl_fattn_extra  extra = ggml_sycl_fattn_get_extra(dst);
     ggml_sycl_pool_alloc<int>    KV_max(pool);
     ggml_sycl_pool_alloc<float>  dst_tmp(pool);
     ggml_sycl_pool_alloc<sycl::float2> dst_tmp_meta(pool);
@@ -1273,10 +971,11 @@ void launch_fattn(
         const size_t bs = ggml_blck_size(K->type);
         const size_t ts = ggml_type_size(K->type);
 
-        K_f16.alloc(ggml_nelements(K));
+        GGML_ASSERT(extra.K_buffer_ptr);
+        sycl::half * K_f16_ptr = (sycl::half *) extra.K_buffer_ptr;
         if (ggml_is_contiguously_allocated(K)) {
             to_fp16_sycl_t to_fp16 = ggml_get_to_fp16_sycl(K->type, dst);
-            to_fp16(K_data, K_f16.ptr, ggml_nelements(K), main_stream);
+            to_fp16(K_data, K_f16_ptr, ggml_nelements(K), main_stream);
 
             nb11 = nb11 * bs * sizeof(sycl::half) / ts;
             nb12 = nb12 * bs * sizeof(sycl::half) / ts;
@@ -1287,13 +986,13 @@ void launch_fattn(
             const int64_t s01 = nb11 / ts;
             const int64_t s02 = nb12 / ts;
             const int64_t s03 = nb13 / ts;
-            to_fp16(K_data, K_f16.ptr, K->ne[0], K->ne[1], K->ne[2], K->ne[3], s01, s02, s03, main_stream);
+            to_fp16(K_data, K_f16_ptr, K->ne[0], K->ne[1], K->ne[2], K->ne[3], s01, s02, s03, main_stream);
 
             nb11 = K->ne[0] * sizeof(sycl::half);
             nb12 = K->ne[1] * nb11;
             nb13 = K->ne[2] * nb12;
         }
-        K_data = (char *) K_f16.ptr;
+        K_data = (char *) K_f16_ptr;
     }
 
     if (need_f16_V && V->type != GGML_TYPE_F16) {
@@ -1306,11 +1005,12 @@ void launch_fattn(
             const size_t bs = ggml_blck_size(V->type);
             const size_t ts = ggml_type_size(V->type);
 
-            V_f16.alloc(ggml_nelements(V));
+            GGML_ASSERT(extra.V_buffer_ptr);
+            sycl::half * V_f16_ptr = (sycl::half *) extra.V_buffer_ptr;
             if (ggml_is_contiguously_allocated(V)) {
                 to_fp16_sycl_t to_fp16 = ggml_get_to_fp16_sycl(V->type, dst);
-                to_fp16(V_data, V_f16.ptr, ggml_nelements(V), main_stream);
-                V_data = (char *) V_f16.ptr;
+                to_fp16(V_data, V_f16_ptr, ggml_nelements(V), main_stream);
+                V_data = (char *) V_f16_ptr;
 
                 nb21 = nb21 * bs * sizeof(sycl::half) / ts;
                 nb22 = nb22 * bs * sizeof(sycl::half) / ts;
@@ -1321,13 +1021,13 @@ void launch_fattn(
                 const int64_t s01 = nb21 / ts;
                 const int64_t s02 = nb22 / ts;
                 const int64_t s03 = nb23 / ts;
-                to_fp16(V_data, V_f16.ptr, V->ne[0], V->ne[1], V->ne[2], V->ne[3], s01, s02, s03, main_stream);
+                to_fp16(V_data, V_f16_ptr, V->ne[0], V->ne[1], V->ne[2], V->ne[3], s01, s02, s03, main_stream);
 
                 nb21 = V->ne[0] * sizeof(sycl::half);
                 nb22 = V->ne[1] * nb21;
                 nb23 = V->ne[2] * nb22;
             }
-            V_data = (char *) V_f16.ptr;
+            V_data = (char *) V_f16_ptr;
         }
     }
 
@@ -1453,7 +1153,7 @@ void launch_fattn(
 
     GGML_ASSERT(block_dim.x % warp_size == 0);
 
-    lauch_kernel<fattn_kernel, warp_size>(
+    lauch_kernel<fattn_kernel, warp_size, use_large_grf>(
         blocks_num, block_dim, main_stream, (unsigned int) nbytes_shared, (const char *) Q->data, K_data, V_data,
         mask ? ((const char *) mask->data) : nullptr, sinks ? ((const char *) sinks->data) : nullptr, KV_max.ptr,
         !stream_k && parallel_blocks > 1 ? dst_tmp.ptr : (float *) KQV->data, (sycl::float2 *)dst_tmp_meta.ptr, scale, max_bias, m0, m1,

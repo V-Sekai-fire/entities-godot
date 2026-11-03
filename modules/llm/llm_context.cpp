@@ -41,15 +41,6 @@ LLMContext::~LLMContext() {
 }
 
 ggml_type LLMContext::_parse_cache_type(const String &p_name) {
-	if (p_name == "turbo4") {
-		return GGML_TYPE_TURBO4_0;
-	}
-	if (p_name == "turbo3") {
-		return GGML_TYPE_TURBO3_0;
-	}
-	if (p_name == "turbo2") {
-		return GGML_TYPE_TURBO2_0;
-	}
 	if (p_name == "q8_0") {
 		return GGML_TYPE_Q8_0;
 	}
@@ -79,10 +70,10 @@ void LLMContext::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "n_threads"), "set_n_threads", "get_n_threads");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flash_attn"), "set_flash_attn", "get_flash_attn");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "cache_type_k", PROPERTY_HINT_ENUM,
-						 "f16,q8_0,q4_0,turbo2,turbo3,turbo4"),
+						 "f16,q8_0,q4_0"),
 			"set_cache_type_k", "get_cache_type_k");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "cache_type_v", PROPERTY_HINT_ENUM,
-						 "f16,q8_0,q4_0,turbo2,turbo3,turbo4"),
+						 "f16,q8_0,q4_0"),
 			"set_cache_type_v", "get_cache_type_v");
 
 	ADD_SIGNAL(MethodInfo("created"));
