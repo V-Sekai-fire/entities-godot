@@ -32,6 +32,7 @@
 
 #include "core/crypto/crypto_core.h"
 #include "core/error/error_macros.h"
+#include "core/math/vector3.h"
 #include "core/os/memory.h"
 
 #include <xatlas.h>
@@ -45,6 +46,9 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 	ctx.start();
 
 	ctx.update((unsigned char *)&p_texel_size, sizeof(float));
+	// The chart options below are part of the key, so unwraps cached before they changed are not reused.
+	static const char options_key[] = "meshopt-balanced-1";
+	ctx.update((const unsigned char *)options_key, sizeof(options_key));
 	ctx.update((unsigned char *)p_indices, sizeof(int) * p_index_count);
 	ctx.update((unsigned char *)p_vertices, sizeof(float) * p_vertex_count * 3);
 	ctx.update((unsigned char *)p_normals, sizeof(float) * p_vertex_count * 3);
@@ -123,8 +127,23 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 		input_mesh.vertexUvData = nullptr;
 		input_mesh.vertexUvStride = 0;
 
+		// The chart options of meshoptimizer's remesh demo, "balanced" mode (zeux/meshoptimizer
+		// 72dfd1e4, b2107f6c): respect normal seams (1000 is xatlas's "fully respected" value), skip
+		// the slow refinement pass, and cap a chart at 512 average triangles so highly tessellated
+		// meshes do not slow down.
+		float avg_triangle_area = 0.0f;
+		const int triangle_count = p_index_count / 3;
+		for (int i = 0; i < triangle_count; i++) {
+			const Vector3 a(p_vertices[p_indices[i * 3 + 0] * 3 + 0], p_vertices[p_indices[i * 3 + 0] * 3 + 1], p_vertices[p_indices[i * 3 + 0] * 3 + 2]);
+			const Vector3 b(p_vertices[p_indices[i * 3 + 1] * 3 + 0], p_vertices[p_indices[i * 3 + 1] * 3 + 1], p_vertices[p_indices[i * 3 + 1] * 3 + 2]);
+			const Vector3 c(p_vertices[p_indices[i * 3 + 2] * 3 + 0], p_vertices[p_indices[i * 3 + 2] * 3 + 1], p_vertices[p_indices[i * 3 + 2] * 3 + 2]);
+			avg_triangle_area += (b - a).cross(c - a).length() * 0.5f / triangle_count;
+		}
 		xatlas::ChartOptions chart_options;
 		chart_options.fixWinding = true;
+		chart_options.normalSeamWeight = 1000.0f;
+		chart_options.maxIterations = 0;
+		chart_options.maxChartArea = 512.0f * avg_triangle_area;
 
 		ERR_FAIL_COND_V_MSG(p_texel_size <= 0.0f, false, "Texel size must be greater than 0.");
 

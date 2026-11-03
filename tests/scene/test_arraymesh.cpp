@@ -38,6 +38,9 @@ TEST_FORCE_LINK(test_arraymesh)
 #include "scene/resources/mesh.h"
 #include "servers/rendering/rendering_server.h"
 
+// Set by modules/xatlas_unwrap; null when the module is not built.
+extern bool (*array_mesh_lightmap_unwrap_callback)(float p_texel_size, const float *p_vertices, const float *p_normals, int p_vertex_count, const int *p_indices, int p_index_count, const uint8_t *p_cache_data, bool *r_use_cache, uint8_t **r_mesh_cache, int *r_mesh_cache_size, float **r_uv, int **r_vertex, int *r_vertex_count, int **r_index, int *r_index_count, int *r_size_hint_x, int *r_size_hint_y);
+
 namespace TestArrayMesh {
 
 TEST_CASE("[SceneTree][ArrayMesh] Adding and modifying blendshapes.") {
@@ -444,6 +447,39 @@ TEST_CASE("[SceneTree][ArrayMesh] Get/Set mesh metadata and actions") {
 		ERR_PRINT_ON
 		CHECK(mesh->get_surface_count() == 2);
 	}
+}
+
+TEST_CASE("[SceneTree][ArrayMesh] lightmap_unwrap turns every chart the same way.") {
+	if (array_mesh_lightmap_unwrap_callback == nullptr) {
+		MESSAGE("No xatlas_unwrap module in this build; skipped.");
+		return;
+	}
+	// A capsule unwraps into many charts, and some are packed turned a quarter. A packer
+	// that swaps u and v to turn a chart mirrors it, so its UV2 turns against the others.
+	Ref<CapsuleMesh> capsule = memnew(CapsuleMesh);
+	capsule->set_radial_segments(48);
+	capsule->set_rings(24);
+	Ref<ArrayMesh> mesh = memnew(ArrayMesh);
+	mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, capsule->get_mesh_arrays());
+	REQUIRE(mesh->lightmap_unwrap(Transform3D(), 0.01) == OK);
+	int positive = 0;
+	int negative = 0;
+	for (int s = 0; s < mesh->get_surface_count(); s++) {
+		const Array arrays = mesh->surface_get_arrays(s);
+		const PackedVector2Array uv2 = arrays[Mesh::ARRAY_TEX_UV2];
+		const PackedInt32Array index = arrays[Mesh::ARRAY_INDEX];
+		for (int i = 0; i + 2 < index.size(); i += 3) {
+			const Vector2 a = uv2[index[i]];
+			const real_t area = (uv2[index[i + 1]] - a).cross(uv2[index[i + 2]] - a);
+			if (area > CMP_EPSILON2) {
+				positive++;
+			} else if (area < -CMP_EPSILON2) {
+				negative++;
+			}
+		}
+	}
+	CHECK(positive + negative > 0);
+	CHECK_MESSAGE(MIN(positive, negative) == 0, vformat("%d UV2 triangles turn one way and %d the other.", positive, negative));
 }
 
 } // namespace TestArrayMesh

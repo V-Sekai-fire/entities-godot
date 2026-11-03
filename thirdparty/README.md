@@ -1400,6 +1400,11 @@ Files extracted from upstream source:
 - `source/xatlas/xatlas.{cpp,h}`
 - `LICENSE`
 
+Patches:
+
+- `0001-turn-charts-not-mirror.patch` (turn a packed chart a quarter instead of
+  swapping u and v, which mirrored it)
+
 
 ## zlib
 
