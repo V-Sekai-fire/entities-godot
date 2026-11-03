@@ -391,6 +391,8 @@
 /modules/zip/**/SCsub                         @godotengine/core @godotengine/buildsystem
 /modules/zip/doc_classes/                     @godotengine/core @godotengine/documentation
 /modules/zip/tests/                           @godotengine/core @godotengine/tests
+/modules/mcp/                                 @fire
+/modules/godot_mcp/                           @fire
 
 # Platform
 
