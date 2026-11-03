@@ -5243,6 +5243,14 @@ void ggml_vk_instance_init() {
     VK_LOG_DEBUG("ggml_vk_instance_init()");
 
     // See https://github.com/KhronosGroup/Vulkan-Hpp?tab=readme-ov-file#extensions--per-device-function-pointers-
+    // Godot fork: bootstrap volk so vkGetInstanceProcAddr is populated before
+    // Vulkan-Hpp's dynamic dispatcher reads it. Idempotent; safe if Godot's
+    // renderer already called it.
+    if (volkInitialize() != VK_SUCCESS) {
+        std::cerr << "ggml_vulkan: volkInitialize() failed; libvulkan unavailable at runtime." << std::endl;
+        throw vk::SystemError(vk::Result::eErrorInitializationFailed, "volkInitialize failed");
+    }
+
     ggml_vk_default_dispatcher_instance.init(vkGetInstanceProcAddr);
 
     // vkEnumerateInstanceVersion is Vulkan 1.1. A null value indicated Vulkan 1.0.

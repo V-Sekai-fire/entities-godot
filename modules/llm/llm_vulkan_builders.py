@@ -1,4 +1,4 @@
-"""vulkan_builders.py — SCons actions for compiling Vulkan shaders into the module.
+"""llm_vulkan_builders.py — SCons actions for compiling Vulkan shaders into the module.
 
 Mirrors what llama.cpp's CMakeLists.txt does via vulkan-shaders-gen + glslc,
 but as a Godot-style Python SCons action — no cmake, no ExternalProject.
@@ -121,7 +121,7 @@ def generate_vulkan_shaders(vk_src_dir: str, out_dir: str, hpp_path: str) -> Non
             target_cpp,
         ])
 
-    print(f"vulkan_builders: compiled {len(comp_files)} shaders -> {hpp_path}")
+    print(f"llm_vulkan_builders: compiled {len(comp_files)} shaders -> {hpp_path}")
 
 
 def get_generated_shader_cpps(spv_dir: str) -> list[str]:
@@ -191,5 +191,5 @@ def generate_mingw_vulkan_implib(vulkan_headers_include: str, out_dir: str) -> s
         "--output-lib",
         out_lib,
     ])
-    print(f"vulkan_builders: generated {out_lib} ({len(functions)} exports)")
+    print(f"llm_vulkan_builders: generated {out_lib} ({len(functions)} exports)")
     return out_lib

@@ -145,7 +145,7 @@ sys.path.insert(0, Dir("#modules/llm").abspath)
 
 # ── Metal: macOS and iOS ──────────────────────────────────────────────────────
 if platform in ("macos", "ios"):
-    from metal_builders import generate_metal_embed, metal_embed_sources
+    from llm_metal_builders import generate_metal_embed, metal_embed_sources
 
     metal_src = tp + "ggml/src/ggml-metal/"
     backend_sources += [
@@ -167,7 +167,7 @@ if platform in ("macos", "ios"):
             "CoreGraphics",
         ]
     )
-    # Embed one Metal source per kernel library (metal_builders.py gen.cpp pattern).
+    # Embed one Metal source per kernel library (llm_metal_builders.py gen.cpp pattern).
     # Metal compiles them at runtime via newLibraryWithSource: — no xcrun needed.
     _embed_gen = Dir("#thirdparty/llama_cpp/ggml/src/ggml-metal").abspath + "/ggml-metal-embed.gen.cpp"
     env.Command(_embed_gen, metal_embed_sources(Dir(metal_src).abspath), generate_metal_embed)
@@ -177,14 +177,14 @@ if platform in ("macos", "ios"):
 # ── Vulkan: Linux, Windows, Android (not macOS/iOS/web) ──────────────────────
 # macOS uses Metal via ggml-metal; no Vulkan needed there.
 if platform in ("linuxbsd", "windows", "android"):
-    from vulkan_builders import generate_vulkan_shaders, get_generated_shader_cpps
+    from llm_vulkan_builders import generate_vulkan_shaders, get_generated_shader_cpps
 
     _vk_src = tp + "ggml/src/ggml-vulkan/"
     _vk_abs = Dir(_vk_src).abspath
     _vk_spv_dir = _vk_abs + "/vulkan-shaders.spv"
     _vk_hpp = _vk_abs + "/ggml-vulkan-shaders.hpp"  # must match #include in ggml-vulkan.cpp
 
-    # Propagate vulkan_sdk_path → VULKAN_SDK so vulkan_builders.py finds glslc.
+    # Propagate vulkan_sdk_path → VULKAN_SDK so llm_vulkan_builders.py finds glslc.
     _scons_sdk = env.get("vulkan_sdk_path", "")
     if _scons_sdk and not _os.environ.get("VULKAN_SDK"):
         _os.environ["VULKAN_SDK"] = _scons_sdk
@@ -192,7 +192,7 @@ if platform in ("linuxbsd", "windows", "android"):
     # Generate shaders at SCons reading phase so hpp exists before compilation.
     generate_vulkan_shaders(_vk_abs, _vk_spv_dir, _vk_hpp)
 
-    backend_sources += [_vk_src + "ggml-vulkan.cpp"]
+    backend_sources += [_vk_src + "ggml-vulkan.cpp", _vk_src + "ggml-vulkan-buffers.cpp", _vk_src + "ggml-vulkan-debug.cpp"]
     backend_defines += ["GGML_USE_VULKAN"]
     all_inc += [_vk_abs]
 

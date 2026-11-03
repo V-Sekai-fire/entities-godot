@@ -1,4 +1,4 @@
-"""webgpu_builders.py — SCons action for embedding WGSL shaders into the LLM module.
+"""llm_webgpu_builders.py — SCons action for embedding WGSL shaders into the LLM module.
 
 Mirrors what llama.cpp's CMakeLists does via embed_wgsl.py,
 but as a Godot-style Python SCons action — no cmake, no ExternalProject.
@@ -45,4 +45,4 @@ def generate_webgpu_shaders(wgpu_src_dir: str, hpp_path: str) -> None:
         hpp_path,
     ])
 
-    print(f"webgpu_builders: embedded WGSL shaders → {hpp_path}")
+    print(f"llm_webgpu_builders: embedded WGSL shaders → {hpp_path}")

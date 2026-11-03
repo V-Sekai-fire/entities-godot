@@ -1,5 +1,13 @@
 #pragma once
 
+// Godot fork: route Vulkan symbols through the vendored volk loader so we
+// don't need a build-time link against libvulkan. VK_NO_PROTOTYPES disables
+// the prototype declarations in vulkan_core.h; volk.h re-declares the
+// vkXXX symbols as global function pointers that volkInitialize() populates
+// at runtime (see ggml_vk_instance_init() in ggml-vulkan.cpp).
+#define VK_NO_PROTOTYPES
+#include "volk.h"
+
 #include "ggml-vulkan.h"
 
 #include <vulkan/vulkan_core.h>
