@@ -1,0 +1,13 @@
+# The tools the double build takes from conda-forge, never from a runner's package manager.
+[workspace]
+name = "double-build-tools"
+channels = ["conda-forge"]
+platforms = ["linux-64", "win-64", "osx-arm64"]
+
+[dependencies]
+# glslc, for the Vulkan shaders modules/llm and modules/ggml compile.
+shaderc = "*"
+
+[target.linux-64.dependencies]
+# wayland-scanner, which the Linux platform runs at build time.
+wayland = "*"
