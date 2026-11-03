@@ -3154,6 +3154,8 @@ void fragment_shader(in SceneData scene_data) {
 	oit_lookup_z = max(oit_lookup_z * (1.0 - 4.0e-5), 0.0001);
 #ifdef MODE_OIT_ACCUMULATE
 	float oit_front = oit_transmittance_in_front(oit_tile_uv, uint(ViewIndex), oit_lookup_z);
+	// The weights are stored in half floats: behind three opaque-alpha layers alpha * transmittance falls under the smallest half float, the sum reads 0 and the resolve writes black. A floor keeps them representable; the resolve divides a shared floor out, and a layer that deep adds under 0.1% either way.
+	oit_front = max(oit_front, 1.0e-3);
 #else
 	alpha = oit_apply(oit_tile_uv, uint(ViewIndex), oit_lookup_z, alpha);
 #endif // MODE_OIT_ACCUMULATE
