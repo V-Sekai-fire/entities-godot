@@ -398,6 +398,7 @@
 /modules/mcp/                                 @fire
 /modules/godot_mcp/                           @fire
 /modules/ggml/                                @fire
+/modules/oit/                                 @fire
 
 # Platform
 

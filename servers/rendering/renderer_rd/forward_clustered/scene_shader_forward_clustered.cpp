@@ -296,6 +296,14 @@ uint16_t SceneShaderForwardClustered::ShaderData::_get_shader_version(PipelineVe
 			return ShaderVersion::SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL + ubershader_base;
 		case PIPELINE_VERSION_DEPTH_PASS_WITH_SDF:
 			return ShaderVersion::SHADER_VERSION_DEPTH_PASS_WITH_SDF + ubershader_base;
+		case PIPELINE_VERSION_OIT_SPLAT_PASS:
+			return ShaderVersion::SHADER_VERSION_OIT_SPLAT_PASS + ubershader_base;
+		case PIPELINE_VERSION_OIT_SPLAT_PASS_MULTIVIEW:
+			return ShaderVersion::SHADER_VERSION_OIT_SPLAT_PASS_MULTIVIEW + ubershader_base;
+		case PIPELINE_VERSION_OIT_ACCUMULATE_PASS:
+			return ShaderVersion::SHADER_VERSION_OIT_ACCUMULATE_PASS + ubershader_base;
+		case PIPELINE_VERSION_OIT_ACCUMULATE_PASS_MULTIVIEW:
+			return ShaderVersion::SHADER_VERSION_OIT_ACCUMULATE_PASS_MULTIVIEW + ubershader_base;
 		case PIPELINE_VERSION_COLOR_PASS: {
 			int shader_flags = 0;
 
@@ -350,6 +358,18 @@ void SceneShaderForwardClustered::ShaderData::_create_pipeline(PipelineKey p_pip
 	RD::PipelineColorBlendState blend_state_color_opaque = RD::PipelineColorBlendState::create_disabled(3);
 	RD::PipelineColorBlendState blend_state_depth_normal_roughness = RD::PipelineColorBlendState::create_disabled(1);
 	RD::PipelineColorBlendState blend_state_depth_normal_roughness_giprobe = RD::PipelineColorBlendState::create_disabled(2);
+
+	RD::PipelineColorBlendState::Attachment oit_accumulate_attachment;
+	oit_accumulate_attachment.enable_blend = true;
+	oit_accumulate_attachment.color_blend_op = RD::BLEND_OP_ADD;
+	oit_accumulate_attachment.src_color_blend_factor = RD::BLEND_FACTOR_ONE;
+	oit_accumulate_attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE;
+	oit_accumulate_attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+	oit_accumulate_attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+	oit_accumulate_attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+	RD::PipelineColorBlendState blend_state_oit_accumulate;
+	blend_state_oit_accumulate.attachments.push_back(oit_accumulate_attachment);
+	blend_state_oit_accumulate.attachments.push_back(oit_accumulate_attachment);
 
 	RD::PipelineDepthStencilState depth_stencil_state;
 
@@ -470,6 +490,18 @@ void SceneShaderForwardClustered::ShaderData::_create_pipeline(PipelineKey p_pip
 			case PIPELINE_VERSION_DEPTH_PASS_WITH_MATERIAL:
 				// Writes to normal and roughness in opaque way.
 				blend_state = RD::PipelineColorBlendState::create_disabled(5);
+				break;
+			case PIPELINE_VERSION_OIT_SPLAT_PASS:
+			case PIPELINE_VERSION_OIT_SPLAT_PASS_MULTIVIEW:
+				// Fragments accumulate into the OIT extinction buffer.
+				blend_state = RD::PipelineColorBlendState();
+				depth_stencil_state = RD::PipelineDepthStencilState();
+				break;
+			case PIPELINE_VERSION_OIT_ACCUMULATE_PASS:
+			case PIPELINE_VERSION_OIT_ACCUMULATE_PASS_MULTIVIEW:
+				// Weighted color, alpha and extinction sum in any order; the resolve pass composites them.
+				blend_state = blend_state_oit_accumulate;
+				depth_stencil_state.enable_depth_write = false;
 				break;
 			case PIPELINE_VERSION_DEPTH_PASS:
 			case PIPELINE_VERSION_DEPTH_PASS_DP:
@@ -657,6 +689,10 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED_MULTIVIEW, base_define + "\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n#define MODE_RENDER_VOXEL_GI\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI_MULTIVIEW
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_MATERIAL\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL
 			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_SDF\n", false)); // SHADER_VERSION_DEPTH_PASS_WITH_SDF
+			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_RENDER_DEPTH\n#define MODE_OIT_SPLAT\n", false)); // SHADER_VERSION_OIT_SPLAT_PASS
+			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED_MULTIVIEW, base_define + "\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n#define MODE_OIT_SPLAT\n", false)); // SHADER_VERSION_OIT_SPLAT_PASS_MULTIVIEW
+			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED, base_define + "\n#define MODE_OIT_ACCUMULATE\n", false)); // SHADER_VERSION_OIT_ACCUMULATE_PASS
+			shader_versions.push_back(ShaderRD::VariantDefine(SHADER_GROUP_ADVANCED_MULTIVIEW, base_define + "\n#define USE_MULTIVIEW\n#define MODE_OIT_ACCUMULATE\n", false)); // SHADER_VERSION_OIT_ACCUMULATE_PASS_MULTIVIEW
 		}
 
 		Vector<String> color_pass_flags = {
