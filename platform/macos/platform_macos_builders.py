@@ -43,6 +43,12 @@ def generate_bundle(target, source, env):
             os.mkdir(app_dir + "/Contents/MacOS")
         if target_bin != "":
             shutil.copy(target_bin, app_dir + "/Contents/MacOS/Godot")
+        # The sqlite module links @rpath/libfdb_c.dylib; the editor's rpath includes
+        # @executable_path/../Frameworks, so the FoundationDB client ships there.
+        fdb_dylib = env.Dir("#bin").abspath + "/libfdb_c.dylib"
+        if os.path.isfile(fdb_dylib):
+            os.makedirs(app_dir + "/Contents/Frameworks", exist_ok=True)
+            shutil.copy2(fdb_dylib, app_dir + "/Contents/Frameworks/libfdb_c.dylib")
         if "mono" in env.module_version_string:
             shutil.copytree(env.Dir("#bin/GodotSharp").abspath, app_dir + "/Contents/Resources/GodotSharp")
         version = get_version_info("", True)

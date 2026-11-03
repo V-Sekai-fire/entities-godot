@@ -1,0 +1,151 @@
+# Build the store and run the programs that assert something.
+#
+# Every assertion lives in `ci.sh`, and this file installs what that script refuses to
+# install and then calls it. The steps used to restate the commands, which meant two
+# copies of the commit stage: one a developer runs and one the pipeline runs, drifting
+# apart with nothing comparing them. A green run here over a checkout nobody can reproduce
+# locally is the failure that arrangement produces.
+#
+# Three jobs, because they need different things. `test` needs a live FoundationDB, since
+# every program it runs is a program about a database. `fuzz` needs neither FoundationDB
+# nor SQLite: `fdb_keys.h` is pure, which is why it was split out. `spec` needs Lean and
+# nothing else.
+name: ci
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      FDB_VERSION: "7.3.76"
+      WEFT_FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: cache FoundationDB packages
+        uses: actions/cache@v6
+        with:
+          path: ~/fdb-debs
+          key: fdb-debs-${{ env.FDB_VERSION }}
+
+      - name: Install FoundationDB
+        run: |
+          mkdir -p ~/fdb-debs
+          [ -f ~/fdb-debs/clients.deb ] || curl -fsSL -o ~/fdb-debs/clients.deb \
+            "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+          [ -f ~/fdb-debs/server.deb ] || curl -fsSL -o ~/fdb-debs/server.deb \
+            "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb"
+          sudo dpkg -i ~/fdb-debs/clients.deb ~/fdb-debs/server.deb
+          # The server package's postinst starts a single-node cluster. Wait for it.
+          for i in $(seq 1 30); do
+            fdbcli --exec 'status minimal' | grep -q 'The database is available' && break
+            sleep 2
+          done
+
+      - name: Install SQLite headers and shell
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsqlite3-dev sqlite3
+
+      # `deps` fails rather than skips when FoundationDB is absent, so a broken install
+      # above stops here instead of turning the rest of the run into silent passes.
+      - name: The commit stage
+        run: ./ci.sh deps build surface handoff fence-read clock integrity big-commit parallel-commit crash vfs-ext
+
+  keys-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      # witness-cpp is header-only C++17; the ordinary system Clang is enough.
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang lld
+
+      - name: cache the witness-cpp build
+        uses: actions/cache@v6
+        with:
+          path: build-keys-witness/_deps
+          key: keys-witness-${{ hashFiles('keys-witness/CMakeLists.txt') }}
+
+      - name: The key properties
+        env:
+          CC: clang
+          CXX: clang++
+        run: ./ci.sh keys-witness backup-fresh
+
+  # The parallel-commit protocol against the spec it claims to be. Needs Java and the TLA+
+  # tools, and neither FoundationDB nor SQLite: it checks a specification, not a run.
+  tla:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: cache the TLA+ tools
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/lib/tla2tools.jar
+          key: tla2tools-latest
+
+      - name: Install the TLA+ tools
+        run: |
+          mkdir -p ~/.local/lib
+          [ -f ~/.local/lib/tla2tools.jar ] || curl -fsSL -o ~/.local/lib/tla2tools.jar \
+            https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
+
+      # Runs TLC twice: once on the derived module and once on the vendored authority, and
+      # fails unless the two report the same state counts.
+      - name: The renaming is the same protocol
+        run: ./ci.sh tla
+
+  spec:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: spec
+          build: true
+          test: false
+          lint: false
+
+  # The loadable extension on Apple Silicon, where a Mac desk runs Uro's development copy.
+  # Homebrew's SQLite, because the shell macOS ships cannot load extensions.
+  vfs-ext-macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      FDB_VERSION: "7.3.76"
+      WEFT_FDB_CLUSTER_FILE: /usr/local/etc/foundationdb/fdb.cluster
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install FoundationDB
+        run: |
+          curl -fsSL -o fdb.pkg \
+            "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/FoundationDB-${FDB_VERSION}_arm64.pkg"
+          sudo installer -pkg fdb.pkg -target /
+          for i in $(seq 1 30); do
+            fdbcli --exec 'status minimal' | grep -q 'The database is available' && break
+            sleep 2
+          done
+
+      - name: Install SQLite
+        run: brew install sqlite
+
+      - name: The VFS as a loadable extension
+        run: |
+          sq=$(brew --prefix sqlite)
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DSQLITE_INCLUDE_DIR="$sq/include" -DSQLITE_LIBRARY="$sq/lib/libsqlite3.dylib"
+          SQLITE3="$sq/bin/sqlite3" ./ci.sh vfs-ext

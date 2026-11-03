@@ -192,10 +192,14 @@ jobs:
         with:
           make-default: false
 
+      - name: FoundationDB client
+        id: fdb-client
+        uses: V-Sekai-fire/datasource-foundationdb/.github/actions/fdb-client@d57b8f5e60e30afbc3edce8bb29684b8b808b244
+
       - name: Compilation
         uses: ./.github/actions/godot-build
         with:
-          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }}
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.scons-flags }} ${{ steps.fdb-client.outputs.scons-flags }} accesskit=${{ steps.accesskit-sdk.outputs.ACCESSKIT_ENABLED }}
           platform: linuxbsd
           target: ${{ matrix.target }}
 

@@ -1,0 +1,41 @@
+# A FoundationDB server for Fly.
+#
+#   fly deploy --config fly/fdb.toml --dockerfile fly/Containerfile.fdb
+#
+# Separate from the store's `Containerfile` because it is a different thing: that image is a
+# client and carries no server, and an image that is both would ship a database engine to
+# every machine that only wanted to read from one.
+#
+# The server package is installed but its init is not used. Debian's postinst starts a
+# single-node cluster on 127.0.0.1 and writes a cluster file to match, which is precisely
+# wrong here: the whole point is three machines that find each other. `fdb-entrypoint.sh`
+# forms the cluster instead, and the packaged service is masked so it cannot race.
+ARG FDB_VERSION=7.3.76
+
+FROM docker.io/library/debian:bookworm-slim
+ARG FDB_VERSION
+# netbase ships /etc/services, which bookworm-slim omits. FoundationDB substitutes the
+# service *name* "https" when a blobstore URL carries no port, and getaddrinfo needs
+# /etc/services to resolve that name. Without it every lookup returns EAI_SERVICE, and
+# flow/Net2.actor.cpp collapses every resolver error to lookup_failed (1041) whose text
+# reads "DNS lookup failed" -- so a missing 30 kB file is reported as a DNS fault, for
+# every hostname, while getent and curl both work because neither reads /etc/services.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl ca-certificates dnsutils procps openssl netbase stunnel4 busybox \
+  && curl -fsSL -o /tmp/clients.deb \
+      "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb" \
+  && curl -fsSL -o /tmp/server.deb \
+      "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb" \
+  # The server postinst starts a cluster and fails the build if it cannot. It is not wanted
+  # running, only installed, so it is stopped and disabled immediately after.
+  && (dpkg -i /tmp/clients.deb /tmp/server.deb || true) \
+  && rm -f /tmp/clients.deb /tmp/server.deb \
+  && (systemctl disable foundationdb 2>/dev/null || true) \
+  && rm -f /etc/init.d/foundationdb \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY fly/fdb-entrypoint.sh /usr/local/bin/fdb-entrypoint.sh
+COPY fly/backup-fresh.sh /usr/local/bin/backup-fresh.sh
+COPY fly/cluster-health.sh /usr/local/bin/cluster-health.sh
+RUN chmod +x /usr/local/bin/fdb-entrypoint.sh /usr/local/bin/backup-fresh.sh /usr/local/bin/cluster-health.sh
+ENTRYPOINT ["/usr/local/bin/fdb-entrypoint.sh"]

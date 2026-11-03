@@ -1,0 +1,82 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+
+env.Append(
+    CPPDEFINES=[
+        ("SQLITE_DEFAULT_SYNCHRONOUS", 1),
+        ("SQLITE_ENABLE_RBU", 1),
+        ("SQLITE_USE_URI", 1),
+        "SQLITE_ENABLE_JSON1",
+        "SQLITE_ENABLE_FTS3",
+        "SQLITE_ENABLE_FTS4",
+        "SQLITE_ENABLE_FTS5",
+        "SQLITE_ENABLE_RTREE",
+        "SQLITE_ENABLE_DBSTAT_VTAB",
+        "SQLITE_ENABLE_COLUMN_METADATA",
+        "SQLITE_ENABLE_MATH_FUNCTIONS",
+        ("SQLITE_DEFAULT_FOREIGN_KEYS", 1),
+        ("SQLITE_TEMP_STORE", 3),
+    ],
+)
+
+env.Append(CPPPATH=["#modules/sqlite/thirdparty", "#modules/sqlite"])
+
+# Pages live in FoundationDB. The weft_fdb VFS (thirdparty/datasource-store, a subtree of
+# V-Sekai-fire/datasource-store) is compiled in and linked against the FoundationDB client
+# library, which the build machine provides (foundationdb-clients).
+import os.path
+
+if not os.path.isfile(os.path.join(env["fdb_include"], "fdb_c.h")):
+    print("ERROR: " + 
+        "modules/sqlite needs the FoundationDB client: fdb_c.h not found in fdb_include=%s. "
+        "Install foundationdb-clients or pass fdb_include=<dir> fdb_libpath=<dir>." % env["fdb_include"]
+    )
+    Exit(255)
+
+env.Append(CPPPATH=[env["fdb_include"]], LIBPATH=[env["fdb_libpath"]], LIBS=["fdb_c"])
+if env["platform"] == "windows":
+    env.Append(LIBS=["pthread"])
+if env["platform"] == "macos":
+    # The binary links @rpath/libfdb_c.dylib and carries the rpaths @executable_path and
+    # @executable_path/../Frameworks, so the client library has to ship next to it. Without this
+    # the editor only starts when DYLD_LIBRARY_PATH points at the FoundationDB install.
+    import shutil
+
+    _fdb_dylib = os.path.join(env["fdb_libpath"], "libfdb_c.dylib")
+    if os.path.isfile(_fdb_dylib):
+        _bin_dir = Dir("#bin").abspath
+        os.makedirs(_bin_dir, exist_ok=True)
+        shutil.copy2(_fdb_dylib, os.path.join(_bin_dir, "libfdb_c.dylib"))
+    else:
+        print("ERROR: " + "modules/sqlite: %s not found; the macOS binary cannot bundle the FoundationDB client." % _fdb_dylib)
+        Exit(255)
+
+env["builtin_zstd"] = False
+
+env_thirdparty = env.Clone()
+env_thirdparty.disable_warnings()
+
+module_sources = [
+    "src/*.cpp",
+    "src/*.c",
+    "*.cpp",
+]
+
+for source_file in module_sources:
+    env_thirdparty.add_source_files(env_thirdparty.modules_sources, source_file)
+
+env_thirdparty.add_source_files(env_thirdparty.modules_sources, "#modules/sqlite/thirdparty/sqlite/sqlite3.c")
+env_thirdparty.add_source_files(env_thirdparty.modules_sources, "#modules/sqlite/thirdparty/spmemvfs/spmemvfs.c")
+
+# fdb_vfs.c includes <sqlite3.h> and "fdb_keys.h", and needs the FoundationDB API version.
+env_thirdparty.Append(
+    CPPPATH=["#modules/sqlite/thirdparty/sqlite", "#modules/sqlite/thirdparty/datasource-store"],
+    CPPDEFINES=[("FDB_API_VERSION", 730)],
+)
+env_thirdparty.add_source_files(
+    env_thirdparty.modules_sources, "#modules/sqlite/thirdparty/datasource-store/fdb_vfs.c"
+)
+
+env.modules_sources += env_thirdparty.modules_sources
