@@ -121,7 +121,7 @@ def generate_vulkan_shaders(vk_src_dir: str, out_dir: str, hpp_path: str) -> Non
             target_cpp,
         ])
 
-    print(f"vulkan_builders: compiled {len(comp_files)} shaders → {hpp_path}")
+    print(f"vulkan_builders: compiled {len(comp_files)} shaders -> {hpp_path}")
 
 
 def get_generated_shader_cpps(spv_dir: str) -> list[str]:
