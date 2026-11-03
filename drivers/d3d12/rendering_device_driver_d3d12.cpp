@@ -6119,6 +6119,8 @@ bool RenderingDeviceDriverD3D12::has_feature(Features p_feature) {
 			return false;
 		case SUPPORTS_HDR_OUTPUT:
 			return true;
+		case SUPPORTS_TEXTURE_SWIZZLE:
+			return true;
 		case SUPPORTS_GPU_MAPPABLE_BUFFER:
 			return misc_features_support.uma_supported || misc_features_support.gpu_upload_heap_supported;
 		default:

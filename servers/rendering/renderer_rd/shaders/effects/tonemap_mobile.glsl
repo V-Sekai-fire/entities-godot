@@ -31,6 +31,10 @@ void main() {
 
 #VERSION_DEFINES
 
+#ifdef WEBGPU_USED
+#undef SUBPASS
+#endif
+
 #ifdef USE_MULTIVIEW
 #extension GL_EXT_multiview : enable
 #define ViewIndex gl_ViewIndex
@@ -94,7 +98,9 @@ layout(push_constant, std430) uniform Params {
 	vec4 tonemapper_params;
 
 	float output_max_value;
-	float pad[3];
+	float pad_0;
+	float pad_1;
+	float pad_2;
 }
 params;
 

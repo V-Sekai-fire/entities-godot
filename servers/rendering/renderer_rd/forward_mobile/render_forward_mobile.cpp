@@ -475,8 +475,17 @@ void RenderForwardMobile::update() {
 /* Render functions */
 
 RD::DataFormat RenderForwardMobile::_render_buffers_get_preferred_color_format() {
+#ifdef WEBGPU_ENABLED
+	// A2B10G10R10 has no WriteOnly storage binding in WebGPU 1.0 (Firefox).
+	// R16G16B16A16_SFLOAT is a storage-capable format in the base spec and
+	// matches the default variant of the octmap compute shaders, so the
+	// reflection-probe pipeline binds destination views with a compatible
+	// format.
+	return RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
+#else
 	// Using 32bit buffers enables AFBC on mobile devices which should have a definite performance improvement (MALI G710 and newer support this on 64bit RTs)
 	return RD::DATA_FORMAT_A2B10G10R10_UNORM_PACK32;
+#endif
 }
 
 bool RenderForwardMobile::_render_buffers_can_be_storage() {
@@ -912,7 +921,11 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 	RID framebuffer;
 	bool reverse_cull = p_render_data->scene_data->cam_transform.basis.determinant() < 0;
 	bool merge_transparent_pass = true; // If true: we can do our transparent pass in the same pass as our opaque pass.
+#ifdef WEBGPU_ENABLED
+	bool using_subpass_post_process = false;
+#else
 	bool using_subpass_post_process = true; // If true: we can do our post processing in a subpass
+#endif
 	RendererRD::MaterialStorage::Samplers samplers;
 	bool hdr_render_target = false;
 
@@ -3640,7 +3653,11 @@ RenderForwardMobile::RenderForwardMobile() {
 
 	{
 		//lightmaps
-		scene_state.max_lightmaps = MAX_LIGHTMAPS;
+		// Each lightmap takes two texture bindings (lightmap and shadowmask). On devices with only 16
+		// textures per stage (the WebGPU minimum) the full array alone would exceed the limit, so fewer
+		// lightmaps are bound per draw, leaving room for the material's own textures.
+		const uint32_t textures_per_stage = RD::get_singleton()->limit_get(RD::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE);
+		scene_state.max_lightmaps = CLAMP((textures_per_stage - 8) / 4, 1u, (uint32_t)MAX_LIGHTMAPS);
 		defines += "\n#define MAX_LIGHTMAP_TEXTURES " + itos(scene_state.max_lightmaps) + "\n";
 		defines += "\n#define MAX_LIGHTMAPS " + itos(scene_state.max_lightmaps) + "\n";
 

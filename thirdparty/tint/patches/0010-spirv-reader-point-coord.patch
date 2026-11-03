@@ -1,0 +1,41 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+index 9288bad66b..cd1f4d4cb2 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/parser.cc
+@@ -4854,6 +4854,7 @@ class Parser {
+         std::optional<uint32_t> binding;
+         core::Access access_mode = core::Access::kUndefined;
+         core::IOAttributes io_attributes;
++        bool point_coord = false;
+         auto interpolation = [&]() -> core::Interpolation& {
+             // Create the interpolation field with the default values on first call.
+             if (!io_attributes.interpolation.has_value()) {
+@@ -4883,6 +4884,10 @@ class Parser {
+                     binding = deco->GetSingleWordOperand(2);
+                     break;
+                 case spv::Decoration::BuiltIn: {
++                    if (spv::BuiltIn(deco->GetSingleWordOperand(2)) == spv::BuiltIn::PointCoord) {
++                        point_coord = true;
++                        break;
++                    }
+                     TINT_CHECK_RESULT_UNWRAP(builtin_val,
+                                              Builtin(spv::BuiltIn(deco->GetSingleWordOperand(2))));
+                     io_attributes.builtin = builtin_val;
+@@ -4946,6 +4951,17 @@ class Parser {
+         }
+ 
+         auto* element_ty = Type(inst.type_id(), access_mode)->As<core::type::Pointer>();
++
++        // Godot: WebGPU only draws 1-pixel points, and the one fragment of a 1x1 point sprite is
++        // at its center, so gl_PointCoord is vec2(0.5) (WGSL has no point coordinate builtin).
++        if (point_coord) {
++            auto* store_ty = element_ty->StoreType();
++            auto* pc = b_.Var(ty_.ptr(core::AddressSpace::kPrivate, store_ty, core::Access::kReadWrite));
++            pc->SetInitializer(b_.Splat(store_ty, 0.5_f));
++            Emit(pc, inst.result_id());
++            return Success;
++        }
++
+         if (element_ty->AddressSpace() == core::AddressSpace::kOut) {
+             if (element_ty->StoreType()->IsIntegerScalarOrVector()) {
+                 io_attributes.interpolation = {

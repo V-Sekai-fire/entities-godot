@@ -593,10 +593,9 @@ TextureStorage::TextureStorage() {
 	}
 
 	{
-		// Create default VRS texture.
 		bool vrs_supported = RD::get_singleton()->has_feature(RD::SUPPORTS_ATTACHMENT_VRS);
 		RD::TextureFormat tformat;
-		tformat.format = vrs_supported ? RD::get_singleton()->vrs_get_format() : RD::DATA_FORMAT_R8_UINT;
+		tformat.format = vrs_supported ? RD::get_singleton()->vrs_get_format() : RD::DATA_FORMAT_R32_UINT;
 		tformat.width = 4;
 		tformat.height = 4;
 		tformat.usage_bits = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT | (vrs_supported ? RD::TEXTURE_USAGE_VRS_ATTACHMENT_BIT : 0);
@@ -2968,11 +2967,44 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 		}
 	}
 
+	const bool swizzled = r_format.swizzle_r != RD::TEXTURE_SWIZZLE_R || r_format.swizzle_g != RD::TEXTURE_SWIZZLE_G ||
+			r_format.swizzle_b != RD::TEXTURE_SWIZZLE_B || r_format.swizzle_a != RD::TEXTURE_SWIZZLE_A;
+	bool swizzle_expanded = false;
+	if (swizzled && !RD::get_singleton()->has_feature(RD::SUPPORTS_TEXTURE_SWIZZLE)) {
+		Ref<Image> expanded = image->duplicate();
+		expanded->decompress();
+		const Image::Format f = expanded->get_format();
+		bool done = true;
+		if (f == Image::FORMAT_RH || f == Image::FORMAT_RGH || f == Image::FORMAT_RGBH) {
+			expanded->convert(Image::FORMAT_RGBAH);
+			r_format.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
+			r_format.format_srgb = RD::DATA_FORMAT_MAX;
+		} else if (f == Image::FORMAT_RF || f == Image::FORMAT_RGF || f == Image::FORMAT_RGBF) {
+			expanded->convert(Image::FORMAT_RGBAF);
+			r_format.format = RD::DATA_FORMAT_R32G32B32A32_SFLOAT;
+			r_format.format_srgb = RD::DATA_FORMAT_MAX;
+		} else if (f <= Image::FORMAT_RGBA8) {
+			expanded->convert(Image::FORMAT_RGBA8);
+			r_format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+			r_format.format_srgb = RD::DATA_FORMAT_R8G8B8A8_SRGB;
+		} else {
+			done = false;
+		}
+		if (done) {
+			image = expanded;
+			swizzle_expanded = true;
+			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_B;
+			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
+		}
+	}
+
 	// RGB formats are usually not supported, do not print warnings about them.
 	const bool is_rgb_format = original_format == Image::FORMAT_RGB8 || original_format == Image::FORMAT_RGBH || original_format == Image::FORMAT_RGBF ||
 			original_format == Image::FORMAT_RGB16 || original_format == Image::FORMAT_RGB16I;
 
-	if (!is_rgb_format && original_format != image->get_format()) {
+	if (!is_rgb_format && !swizzle_expanded && original_format != image->get_format()) {
 		WARN_PRINT(vformat("Image format %s not supported by hardware, converting to %s.", Image::get_format_name(original_format), Image::get_format_name(image->get_format())));
 	}
 
@@ -5144,7 +5176,7 @@ void TextureStorage::_render_target_allocate_sdf(RenderTarget *rt) {
 	rt->sdf_buffer_process[0] = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 	rt->sdf_buffer_process[1] = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 
-	tformat.format = RD::DATA_FORMAT_R16_SNORM;
+	tformat.format = RD::DATA_FORMAT_R32_SFLOAT;
 	tformat.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT;
 
 	rt->sdf_buffer_read = RD::get_singleton()->texture_create(tformat, RD::TextureView());

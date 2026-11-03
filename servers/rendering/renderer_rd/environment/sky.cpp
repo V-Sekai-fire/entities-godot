@@ -1293,11 +1293,13 @@ void SkyRD::update_radiance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, 
 	RSE::SkyMode sky_mode = sky->internal_mode;
 	bool update_single_frame = sky_mode == RSE::SKY_MODE_REALTIME || sky_mode == RSE::SKY_MODE_QUALITY;
 
-	if (sky->processing_layer == 0 && sky_mode == RSE::SKY_MODE_INCREMENTAL) {
+#ifndef WEBGPU_ENABLED
+	if (sky->processing_layer == 0 && sky_mode == RenderingServerEnums::SKY_MODE_INCREMENTAL) {
 		// On the first frame after creating sky, rebuild in single frame
 		update_single_frame = true;
 		sky_mode = RSE::SKY_MODE_QUALITY;
 	}
+#endif
 
 	int max_processing_layer = sky_use_octmap_array ? sky->reflection.layers.size() : sky->reflection.layers[0].mipmaps.size();
 

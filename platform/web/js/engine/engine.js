@@ -63,6 +63,34 @@ const Engine = (function () {
 	};
 
 	/**
+	 * When the template was built with `webgpu=yes` and the browser has no
+	 * WebGPU adapter, prepend the WebGL 2 driver and renderer to `args`, the
+	 * way `rendering/rendering_device/fallback_to_opengl3` works on desktop.
+	 * Otherwise the project's settings choose the driver and the renderer.
+	 * An explicit `--rendering-driver` in `EngineConfig.args` always wins.
+	 *
+	 * @param {Array<string>} args The engine arguments.
+	 * @returns {Promise<Array<string>>} The same args, possibly with the
+	 *   fallback prepended.
+	 * @ignore
+	 */
+	Engine.selectRenderingDriver = async function (args) {
+		if (!___GODOT_WEBGPU_ENABLED || args.includes('--rendering-driver')) {
+			return args;
+		}
+		let adapter = null;
+		try {
+			adapter = typeof navigator !== 'undefined' && navigator.gpu ? await navigator.gpu.requestAdapter() : null;
+		} catch (e) {
+			adapter = null;
+		}
+		if (adapter) {
+			return args;
+		}
+		return ['--rendering-driver', 'opengl3', '--rendering-method', 'gl_compatibility'].concat(args);
+	};
+
+	/**
 	 * Safe Engine constructor, creates a new prototype for every new instance to avoid prototype pollution.
 	 * @ignore
 	 * @constructor
@@ -172,7 +200,8 @@ const Engine = (function () {
 						return Promise.reject(new Error('GDExtension libraries are not supported by this engine version. '
 							+ 'Enable "Extensions Support" for your export preset and/or build your custom template with "dlink_enabled=yes".'));
 					}
-					return new Promise(function (resolve, reject) {
+					return Engine.selectRenderingDriver(me.config.args).then(function (args) {
+						me.config.args = args;
 						for (const file of preloader.preloadedFiles) {
 							me.rtenv['copyToFS'](file.path, file.buffer);
 						}
@@ -180,7 +209,6 @@ const Engine = (function () {
 						me.rtenv['callMain'](me.config.args);
 						initPromise = null;
 						me.installServiceWorker();
-						resolve();
 					});
 				});
 			},
@@ -299,6 +327,7 @@ const Engine = (function () {
 
 	// Feature-detection utilities.
 	SafeEngine['isWebGLAvailable'] = Features.isWebGLAvailable;
+	SafeEngine['isWebGPUAvailable'] = Features.isWebGPUAvailable;
 	SafeEngine['isFetchAvailable'] = Features.isFetchAvailable;
 	SafeEngine['isSecureContext'] = Features.isSecureContext;
 	SafeEngine['isCrossOriginIsolated'] = Features.isCrossOriginIsolated;

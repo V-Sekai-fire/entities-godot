@@ -289,6 +289,14 @@ Vector<uint8_t> RenderingDevice::shader_compile_spirv_from_source(ShaderStage p_
 	}
 }
 
+Vector<uint8_t> RenderingDevice::shader_compile_spirv_from_source_for_format(ShaderStage p_stage, const String &p_source_code, const RenderingShaderContainerFormat &p_format, String *r_error) {
+#ifdef MODULE_GLSLANG_ENABLED
+	return compile_glslang_shader(p_stage, ShaderIncludeDB::parse_include_files(p_source_code), p_format.get_shader_language_version(), p_format.get_shader_spirv_version(), r_error);
+#else
+	ERR_FAIL_V_MSG(Vector<uint8_t>(), "Shader language is not supported.");
+#endif
+}
+
 RID RenderingDevice::shader_create_from_spirv(const Vector<ShaderStageSPIRVData> &p_spirv, const String &p_shader_name) {
 	Vector<uint8_t> bytecode = shader_compile_binary_from_spirv(p_spirv, p_shader_name);
 	ERR_FAIL_COND_V(bytecode.is_empty(), RID());
@@ -919,42 +927,30 @@ RenderingDevice::Buffer *RenderingDevice::_get_buffer_from_owner(RID p_buffer) {
 	return buffer;
 }
 
-Error RenderingDevice::_buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data, uint32_t p_required_align) {
-	if (p_buffer->alloc_type == RDD::MEMORY_ALLOCATION_TYPE_GPU_MAPPABLE) {
-		// Copy directly to the buffer if available.
-		uint8_t *data_ptr = driver->buffer_map(p_buffer->driver_id);
-		ERR_FAIL_NULL_V(data_ptr, ERR_CANT_CREATE);
+Error RenderingDevice::_buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data) {
+	uint32_t required_align = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
+	uint32_t transfer_worker_offset;
+	TransferWorker *transfer_worker = _acquire_transfer_worker(p_data.size(), required_align, transfer_worker_offset);
+	p_buffer->transfer_worker_index = transfer_worker->index;
 
-		memcpy(data_ptr, p_data.ptr(), p_data.size());
-
-		driver->buffer_unmap(p_buffer->driver_id);
-	} else {
-		// Otherwise, use a transfer worker.
-		uint32_t transfer_worker_offset;
-		TransferWorker *transfer_worker = _acquire_transfer_worker(p_data.size(), p_required_align, transfer_worker_offset);
-		p_buffer->transfer_worker_index = transfer_worker->index;
-
-		{
-			MutexLock lock(transfer_worker->operations_mutex);
-			p_buffer->transfer_worker_operation = ++transfer_worker->operations_counter;
-		}
-
-		// Copy to the worker's staging buffer.
-		uint8_t *data_ptr = driver->buffer_map(transfer_worker->staging_buffer);
-		ERR_FAIL_NULL_V(data_ptr, ERR_CANT_CREATE);
-
-		memcpy(data_ptr + transfer_worker_offset, p_data.ptr(), p_data.size());
-		driver->buffer_unmap(transfer_worker->staging_buffer);
-
-		// Copy from the staging buffer to the real buffer.
-		RDD::BufferCopyRegion region;
-		region.src_offset = transfer_worker_offset;
-		region.dst_offset = 0;
-		region.size = p_data.size();
-		driver->command_copy_buffer(transfer_worker->command_buffer, transfer_worker->staging_buffer, p_buffer->driver_id, region);
-
-		_release_transfer_worker(transfer_worker);
+	{
+		MutexLock lock(transfer_worker->operations_mutex);
+		p_buffer->transfer_worker_operation = ++transfer_worker->operations_counter;
 	}
+
+	uint8_t *data_ptr = driver->buffer_map(transfer_worker->staging_buffer);
+	ERR_FAIL_NULL_V(data_ptr, ERR_CANT_CREATE);
+
+	memcpy(data_ptr + transfer_worker_offset, p_data.ptr(), p_data.size());
+	driver->buffer_unmap(transfer_worker->staging_buffer);
+
+	RDD::BufferCopyRegion region;
+	region.src_offset = transfer_worker_offset;
+	region.dst_offset = 0;
+	region.size = p_data.size();
+	driver->command_copy_buffer(transfer_worker->command_buffer, transfer_worker->staging_buffer, p_buffer->driver_id, region);
+
+	_release_transfer_worker(transfer_worker);
 
 	return OK;
 }
@@ -970,11 +966,14 @@ Error RenderingDevice::_insert_staging_block(StagingBuffers &p_staging_buffers) 
 
 	block.frame_used = 0;
 	block.fill_amount = 0;
-	block.data_ptr = driver->buffer_map(block.driver_id);
 
-	if (block.data_ptr == nullptr) {
-		driver->buffer_free(block.driver_id);
-		return ERR_CANT_CREATE;
+	if (p_staging_buffers.usage_bits.has_flag(RDD::BUFFER_USAGE_TRANSFER_FROM_BIT)) {
+		block.data_ptr = driver->buffer_map(block.driver_id);
+
+		if (block.data_ptr == nullptr) {
+			driver->buffer_free(block.driver_id);
+			return ERR_CANT_CREATE;
+		}
 	}
 
 	p_staging_buffers.blocks.insert(p_staging_buffers.current, block);
@@ -1177,7 +1176,7 @@ Error RenderingDevice::_buffer_update(Buffer *p_buffer, RID p_buffer_id, uint32_
 	command_buffer_copies_vector.clear();
 
 	const uint8_t *src_data = reinterpret_cast<const uint8_t *>(p_data);
-	const uint32_t required_align = 32;
+	const uint32_t required_align = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
 	while (to_submit > 0) {
 		uint32_t block_write_offset;
 		uint32_t block_write_amount;
@@ -1422,7 +1421,7 @@ Error RenderingDevice::buffer_get_data_async(RID p_buffer, const Callable &p_cal
 	get_data_request.frame_local_index = frames[frame].download_buffer_copy_regions.size();
 	get_data_request.size = p_size;
 
-	const uint32_t required_align = 32;
+	const uint32_t required_align = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
 	uint32_t block_write_offset;
 	uint32_t block_write_amount;
 	StagingRequiredAction required_action;
@@ -9211,12 +9210,16 @@ void RenderingDevice::finalize() {
 	frames.clear();
 
 	for (int i = 0; i < upload_staging_buffers.blocks.size(); i++) {
-		driver->buffer_unmap(upload_staging_buffers.blocks[i].driver_id);
+		if (upload_staging_buffers.blocks[i].data_ptr) {
+			driver->buffer_unmap(upload_staging_buffers.blocks[i].driver_id);
+		}
 		driver->buffer_free(upload_staging_buffers.blocks[i].driver_id);
 	}
 
 	for (int i = 0; i < download_staging_buffers.blocks.size(); i++) {
-		driver->buffer_unmap(download_staging_buffers.blocks[i].driver_id);
+		if (download_staging_buffers.blocks[i].data_ptr) {
+			driver->buffer_unmap(download_staging_buffers.blocks[i].driver_id);
+		}
 		driver->buffer_free(download_staging_buffers.blocks[i].driver_id);
 	}
 

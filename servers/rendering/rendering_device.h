@@ -196,7 +196,7 @@ private:
 	RDD::MemoryAllocationType _get_buffer_alloc_type(bool p_has_initial_data, Thread::ID p_thread_id) const;
 
 	Buffer *_get_buffer_from_owner(RID p_buffer);
-	Error _buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data, uint32_t p_required_align = 32);
+	Error _buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data);
 
 	void update_perf_report();
 	// Flag for batching descriptor sets.
@@ -1037,6 +1037,9 @@ public:
 	bool has_feature(const Features p_feature) const;
 
 	Vector<uint8_t> shader_compile_spirv_from_source(ShaderStage p_stage, const String &p_source_code, ShaderLanguage p_language = SHADER_LANGUAGE_GLSL, String *r_error = nullptr, bool p_allow_cache = true);
+	// Compiles for the SPIR-V and language versions of p_format instead of the running driver's,
+	// so the shader baker can bake for another driver.
+	Vector<uint8_t> shader_compile_spirv_from_source_for_format(ShaderStage p_stage, const String &p_source_code, const RenderingShaderContainerFormat &p_format, String *r_error = nullptr);
 	Vector<uint8_t> shader_compile_binary_from_spirv(const Vector<ShaderStageSPIRVData> &p_spirv, const String &p_shader_name = "");
 
 	RID shader_create_from_spirv(const Vector<ShaderStageSPIRVData> &p_spirv, const String &p_shader_name = "");
@@ -1138,10 +1141,11 @@ public:
 	typedef Uniform PipelineImmutableSampler;
 	RID shader_create_from_bytecode_with_samplers(const Vector<uint8_t> &p_shader_binary, RID p_placeholder = RID(), const Vector<PipelineImmutableSampler> &p_immutable_samplers = Vector<PipelineImmutableSampler>());
 
-private:
+public:
 	static const uint32_t MAX_UNIFORM_SETS = 16;
 	static const uint32_t MAX_PUSH_CONSTANT_SIZE = 128;
 
+private:
 	// This structure contains the descriptor set. They _need_ to be allocated
 	// for a shader (and will be erased when this shader is erased), but should
 	// work for other shaders as long as the hash matches. This covers using

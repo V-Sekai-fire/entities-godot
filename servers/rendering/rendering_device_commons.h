@@ -1038,6 +1038,7 @@ public:
 		SUPPORTS_HDR_OUTPUT,
 		SUPPORTS_RASTERIZATION_RATE_MAP,
 		SUPPORTS_GPU_MAPPABLE_BUFFER,
+		SUPPORTS_TEXTURE_SWIZZLE,
 	};
 
 	enum SubgroupOperations {
@@ -1124,6 +1125,28 @@ public:
 		TextureType texture_type = TEXTURE_TYPE_MAX;
 		DataFormat texture_format = DATA_FORMAT_MAX;
 
+		bool texture_is_multisample = false;
+
+		DataFormat image_format = DATA_FORMAT_MAX;
+
+		TextureType texture_image_type = TEXTURE_TYPE_2D;
+
+		enum TextureSampleType {
+			Float,
+			Int,
+			UInt,
+			Depth,
+		};
+		TextureSampleType texture_sample_type = TextureSampleType::Float;
+
+		// NOTE: This is only used in WebGpu and is simply an extended `writable`.
+		enum ImageAccess {
+			ReadWrite,
+			ReadOnly,
+			WriteOnly,
+		};
+		ImageAccess image_access = ImageAccess::ReadWrite;
+
 		bool operator!=(const ShaderUniform &p_other) const {
 			return binding != p_other.binding || type != p_other.type || writable != p_other.writable || stages != p_other.stages || length != p_other.length || texture_type != p_other.texture_type || texture_format != p_other.texture_format;
 		}
@@ -1156,6 +1179,9 @@ public:
 
 	struct ShaderSpecializationConstant : public PipelineSpecializationConstant {
 		BitField<ShaderStage> stages = {};
+
+		// NOTE: This is only used in WebGpu.
+		CharString name;
 
 		bool operator<(const ShaderSpecializationConstant &p_other) const { return constant_id < p_other.constant_id; }
 	};

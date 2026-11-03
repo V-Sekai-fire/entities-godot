@@ -31,6 +31,9 @@ web_files = [
     "os_web.cpp",
 ]
 
+if env["webgpu"]:
+    web_files.append("rendering_context_driver_webgpu_web.cpp")
+
 if env["target"] == "editor":
     env.add_source_files(web_files, "editor/*.cpp")
 
@@ -99,6 +102,10 @@ if env["dlink_enabled"]:
     sys_env["LINKFLAGS"].remove("-fvisibility=hidden")
     sys_env.Append(CCFLAGS=["-fwasm-exceptions"])
     sys_env.Append(LINKFLAGS=["-fwasm-exceptions"])
+    if env["webgpu"]:
+        sys_env.Append(
+            LINKFLAGS=["-sJSPI_IMPORTS=_Z14godot_web_mainiPPc", "-sJSPI_EXPORTS=main,_Z14godot_web_mainiPPc"]
+        )
 
     # The main emscripten runtime, with exported standard libraries.
     sys = sys_env.add_program(build_targets, ["web_runtime.cpp"])
@@ -126,7 +133,7 @@ if env["target"] == "editor":
     engine += ["js/engine/iframe.js"]
 
 externs = [env.File("#platform/web/js/engine/engine.externs.js")]
-js_engine = env.CreateEngineFile("#bin/godot${PROGSUFFIX}.engine.js", engine, externs, env["threads"])
+js_engine = env.CreateEngineFile("#bin/godot${PROGSUFFIX}.engine.js", engine, externs, env["threads"], env["webgpu"])
 env.Depends(js_engine, externs)
 
 wrap_list = [

@@ -303,6 +303,11 @@ void ShaderRD::_build_variant_code(StringBuilder &builder, uint32_t p_variant, c
 				for (const KeyValue<StringName, CharString> &E : p_version->code_sections) {
 					builder.append(String("#define ") + String(E.key) + "_CODE_USED\n");
 				}
+				if (RD::get_singleton()->get_device_capabilities().device_family == RDD::DEVICE_WEBGPU) {
+					builder.append("#define WEBGPU_USED\n");
+					builder.append("#define NO_IMAGE_ATOMICS\n");
+				}
+
 				builder.append(String("#define RENDER_DRIVER_") + OS::get_singleton()->get_current_rendering_driver_name().to_upper() + "\n");
 				builder.append("#define samplerExternalOES sampler2D\n");
 				builder.append("#define textureExternalOES texture2D\n");
@@ -1160,7 +1165,7 @@ void ShaderRD::set_shader_cache_save_debug(bool p_enable) {
 	shader_cache_save_debug = p_enable;
 }
 
-Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &p_stage_sources, const Vector<uint64_t> &p_dynamic_buffers) {
+Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &p_stage_sources, const Vector<uint64_t> &p_dynamic_buffers, const RenderingShaderContainerFormat *p_format) {
 	RD::ShaderStageSPIRVData stage;
 	Vector<RD::ShaderStageSPIRVData> stages;
 	String error;
@@ -1171,7 +1176,11 @@ Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &
 			continue;
 		}
 
-		stage.spirv = RD::get_singleton()->shader_compile_spirv_from_source(RD::ShaderStage(i), p_stage_sources[i], RD::SHADER_LANGUAGE_GLSL, &error);
+		if (p_format != nullptr) {
+			stage.spirv = RD::get_singleton()->shader_compile_spirv_from_source_for_format(RD::ShaderStage(i), p_stage_sources[i], *p_format, &error);
+		} else {
+			stage.spirv = RD::get_singleton()->shader_compile_spirv_from_source(RD::ShaderStage(i), p_stage_sources[i], RD::SHADER_LANGUAGE_GLSL, &error);
+		}
 		stage.dynamic_buffers = p_dynamic_buffers;
 		stage.shader_stage = RD::ShaderStage(i);
 		if (!stage.spirv.is_empty()) {

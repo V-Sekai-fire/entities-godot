@@ -1,0 +1,347 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.cc b/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.cc
+index 2196274f53..a9c949627f 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/parser/spirv_cross_module.cc
+@@ -89,6 +89,36 @@ void Append(std::vector<uint32_t>& out, spv::Op op, const std::vector<uint32_t>&
+     out.insert(out.end(), operands.begin(), operands.end());
+ }
+ 
++/// The UniformConstant pointer types of a module being rewritten. A new pointer to a pointee that
++/// the module already points to (later on) reuses that pointer type and moves its declaration up,
++/// as two pointer types to one pointee make function arguments and parameters disagree.
++struct UcPointers {
++    std::unordered_map<uint32_t, uint32_t> declared;  // pointee -> first declared pointer type
++    std::unordered_set<uint32_t> emitted;             // pointer types already in the output
++
++    void Scan(const std::vector<uint32_t>& w, const std::vector<RawInst>& insts) {
++        for (const auto& in : insts) {
++            const uint32_t* o = &w[in.offset];
++            if (in.opcode == spv::OpTypePointer && o[2] == spv::StorageClassUniformConstant &&
++                !declared.count(o[3])) {
++                declared[o[3]] = o[1];
++            }
++        }
++    }
++    /// @returns the pointer type to @p pointee, declared in @p out
++    uint32_t Get(std::vector<uint32_t>& out, uint32_t& bound, uint32_t pointee) {
++        auto it = declared.find(pointee);
++        uint32_t id = it != declared.end() ? it->second : bound++;
++        declared[pointee] = id;
++        if (emitted.insert(id).second) {
++            Append(out, spv::OpTypePointer, {id, spv::StorageClassUniformConstant, pointee});
++        }
++        return id;
++    }
++    /// @returns true if the existing declaration of pointer type @p id is still to be copied
++    bool Copy(uint32_t id) { return emitted.insert(id).second; }
++};
++
+ /// Splits combined image sampler variables (and pointer parameters) into an image variable and
+ /// a sampler variable, like spvtools::opt::SplitCombinedImageSamplerPass: each OpLoad of the
+ /// combined variable becomes a load of each part and an OpSampledImage with the original result
+@@ -162,7 +192,8 @@ bool SplitCombinedImageSamplers(std::vector<uint32_t>& w, std::string* error) {
+     }
+ 
+     std::vector<uint32_t> out(w.begin(), w.begin() + 5);
+-    std::unordered_map<uint32_t, uint32_t> uc_ptr;  // pointee -> UniformConstant pointer so far
++    UcPointers uc_ptr;
++    uc_ptr.Scan(w, insts);
+     std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> cptr_split;
+     // Loads of multisampled combined image samplers: result ID -> image load result ID. A
+     // multisampled image can only be fetched, so no OpSampledImage is made for it (tint does not
+@@ -189,9 +220,8 @@ bool SplitCombinedImageSamplers(std::vector<uint32_t>& w, std::string* error) {
+             case spv::OpTypePointer: {
+                 uint32_t id = ops[0];
+                 if (!cptr_si.count(id)) {
+-                    copy();
+-                    if (ops[1] == spv::StorageClassUniformConstant && !uc_ptr.count(ops[2])) {
+-                        uc_ptr[ops[2]] = id;
++                    if (ops[1] != spv::StorageClassUniformConstant || uc_ptr.Copy(id)) {
++                        copy();
+                     }
+                     break;
+                 }
+@@ -199,16 +229,7 @@ bool SplitCombinedImageSamplers(std::vector<uint32_t>& w, std::string* error) {
+                     Append(out, spv::OpTypeSampler, {sampler_type});
+                     sampler_emitted = true;
+                 }
+-                auto pointer_to = [&](uint32_t pointee) {
+-                    auto it = uc_ptr.find(pointee);
+-                    if (it != uc_ptr.end()) {
+-                        return it->second;
+-                    }
+-                    uint32_t p = bound++;
+-                    Append(out, spv::OpTypePointer, {p, spv::StorageClassUniformConstant, pointee});
+-                    uc_ptr[pointee] = p;
+-                    return p;
+-                };
++                auto pointer_to = [&](uint32_t pointee) { return uc_ptr.Get(out, bound, pointee); };
+                 uint32_t image_ptr = pointer_to(si_image[cptr_si[id]]);
+                 uint32_t sampler_ptr = pointer_to(sampler_type);
+                 cptr_split[id] = {image_ptr, sampler_ptr};
+@@ -451,9 +472,98 @@ bool SplitHandleArrays(std::vector<uint32_t>& w,
+     }
+ 
+     std::vector<uint32_t> out(w.begin(), w.begin() + 5);
+-    std::unordered_map<uint32_t, uint32_t> uc_ptr;     // pointee -> UniformConstant pointer so far
++    UcPointers uc_ptr;
++    uc_ptr.Scan(w, insts);
+     std::unordered_map<uint32_t, uint32_t> elem_ptr;   // array pointer -> element pointer
+     std::unordered_map<uint32_t, uint32_t> alias;      // access chain result -> element variable
++
++    // A run-time index: the access chain is dropped, and so are the loads of it and the
++    // OpSampledImage, OpImage and OpCopyObject made from those loads. The instruction that
++    // finally uses such a value (a sample, fetch, query or write) becomes an OpSwitch on the
++    // index with one case per element, each redoing the dropped chain on its element and the
++    // instruction itself, merged with an OpPhi. The default case is the last element, so an
++    // index past the end reads it.
++    struct Dyn {
++        uint32_t var;                              // the array variable
++        uint32_t index;                            // the index ID
++        std::vector<std::vector<uint32_t>> chain;  // dropped instructions after the access chain
++    };
++    std::unordered_map<uint32_t, Dyn> dyn;         // pointer or value ID -> its chain
++    std::unordered_map<uint32_t, uint32_t> label_rename;  // block label -> label of its tail
++    uint32_t block = 0;           // label of the block being copied
++    uint32_t block_tail = 0;      // label of the current tail of that block
++    auto any_dyn_operand = [&](const std::vector<uint32_t>& ops, size_t first) {
++        for (size_t i = first; i < ops.size(); i++) {
++            if (dyn.count(ops[i])) {
++                return true;
++            }
++        }
++        return false;
++    };
++
++    auto emit_switch = [&](uint32_t opcode, const std::vector<uint32_t>& ops, bool has_result,
++                           size_t pos) {
++        const Dyn& d = dyn[ops[pos]];
++        const auto& el = elements[d.var];
++        const uint32_t merge = bound++;
++        std::vector<uint32_t> case_labels;
++        for (size_t k = 0; k < el.size(); k++) {
++            case_labels.push_back(bound++);
++        }
++        Append(out, spv::OpSelectionMerge, {merge, 0u});
++        std::vector<uint32_t> sw{d.index, case_labels.back()};
++        for (size_t k = 0; k + 1 < el.size(); k++) {
++            sw.push_back(static_cast<uint32_t>(k));
++            sw.push_back(case_labels[k]);
++        }
++        Append(out, spv::OpSwitch, sw);
++        std::vector<uint32_t> phi;
++        if (has_result) {
++            phi = {ops[0], ops[1]};
++        }
++        for (size_t k = 0; k < el.size(); k++) {
++            Append(out, spv::OpLabel, {case_labels[k]});
++            // Redo the chain on element k with fresh result IDs.
++            std::unordered_map<uint32_t, uint32_t> fresh;
++            auto sub = [&](uint32_t id) {
++                auto it = fresh.find(id);
++                return it != fresh.end() ? it->second : id;
++            };
++                for (const auto& c : d.chain) {
++                    if (c[0] == spv::OpLoad) {  // opcode, type, result, pointer, ...
++                        uint32_t r = bound++;
++                        fresh[c[2]] = r;
++                        Append(out, spv::OpLoad, {c[1], r, el[k]});
++                    } else {  // opcode, type, result, operands...
++                        std::vector<uint32_t> n(c.begin() + 1, c.end());
++                        uint32_t r = bound++;
++                        fresh[n[1]] = r;
++                        n[1] = r;
++                        for (size_t j = 2; j < n.size(); j++) {
++                            n[j] = sub(n[j]);
++                        }
++                        Append(out, static_cast<spv::Op>(c[0]), n);
++                    }
++                }
++                std::vector<uint32_t> n = ops;
++                n[pos] = d.chain.empty() ? el[k] : sub(n[pos]);
++                if (has_result) {
++                    uint32_t r = bound++;
++                    n[1] = r;
++                    phi.push_back(r);
++                    phi.push_back(case_labels[k]);
++                }
++                Append(out, static_cast<spv::Op>(opcode), n);
++                Append(out, spv::OpBranch, {merge});
++            }
++            Append(out, spv::OpLabel, {merge});
++            if (has_result) {
++                Append(out, spv::OpPhi, phi);
++            }
++            block_tail = merge;
++            label_rename[block] = merge;
++    };
++
+     for (const auto& in : insts) {
+         const uint32_t* o = &w[in.offset];
+         std::vector<uint32_t> ops(o + 1, o + in.count);
+@@ -466,20 +576,12 @@ bool SplitHandleArrays(std::vector<uint32_t>& w,
+                 break;
+             case spv::OpTypePointer: {
+                 if (!arr_ptr.count(ops[0])) {
+-                    copy();
+-                    if (ops[1] == spv::StorageClassUniformConstant && !uc_ptr.count(ops[2])) {
+-                        uc_ptr[ops[2]] = ops[0];
++                    if (ops[1] != spv::StorageClassUniformConstant || uc_ptr.Copy(ops[0])) {
++                        copy();
+                     }
+                     break;
+                 }
+-                uint32_t elem = arrays[arr_ptr[ops[0]]].first;
+-                auto it = uc_ptr.find(elem);
+-                if (it == uc_ptr.end()) {
+-                    uint32_t p = bound++;
+-                    Append(out, spv::OpTypePointer, {p, spv::StorageClassUniformConstant, elem});
+-                    it = uc_ptr.insert({elem, p}).first;
+-                }
+-                elem_ptr[ops[0]] = it->second;
++                elem_ptr[ops[0]] = uc_ptr.Get(out, bound, arrays[arr_ptr[ops[0]]].first);
+                 break;
+             }
+             case spv::OpVariable:
+@@ -540,11 +642,15 @@ bool SplitHandleArrays(std::vector<uint32_t>& w,
+                     copy();
+                     break;
+                 }
+-                auto idx = ops.size() == 4 ? int_constants.find(ops[3]) : int_constants.end();
+-                if (idx == int_constants.end()) {
+-                    *error = "arrays of handle types indexed with a non-constant are not supported";
++                if (ops.size() != 4) {
++                    *error = "arrays of handle types accessed with more than one index";
+                     return false;
+                 }
++                auto idx = int_constants.find(ops[3]);
++                if (idx == int_constants.end()) {
++                    dyn[ops[1]] = Dyn{ops[2], ops[3], {}};
++                    break;
++                }
+                 const auto& el = elements[ops[2]];
+                 if (idx->second >= el.size()) {
+                     *error = "array of handle types indexed out of bounds";
+@@ -553,8 +659,32 @@ bool SplitHandleArrays(std::vector<uint32_t>& w,
+                 alias[ops[1]] = el[idx->second];
+                 break;
+             }
++            case spv::OpLabel:
++                block = block_tail = ops[0];
++                copy();
++                break;
++            case spv::OpLoopMerge:
++                if (block_tail != block) {
++                    *error = "an array of handle types indexed with a non-constant in a loop header "
++                             "is not supported";
++                    return false;
++                }
++                copy();
++                break;
+             case spv::OpLoad:
+             case spv::OpImageTexelPointer: {
++                if (in.opcode == spv::OpLoad && dyn.count(ops[2])) {
++                    Dyn d = dyn[ops[2]];
++                    d.chain.push_back(ops);
++                    d.chain.back().insert(d.chain.back().begin(), in.opcode);
++                    dyn[ops[1]] = std::move(d);
++                    break;
++                }
++                if (dyn.count(ops[2])) {
++                    *error = "texel pointers into an array of handle types indexed with a "
++                             "non-constant are not supported";
++                    return false;
++                }
+                 auto it = alias.find(ops[2]);
+                 if (it != alias.end()) {
+                     ops[2] = it->second;
+@@ -569,12 +699,36 @@ bool SplitHandleArrays(std::vector<uint32_t>& w,
+             }
+             case spv::OpCopyObject:
+             case spv::OpFunctionCall:
++                if ((in.opcode == spv::OpCopyObject) && dyn.count(ops[2])) {
++                    Dyn d = dyn[ops[2]];
++                    d.chain.push_back(ops);
++                    d.chain.back().insert(d.chain.back().begin(), in.opcode);
++                    dyn[ops[1]] = std::move(d);
++                    break;
++                }
++                if (in.opcode == spv::OpFunctionCall && any_dyn_operand(ops, 3)) {
++                    // A run-time element passed to a function: call it once per element.
++                    size_t pos = 0;
++                    for (size_t i = 3; i < ops.size(); i++) {
++                        if (dyn.count(ops[i])) {
++                            if (pos) {
++                                *error = "a function call with two arrays of handle types indexed "
++                                         "with a non-constant is not supported";
++                                return false;
++                            }
++                            pos = i;
++                        }
++                    }
++                    emit_switch(in.opcode, ops, true, pos);
++                    break;
++                }
++                [[fallthrough]];
+             case spv::OpStore:
+             case spv::OpPtrAccessChain:
+             case spv::OpCopyMemory:
+                 // Any other use of an array variable or of an element pointer is refused.
+                 for (size_t i = 0; i < ops.size(); i++) {
+-                    if (vars.count(ops[i]) || alias.count(ops[i])) {
++                    if (vars.count(ops[i]) || alias.count(ops[i]) || dyn.count(ops[i])) {
+                         *error = "unhandled use of an array of handle types (opcode " +
+                                  std::to_string(in.opcode) + ")";
+                         return false;
+@@ -582,9 +736,49 @@ bool SplitHandleArrays(std::vector<uint32_t>& w,
+                 }
+                 copy();
+                 break;
+-            default:
+-                copy();
++            default: {
++                bool has_result = false;
++                bool has_type = false;
++                spv::HasResultAndType(static_cast<spv::Op>(in.opcode), &has_result, &has_type);
++                const size_t first_in = (has_type ? 1u : 0u) + (has_result ? 1u : 0u);
++                if (!any_dyn_operand(ops, 0)) {
++                    copy();
++                    break;
++                }
++                if ((in.opcode == spv::OpSampledImage || in.opcode == spv::OpImage) &&
++                    dyn.count(ops[2]) && !any_dyn_operand(ops, 3)) {
++                    Dyn d = dyn[ops[2]];
++                    d.chain.push_back(ops);
++                    d.chain.back().insert(d.chain.back().begin(), in.opcode);
++                    dyn[ops[1]] = std::move(d);
++                    break;
++                }
++                if (ops.size() <= first_in || !dyn.count(ops[first_in]) ||
++                    any_dyn_operand(ops, first_in + 1) || (has_type && dyn.count(ops[0]))) {
++                    *error = "unhandled use of an array of handle types indexed with a "
++                             "non-constant (opcode " + std::to_string(in.opcode) + ")";
++                    return false;
++                }
++                emit_switch(in.opcode, ops, has_result, first_in);
+                 break;
++            }
++        }
++    }
++    // A branch from a split block now comes from its tail: rename OpPhi parents.
++    {
++        std::vector<RawInst> done;
++        std::string unused;
++        SplitWords(out, &done, &unused);
++        for (const auto& in : done) {
++            if (in.opcode != spv::OpPhi) {
++                continue;
++            }
++            for (uint32_t i = 4; i < in.count; i += 2) {
++                auto it = label_rename.find(out[in.offset + i]);
++                if (it != label_rename.end()) {
++                    out[in.offset + i] = it->second;
++                }
++            }
+         }
+     }
+     out[3] = bound;

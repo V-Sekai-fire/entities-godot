@@ -373,10 +373,31 @@ RendererCompositorRD::RendererCompositorRD() {
 
 	String rendering_method = OS::get_singleton()->get_current_rendering_method();
 	uint64_t textures_per_stage = RD::get_singleton()->limit_get(RD::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE);
+	const uint64_t required_textures_per_stage = OS::get_singleton()->get_current_rendering_driver_name() == "webgpu" ? 44 : 48;
 
-	if (rendering_method == "mobile" || textures_per_stage < 48) {
-		if (rendering_method == "forward_plus") {
-			WARN_PRINT_ONCE("Platform supports less than 48 textures per stage which is less than required by the Clustered renderer. Attempting to fallback to the Mobile renderer.");
+	// The Clustered renderer also writes R8, R16UI and RG16F storage images and uses subgroup
+	// operations in cluster_render.glsl. Stable WebGPU (Firefox) has neither without optional features,
+	// and one invalid pipeline makes the whole submit fail, which drops the texture uploads queued
+	// with it. Mobile needs neither.
+	String missing_feature;
+	if (OS::get_singleton()->get_current_rendering_driver_name() == "webgpu") {
+		const RD::DataFormat storage_formats[] = { RD::DATA_FORMAT_R8_UNORM, RD::DATA_FORMAT_R16_UINT, RD::DATA_FORMAT_R16G16_SFLOAT };
+		for (RD::DataFormat format : storage_formats) {
+			if (!RD::get_singleton()->texture_is_format_supported_for_usage(format, RD::TEXTURE_USAGE_STORAGE_BIT)) {
+				missing_feature = vformat("storage images of format %d", format);
+				break;
+			}
+		}
+		if (missing_feature.is_empty() && RD::get_singleton()->limit_get(RD::LIMIT_SUBGROUP_IN_SHADERS) == 0) {
+			missing_feature = "subgroup operations";
+		}
+	}
+
+	if (rendering_method == "mobile" || textures_per_stage < required_textures_per_stage || !missing_feature.is_empty()) {
+		if (rendering_method == "forward_plus" && !missing_feature.is_empty()) {
+			WARN_PRINT_ONCE(vformat("The Clustered renderer needs %s, which this device does not support. Attempting to fallback to the Mobile renderer.", missing_feature));
+		} else if (rendering_method == "forward_plus") {
+			WARN_PRINT_ONCE(vformat("Platform supports %d textures per stage, less than the %d required by the Clustered renderer. Attempting to fallback to the Mobile renderer.", textures_per_stage, required_textures_per_stage));
 		}
 #ifdef MOBILE_RD_ENABLED
 		scene = memnew(RendererSceneRenderImplementation::RenderForwardMobile());

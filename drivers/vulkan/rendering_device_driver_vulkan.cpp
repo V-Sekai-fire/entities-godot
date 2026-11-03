@@ -28,6 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
+#ifdef VULKAN_ENABLED
+
 #include "rendering_device_driver_vulkan.h"
 
 #include "core/config/engine.h"
@@ -7520,6 +7522,8 @@ bool RenderingDeviceDriverVulkan::has_feature(Features p_feature) {
 #else
 			return context_driver->is_colorspace_supported();
 #endif // defined(WINDOWS_ENABLED)
+		case SUPPORTS_TEXTURE_SWIZZLE:
+			return true;
 		case SUPPORTS_GPU_MAPPABLE_BUFFER:
 			return device_local_host_visible_host_coherent_memory_support;
 		default:
@@ -7609,3 +7613,5 @@ RenderingDeviceDriverVulkan::~RenderingDeviceDriverVulkan() {
 		vkDestroyDevice(vk_device, VKC::get_allocation_callbacks(VK_OBJECT_TYPE_DEVICE));
 	}
 }
+
+#endif //  VULKAN_ENABLED

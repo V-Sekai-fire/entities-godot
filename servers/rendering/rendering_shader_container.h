@@ -156,12 +156,9 @@ protected:
 		 * Crashes if no stages are set.
 		 */
 		const T &get_spv_reflect() const {
-			for (const T *d : _spv_reflect) {
-				if (d != nullptr) {
-					return *d;
-				}
-			}
-			CRASH_NOW_MSG("No stages set in ReflectSymbol");
+			const T *d = _spv_reflect[0] != nullptr ? _spv_reflect[0] : _spv_reflect[1];
+			CRASH_COND_MSG(d == nullptr, "No stages set in ReflectSymbol");
+			return *d;
 		}
 		void set_spv_reflect(RDC::ShaderStage p_stage, const T *p_spv);
 	};

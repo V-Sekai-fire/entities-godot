@@ -1,0 +1,115 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h b/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
+index 58319f4b32..730a5c9631 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
+@@ -59,6 +59,10 @@ struct Options {
+     std::optional<BindingPoint> push_constant_binding;
+     /// Godot: the largest push constant block accepted, in bytes. 0 means no limit.
+     uint32_t push_constant_max_size = 0;
++
++    /// Negate the y of the vertex position output. SPIR-V for Vulkan has y pointing down in clip
++    /// space, WGSL has it pointing up, like SPIRV-Cross's flip_vert_y for Metal.
++    bool flip_vertex_y = false;
+     /// Godot: the WGSL binding of each texture, sampler and buffer, chosen by the embedder from the
+     /// layout of the whole shader (all stages), so every stage numbers bindings the same way.
+     /// Called with the SPIR-V descriptor set and binding, the element of a handle array (0 if not
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
+index 9cca684a1c..1e01f8ecc4 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
+@@ -43,12 +43,12 @@
+ 
+ namespace tint::spirv::reader {
+ 
+-Result<SuccessType> Lower(core::ir::Module& mod) {
++Result<SuccessType> Lower(core::ir::Module& mod, bool flip_vertex_y) {
+     TINT_CHECK_RESULT(core::ir::transform::DeadCodeElimination(mod));
+     // Godot: texture and sampler parameters become the variables passed to them.
+     TINT_CHECK_RESULT(lower::HandleParams(mod));
+     TINT_CHECK_RESULT(lower::VectorElementPointer(mod));
+-    TINT_CHECK_RESULT(lower::ShaderIO(mod));
++    TINT_CHECK_RESULT(lower::ShaderIO(mod, flip_vertex_y));
+     TINT_CHECK_RESULT(lower::Builtins(mod));
+ 
+     // TransposeRowMajor must come before DecomposeStridedMatrix as we need to convert the matrices
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.h b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.h
+index 01c9b13e38..9e99320886 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.h
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.h
+@@ -36,7 +36,7 @@ namespace tint::spirv::reader {
+ /// Lower converts a SPIR-V-dialect IR module to a core-dialect IR module
+ /// @param  mod the IR module
+ /// @return the result of the operation
+-Result<SuccessType> Lower(core::ir::Module& mod);
++Result<SuccessType> Lower(core::ir::Module& mod, bool flip_vertex_y = false);
+ 
+ }  // namespace tint::spirv::reader
+ 
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/shader_io.cc b/thirdparty/tint/src/tint/lang/spirv/reader/lower/shader_io.cc
+index efa0ff6f73..969c18a633 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/shader_io.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/shader_io.cc
+@@ -53,6 +53,9 @@ struct State {
+     /// The type manager.
+     core::type::Manager& ty{ir.Types()};
+ 
++    /// Negate the y of the vertex position output (see Options::flip_vertex_y).
++    bool flip_vertex_y = false;
++
+     /// A map from block to its containing function.
+     Hashmap<core::ir::Block*, core::ir::Function*, 64> block_to_function{};
+ 
+@@ -182,6 +185,12 @@ struct State {
+             name = ir.symbols.New();
+         }
+ 
++        if (flip_vertex_y && attributes.builtin == core::BuiltinValue::kPosition) {
++            auto* f32 = ty.f32();
++            from = b.Construct(type, b.Access(f32, from, 0_u), b.Negation(b.Access(f32, from, 1_u)),
++                               b.Access(f32, from, 2_u), b.Access(f32, from, 3_u));
++        }
++
+         if ((type->Is<core::type::Vector>() || type->IsScalar()) ||
+             attributes.builtin == core::BuiltinValue::kClipDistances) {
+             output_descriptors.Push(core::type::Manager::StructMemberDesc{name, type, attributes});
+@@ -740,10 +749,12 @@ struct State {
+ 
+ }  // namespace
+ 
+-Result<SuccessType> ShaderIO(core::ir::Module& ir) {
++Result<SuccessType> ShaderIO(core::ir::Module& ir, bool flip_vertex_y) {
+     AssertValid(ir, "before spirv.ShaderIO");
+ 
+-    TINT_CHECK_RESULT(State{ir}.Process());
++    State state{ir};
++    state.flip_vertex_y = flip_vertex_y;
++    TINT_CHECK_RESULT(state.Process());
+ 
+     ir.properties.Remove(core::ir::Property::kAllowBackendSpecificShaderIO);
+     ir.properties.Remove(core::ir::Property::kAllowLocationForNumericComposites);
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/shader_io.h b/thirdparty/tint/src/tint/lang/spirv/reader/lower/shader_io.h
+index 58f83de460..b283466268 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/shader_io.h
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/shader_io.h
+@@ -41,7 +41,7 @@ namespace tint::spirv::reader::lower {
+ /// the form expected by Tint's core IR (using function parameters and return values).
+ /// @param module the module to transform
+ /// @returns success or failure
+-Result<SuccessType> ShaderIO(core::ir::Module& module);
++Result<SuccessType> ShaderIO(core::ir::Module& module, bool flip_vertex_y = false);
+ 
+ }  // namespace tint::spirv::reader::lower
+ 
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc b/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
+index 6015c23233..09bbb268bd 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
+@@ -43,7 +43,7 @@ Result<core::ir::Module> ReadIR(const std::vector<uint32_t>& input, const Option
+     mod.enable_validation_asserts = options.enable_validation_asserts;
+ 
+     // Lower the module to the core dialect of the IR.
+-    TINT_CHECK_RESULT(Lower(mod));
++    TINT_CHECK_RESULT(Lower(mod, options.flip_vertex_y));
+ 
+     // Always validate the core IR, so that we fail somewhat gracefully on invalid inputs instead of
+     // just ICEing later on.

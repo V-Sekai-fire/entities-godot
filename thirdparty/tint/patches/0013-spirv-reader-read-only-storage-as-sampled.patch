@@ -1,0 +1,129 @@
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h b/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
+index 730a5c9631..a1620695ef 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/common/options.h
+@@ -63,6 +63,11 @@ struct Options {
+     /// Negate the y of the vertex position output. SPIR-V for Vulkan has y pointing down in clip
+     /// space, WGSL has it pointing up, like SPIRV-Cross's flip_vert_y for Metal.
+     bool flip_vertex_y = false;
++
++    /// Read storage images decorated NonWritable as sampled textures read with `textureLoad`.
++    /// Both read the same texels, and sampled textures count against the per-stage sampled
++    /// texture limit instead of the much lower storage texture limit.
++    bool read_only_storage_as_sampled = false;
+     /// Godot: the WGSL binding of each texture, sampler and buffer, chosen by the embedder from the
+     /// layout of the whole shader (all stages), so every stage numbers bindings the same way.
+     /// Called with the SPIR-V descriptor set and binding, the element of a handle array (0 if not
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
+index 1e01f8ecc4..8f90ab50a4 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.cc
+@@ -43,7 +43,9 @@
+ 
+ namespace tint::spirv::reader {
+ 
+-Result<SuccessType> Lower(core::ir::Module& mod, bool flip_vertex_y) {
++Result<SuccessType> Lower(core::ir::Module& mod,
++                          bool flip_vertex_y,
++                          bool read_only_storage_as_sampled) {
+     TINT_CHECK_RESULT(core::ir::transform::DeadCodeElimination(mod));
+     // Godot: texture and sampler parameters become the variables passed to them.
+     TINT_CHECK_RESULT(lower::HandleParams(mod));
+@@ -59,7 +61,7 @@ Result<SuccessType> Lower(core::ir::Module& mod, bool flip_vertex_y) {
+     TINT_CHECK_RESULT(lower::DecomposeStridedMatrix(mod));
+     TINT_CHECK_RESULT(lower::DecomposeStridedArray(mod));
+     TINT_CHECK_RESULT(lower::Atomics(mod));
+-    TINT_CHECK_RESULT(lower::Texture(mod));
++    TINT_CHECK_RESULT(lower::Texture(mod, read_only_storage_as_sampled));
+     // Godot: depth textures read with a non-comparison sampler are read with loads instead.
+     TINT_CHECK_RESULT(lower::DepthSample(mod));
+ 
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.h b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.h
+index 9e99320886..987585e5e6 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.h
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/lower.h
+@@ -36,7 +36,9 @@ namespace tint::spirv::reader {
+ /// Lower converts a SPIR-V-dialect IR module to a core-dialect IR module
+ /// @param  mod the IR module
+ /// @return the result of the operation
+-Result<SuccessType> Lower(core::ir::Module& mod, bool flip_vertex_y = false);
++Result<SuccessType> Lower(core::ir::Module& mod,
++                          bool flip_vertex_y = false,
++                          bool read_only_storage_as_sampled = false);
+ 
+ }  // namespace tint::spirv::reader
+ 
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/texture.cc b/thirdparty/tint/src/tint/lang/spirv/reader/lower/texture.cc
+index 7786887d04..f56a1527ac 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/texture.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/texture.cc
+@@ -66,6 +66,9 @@ struct State {
+     /// The type manager.
+     core::type::Manager& ty{ir.Types()};
+ 
++    /// Read NonWritable storage images as sampled textures.
++    bool read_only_storage_as_sampled = false;
++
+     /// Map of all OpSampledImages seen
+     Hashmap<core::ir::Value*, core::ir::Instruction*, 4> sampled_images_{};
+ 
+@@ -1058,6 +1061,17 @@ struct State {
+             return ty.input_attachment(img->GetSampledType());
+         }
+ 
++        if (img->GetSampled() == spirv::type::Sampled::kReadWriteOpCompatible &&
++            read_only_storage_as_sampled && img->GetAccess() == core::Access::kRead) {
++            // WGSL has no textureLoad on cube textures; a cube image is read as a 2D array,
++            // as a cube storage texture is.
++            auto dim = ConvertDim(img->GetDim(), img->GetArrayed());
++            if (dim == core::type::TextureDimension::kCube) {
++                dim = core::type::TextureDimension::k2dArray;
++            }
++            return ty.sampled_texture(dim, img->GetSampledType());
++        }
++
+         if (img->GetSampled() == spirv::type::Sampled::kReadWriteOpCompatible) {
+             return ty.storage_texture(ConvertDim(img->GetDim(), img->GetArrayed()),
+                                       img->GetTexelFormat(), img->GetAccess());
+@@ -1082,10 +1096,12 @@ struct State {
+ 
+ }  // namespace
+ 
+-Result<SuccessType> Texture(core::ir::Module& ir) {
++Result<SuccessType> Texture(core::ir::Module& ir, bool read_only_storage_as_sampled) {
+     AssertValid(ir, "before spirv.Texture");
+ 
+-    State{ir}.Process();
++    State state{ir};
++    state.read_only_storage_as_sampled = read_only_storage_as_sampled;
++    state.Process();
+ 
+     ir.properties.Remove(core::ir::Property::kAllowPointerToHandle);
+ 
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/lower/texture.h b/thirdparty/tint/src/tint/lang/spirv/reader/lower/texture.h
+index 677b90d2d0..fe192e6534 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/lower/texture.h
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/lower/texture.h
+@@ -41,7 +41,8 @@ namespace tint::spirv::reader::lower {
+ /// Tint's core IR.
+ /// @param module the module to transform
+ /// @returns success or failure
+-Result<SuccessType> Texture(core::ir::Module& module);
++/// @param read_only_storage_as_sampled read NonWritable storage images as sampled textures
++Result<SuccessType> Texture(core::ir::Module& module, bool read_only_storage_as_sampled = false);
+ 
+ }  // namespace tint::spirv::reader::lower
+ 
+diff --git a/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc b/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
+index 09bbb268bd..75f9e49e25 100644
+--- a/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
++++ b/thirdparty/tint/src/tint/lang/spirv/reader/reader.cc
+@@ -43,7 +43,7 @@ Result<core::ir::Module> ReadIR(const std::vector<uint32_t>& input, const Option
+     mod.enable_validation_asserts = options.enable_validation_asserts;
+ 
+     // Lower the module to the core dialect of the IR.
+-    TINT_CHECK_RESULT(Lower(mod, options.flip_vertex_y));
++    TINT_CHECK_RESULT(Lower(mod, options.flip_vertex_y, options.read_only_storage_as_sampled));
+ 
+     // Always validate the core IR, so that we fail somewhat gracefully on invalid inputs instead of
+     // just ICEing later on.

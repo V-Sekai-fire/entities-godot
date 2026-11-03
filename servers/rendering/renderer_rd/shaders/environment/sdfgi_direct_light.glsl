@@ -37,9 +37,9 @@ layout(set = 0, binding = 5, std430) restrict buffer readonly ProcessVoxels {
 }
 process_voxels;
 
-layout(r32ui, set = 0, binding = 6) uniform restrict uimage3D dst_light;
-layout(rgba8, set = 0, binding = 7) uniform restrict image3D dst_aniso0;
-layout(rg8, set = 0, binding = 8) uniform restrict image3D dst_aniso1;
+layout(r32ui, set = 0, binding = 6) uniform restrict writeonly uimage3D dst_light;
+layout(rgba8, set = 0, binding = 7) uniform restrict writeonly image3D dst_aniso0;
+layout(rg8, set = 0, binding = 8) uniform restrict writeonly image3D dst_aniso1;
 
 struct CascadeData {
 	vec3 offset; //offset of (0,0,0) in world coordinates

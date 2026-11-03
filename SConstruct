@@ -208,6 +208,15 @@ opts.Add(BoolVariable("vulkan", "Enable the Vulkan rendering driver", True))
 opts.Add(BoolVariable("opengl3", "Enable the OpenGL/GLES3 rendering driver", True))
 opts.Add(BoolVariable("d3d12", "Enable the Direct3D 12 rendering driver on supported platforms", False))
 opts.Add(BoolVariable("metal", "Enable the Metal rendering driver on supported platforms (Apple arm64 only)", False))
+opts.Add(BoolVariable("webgpu", "Enable the WebGPU rendering driver on supported platforms (web only)", False))
+opts.Add(
+    BoolVariable(
+        "webgpu_shader_baker", "Build the WebGPU shader baker into the editor, to bake WGSL into web exports", True
+    )
+)
+opts.Add(
+    EnumVariable("webgpu_backend", "WebGPU backend library / platform", "auto", ["auto", "emdawnwebgpu"], ignorecase=2)
+)
 opts.Add(BoolVariable("use_volk", "Use the volk library to load the Vulkan loader dynamically", True))
 opts.Add(BoolVariable("accesskit", "Enable the AccessKit driver for screen reader support", True))
 opts.Add(BoolVariable("angle", "Enable the ANGLE rendering driver for OpenGL ES 3.0 on supported platforms", True))
@@ -713,8 +722,8 @@ if env["scu_build"]:
     methods.set_scu_folders(scu_builders.generate_scu_files(max_includes_per_scu))
 
 if env["rendering_device"]:
-    if env["platform"] == "web":
-        # Not available in the web platform.
+    if env["platform"] == "web" and not env["webgpu"]:
+        # RD on web only via WebGPU; disable when webgpu=no.
         env["rendering_device"] = False
     else:
         env.Append(CPPDEFINES=["RD_ENABLED"])
@@ -722,6 +731,10 @@ if env["rendering_device"]:
             env.Append(CPPDEFINES=["MOBILE_RD_ENABLED"])
         if env["forward_plus_renderer"]:
             env.Append(CPPDEFINES=["FORWARD_RD_ENABLED"])
+if not (env["rendering_device"] and env.editor_build and env["platform"] != "web"):
+    env["webgpu_shader_baker"] = False
+if env["webgpu_shader_baker"]:
+    env.Append(CPPDEFINES=["WEBGPU_SHADER_BAKER_ENABLED"])
 # These need to be set before platform detection.
 if not env["rendering_device"] or not (env["forward_mobile_renderer"] or env["forward_plus_renderer"]):
     env["d3d12"] = False

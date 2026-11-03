@@ -1162,8 +1162,8 @@ void CopyEffects::octmap_downsample(RID p_source_octmap, RID p_dest_octmap, cons
 		case RD::DATA_FORMAT_A2B10G10R10_UNORM_PACK32: {
 			mode |= DOWNSAMPLER_MODE_FLAG_RGB10_A2;
 		} break;
-		case RD::DATA_FORMAT_R16G16B16A16_SFLOAT: {
-			// Absence of the flag indicates RGBA16F.
+		case RD::DATA_FORMAT_R16G16B16A16_SFLOAT:
+		case RD::DATA_FORMAT_R8G8B8A8_UNORM: {
 		} break;
 		default: {
 			ERR_FAIL_MSG("Unrecognized octmap format.");
@@ -1277,8 +1277,8 @@ void CopyEffects::octmap_filter(RID p_source_octmap, const Vector<RID> &p_dest_o
 		case RD::DATA_FORMAT_A2B10G10R10_UNORM_PACK32: {
 			mode |= FILTER_MODE_FLAG_RGB10_A2;
 		} break;
-		case RD::DATA_FORMAT_R16G16B16A16_SFLOAT: {
-			// Absence of the flag indicates RGBA16F.
+		case RD::DATA_FORMAT_R16G16B16A16_SFLOAT:
+		case RD::DATA_FORMAT_R8G8B8A8_UNORM: {
 		} break;
 		default: {
 			ERR_FAIL_MSG("Unrecognized octmap format.");
@@ -1369,7 +1369,8 @@ void CopyEffects::octmap_roughness(RID p_source_rd_texture, RID p_dest_texture, 
 		case RD::DATA_FORMAT_A2B10G10R10_UNORM_PACK32: {
 			mode = ROUGHNESS_MODE_RGB10_A2;
 		} break;
-		case RD::DATA_FORMAT_R16G16B16A16_SFLOAT: {
+		case RD::DATA_FORMAT_R16G16B16A16_SFLOAT:
+		case RD::DATA_FORMAT_R8G8B8A8_UNORM: {
 			mode = ROUGHNESS_MODE_RGBA16F;
 		} break;
 		default: {

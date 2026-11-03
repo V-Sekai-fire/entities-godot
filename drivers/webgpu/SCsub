@@ -1,0 +1,97 @@
+from misc.utility.scons_hints import *
+
+Import("env")
+
+import os
+
+# Off the web, only the editor's shader baker is built: the shader container and its SPIR-V to
+# WGSL step, so an export can carry WGSL instead of converting it in the browser.
+baker_only = env["platform"] != "web"
+if baker_only and not env.editor_build:
+    raise ValueError('The WebGPU driver is only supported on platform "web" (via emdawnwebgpu).')
+# The baker-only build is called from editor/shader/shader_baker and goes into the editor library.
+target_sources = env.editor_sources if baker_only else env.drivers_sources
+
+# Thirdparty: tint's SPIR-V reader (on SPIRV-Cross's parser) and WGSL writer, for SPIR-V to WGSL.
+# tint needs C++20; it and the bridge that includes it (webgpu_tint.cpp) build with their own env.
+
+tint_dir = "#thirdparty/tint/"
+spirv_cross_dir = "#thirdparty/spirv-cross/"
+spirv_headers_dir = "#thirdparty/spirv-headers/include/"
+
+tint_excluded = (
+    "/lang/spirv/writer/",
+    "/lang/spirv/validate/",
+    "/lang/spirv/reader/ast_parser/",
+    "/lang/spirv/reader/ast_lower/",
+)
+tint_root = Dir(tint_dir).srcnode().abspath
+tint_sources = []
+for root, _dirs, files in os.walk(os.path.join(tint_root, "src", "tint")):
+    rel_root = root.replace(os.sep, "/") + "/"
+    if any(part in rel_root for part in tint_excluded):
+        continue
+    for f in files:
+        if f.endswith(".cc") and not f.endswith("_test.cc") and not f.endswith("_bench.cc"):
+            tint_sources.append(os.path.join(root, f))
+tint_sources.sort()
+
+spirv_cross_sources = []
+if not (baker_only and env["metal"]):
+    spirv_cross_sources = [spirv_cross_dir + f for f in ["spirv_parser.cpp", "spirv_cross_parsed_ir.cpp"]]
+
+env_tint = env.Clone()
+env_tint.disable_warnings()
+env_tint["CXXFLAGS"] = [f for f in env_tint["CXXFLAGS"] if not str(f).startswith(("-std=", "/std:"))]
+env_tint.Prepend(CXXFLAGS=["/std:c++20" if env.msvc else "-std=c++20"])
+# tint uses __VA_OPT__, which MSVC only reads with its standard conforming preprocessor.
+if env.msvc and not env["use_llvm"]:
+    env_tint.Append(CXXFLAGS=["/Zc:preprocessor"])
+# tint stops the build unless NDEBUG or DAWN_ENABLE_ASSERTS is set, and dev builds leave NDEBUG
+# unset. DAWN_ENABLE_ASSERTS needs Dawn's assert handler, which is not vendored, so use NDEBUG.
+if env.dev_build:
+    env_tint.Append(CPPDEFINES=["NDEBUG"])
+env_tint.Prepend(
+    CPPPATH=[
+        tint_dir,
+        tint_dir + "include/",
+        spirv_headers_dir,
+        spirv_headers_dir + "spirv/unified1/",
+        spirv_cross_dir,
+        spirv_cross_dir + "include/",
+    ]
+)
+# Like drivers/metal, but kept off: with Godot's disable_exceptions, SPIRV-Cross reports and aborts
+# instead of throwing.
+if env["disable_exceptions"]:
+    env_tint.Append(CPPDEFINES=["SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS"])
+env_tint.Append(
+    CPPDEFINES=[
+        ("DAWN_HAVE_UTILS_BUILD_CONFIG", 1),
+        ("TINT_BUILD_SPV_READER", 1),
+        ("TINT_BUILD_WGSL_WRITER", 1),
+        ("TINT_BUILD_SPV_WRITER", 0),
+        ("TINT_BUILD_WGSL_READER", 0),
+        ("TINT_BUILD_SYNTAX_TREE_WRITER", 0),
+        ("TINT_BUILD_GLSL_WRITER", 0),
+        ("TINT_BUILD_HLSL_WRITER", 0),
+        ("TINT_BUILD_MSL_WRITER", 0),
+    ]
+)
+
+thirdparty_obj = []
+env_tint.add_source_files(thirdparty_obj, tint_sources)
+env_tint.add_source_files(thirdparty_obj, spirv_cross_sources)
+env_tint.add_source_files(thirdparty_obj, ["webgpu_tint.cpp"])
+target_sources += thirdparty_obj
+
+driver_obj = []
+if baker_only:
+    env_baker = env.Clone()
+    env_baker.Append(CPPDEFINES=["WEBGPU_SHADER_BAKER_ONLY"])
+    env_baker.add_source_files(driver_obj, ["rendering_shader_container_webgpu.cpp"])
+else:
+    env.add_source_files(driver_obj, [f for f in Glob("*.cpp") if f.name != "webgpu_tint.cpp"])
+target_sources += driver_obj
+
+env.Depends(driver_obj, thirdparty_obj)
