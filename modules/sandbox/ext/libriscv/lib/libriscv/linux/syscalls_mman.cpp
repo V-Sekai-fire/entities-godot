@@ -289,6 +289,8 @@ static void add_mman_syscalls()
 			case 12: // MADV_MERGEABLE
 			case 15: // MADV_NOHUGEPAGE
 			case 18: // MADV_WIPEONFORK
+			case 102: // MADV_GUARD_INSTALL (Linux 6.13, used by newer glibc): guard pages are not needed in the emulated memory
+			case 103: // MADV_GUARD_REMOVE
 				machine.set_result(0);
 				break;
 			case 4: // MADV_DONTNEED
