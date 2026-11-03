@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="Pixal3DLatent" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Intermediate handle passed from [method Pixal3DPipeline.encode_image] to [method Pixal3DPipeline.decode_latent].
+	</brief_description>
+	<description>
+		Carries whatever the pipeline hands over between the image-encoder half and the mesh-decoder half. The current trellis2 C ABI runs image to mesh in one call, so this class stashes the image bytes plus a snapshot of the generation options; when the ABI grows explicit intermediate entry points, the same handle holds the sparse-structure or shape-SLAT latent instead, without any caller change.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_image_bytes" qualifiers="const">
+			<return type="PackedByteArray" />
+			<description>
+				Returns the image bytes handed to [method Pixal3DPipeline.encode_image]. Empty until the ABI split lands and the handle carries a real latent instead.
+			</description>
+		</method>
+		<method name="get_options_snapshot" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns the encode-time options snapshot. [method Pixal3DPipeline.decode_latent] merges its own [code skip-lint]gen_opts[/code] over this snapshot so a decode may override, but not repeat, what encode already chose.
+			</description>
+		</method>
+	</methods>
+</class>
