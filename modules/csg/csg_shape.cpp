@@ -280,11 +280,53 @@ enum ManifoldProperty {
 	MANIFOLD_PROPERTY_MAX
 };
 
+// What a root shape carries through its booleans: the union over its brush and its children.
+struct CSGAttributeLayout {
+	bool uv2 = false;
+	bool colors = false;
+	Vector<int> skin_bones; // channel -> bone index, sorted
+
+	// Optional attributes follow the fixed ones, in this order: UV2 (2), colour (4), then one weight per skin channel.
+	int uv2_at() const {
+		return MANIFOLD_PROPERTY_MAX;
+	}
+	int color_at() const {
+		return uv2_at() + (uv2 ? 2 : 0);
+	}
+	int skin_at() const {
+		return color_at() + (colors ? 4 : 0);
+	}
+	int stride() const {
+		return skin_at() + skin_bones.size();
+	}
+
+	void add(const CSGBrush *p_brush) {
+		uv2 = uv2 || p_brush->has_uv2;
+		colors = colors || p_brush->has_colors;
+		for (int bone : p_brush->skin_bones) {
+			if (!skin_bones.has(bone)) {
+				skin_bones.push_back(bone);
+			}
+		}
+		skin_bones.sort();
+	}
+};
+
 static void _unpack_manifold(
 		const manifold::Manifold &p_manifold,
 		const HashMap<int32_t, Ref<Material>> &p_mesh_materials,
+		const CSGAttributeLayout &p_layout,
 		CSGBrush *r_mesh_merge) {
 	manifold::MeshGL64 mesh = p_manifold.GetMeshGL64();
+
+	const int channels = p_layout.skin_bones.size();
+	r_mesh_merge->has_uv2 = p_layout.uv2;
+	r_mesh_merge->has_colors = p_layout.colors;
+	r_mesh_merge->skin_bones = p_layout.skin_bones;
+	r_mesh_merge->skin_weights.clear();
+	// Attributes are only read when the mesh really has the columns, which is so unless Manifold dropped them.
+	const bool read_attributes = int(mesh.numProp) == p_layout.stride();
+	ERR_FAIL_COND_MSG(!read_attributes && (p_layout.uv2 || p_layout.colors || channels > 0), "Manifold returned a different number of vertex properties than CSG packed.");
 
 	constexpr int32_t order[3] = { 0, 2, 1 };
 
@@ -324,6 +366,21 @@ static void _unpack_manifold(
 				face.uvs[tri_order_i] = Vector2(
 						mesh.vertProperties[property_i * mesh.numProp + MANIFOLD_PROPERTY_UV_X_0],
 						mesh.vertProperties[property_i * mesh.numProp + MANIFOLD_PROPERTY_UV_Y_0]);
+				if (p_layout.uv2) {
+					face.uv2s[tri_order_i] = Vector2(
+							mesh.vertProperties[property_i * mesh.numProp + p_layout.uv2_at()],
+							mesh.vertProperties[property_i * mesh.numProp + p_layout.uv2_at() + 1]);
+				}
+				if (p_layout.colors) {
+					face.colors[tri_order_i] = Color(
+							mesh.vertProperties[property_i * mesh.numProp + p_layout.color_at()],
+							mesh.vertProperties[property_i * mesh.numProp + p_layout.color_at() + 1],
+							mesh.vertProperties[property_i * mesh.numProp + p_layout.color_at() + 2],
+							mesh.vertProperties[property_i * mesh.numProp + p_layout.color_at() + 3]);
+				}
+				for (int c = 0; c < channels; c++) {
+					r_mesh_merge->skin_weights.push_back(mesh.vertProperties[property_i * mesh.numProp + p_layout.skin_at() + c]);
+				}
 			}
 			r_mesh_merge->faces.push_back(face);
 		}
@@ -402,25 +459,35 @@ static void _pack_manifold(
 		const CSGBrush *const p_mesh_merge,
 		manifold::Manifold &r_manifold,
 		HashMap<int32_t, Ref<Material>> &p_mesh_materials,
+		const CSGAttributeLayout &p_layout,
 		CSGShape3D *p_csg_shape) {
 	ERR_FAIL_NULL_MSG(p_mesh_merge, "p_mesh_merge is null");
 	ERR_FAIL_NULL_MSG(p_csg_shape, "p_shape is null");
-	HashMap<uint32_t, Vector<CSGBrush::Face>> faces_by_material;
+	// Faces keep their index in the brush, so their skin weights can be found again after the material grouping.
+	HashMap<uint32_t, Vector<int>> faces_by_material;
 	for (int face_i = 0; face_i < p_mesh_merge->faces.size(); face_i++) {
-		const CSGBrush::Face &face = p_mesh_merge->faces[face_i];
-		faces_by_material[face.material].push_back(face);
+		faces_by_material[p_mesh_merge->faces[face_i].material].push_back(face_i);
+	}
+
+	const int stride = p_layout.stride();
+	const int brush_channels = p_mesh_merge->skin_bones.size();
+	// Where each channel of this brush sits among the channels of the whole shape.
+	Vector<int> channel_to_layout;
+	channel_to_layout.resize(brush_channels);
+	for (int c = 0; c < brush_channels; c++) {
+		channel_to_layout.write[c] = p_layout.skin_bones.find(p_mesh_merge->skin_bones[c]);
 	}
 
 	manifold::MeshGL64 mesh;
-	mesh.numProp = MANIFOLD_PROPERTY_MAX;
+	mesh.numProp = stride;
 	mesh.runOriginalID.reserve(faces_by_material.size());
 	mesh.runIndex.reserve(faces_by_material.size() + 1);
-	mesh.vertProperties.reserve(p_mesh_merge->faces.size() * 3 * MANIFOLD_PROPERTY_MAX);
+	mesh.vertProperties.reserve(p_mesh_merge->faces.size() * 3 * stride);
 
 	// Make a run of triangles for each material.
-	for (const KeyValue<uint32_t, Vector<CSGBrush::Face>> &E : faces_by_material) {
+	for (const KeyValue<uint32_t, Vector<int>> &E : faces_by_material) {
 		const uint32_t material_id = E.key;
-		const Vector<CSGBrush::Face> &faces = E.value;
+		const Vector<int> &face_indices = E.value;
 		mesh.runIndex.push_back(mesh.triVerts.size());
 
 		// Associate the material with an ID.
@@ -432,15 +499,16 @@ static void _pack_manifold(
 		}
 
 		p_mesh_materials.insert(reserved_id, material);
-		for (const CSGBrush::Face &face : faces) {
+		for (const int face_index : face_indices) {
+			const CSGBrush::Face &face = p_mesh_merge->faces[face_index];
 			for (int32_t tri_order_i = 0; tri_order_i < 3; tri_order_i++) {
 				constexpr int32_t order[3] = { 0, 2, 1 };
 				int i = order[tri_order_i];
 
-				mesh.triVerts.push_back(mesh.vertProperties.size() / MANIFOLD_PROPERTY_MAX);
+				mesh.triVerts.push_back(mesh.vertProperties.size() / stride);
 
 				size_t begin = mesh.vertProperties.size();
-				mesh.vertProperties.resize(mesh.vertProperties.size() + MANIFOLD_PROPERTY_MAX);
+				mesh.vertProperties.resize(mesh.vertProperties.size() + stride);
 				// Add the vertex properties.
 				// Use CSGBrush constants rather than push_back for clarity.
 				double *vert = &mesh.vertProperties[begin];
@@ -451,6 +519,20 @@ static void _pack_manifold(
 				vert[MANIFOLD_PROPERTY_UV_Y_0] = face.uvs[i].y;
 				vert[MANIFOLD_PROPERTY_SMOOTH_GROUP] = face.smooth ? 1.0f : 0.0f;
 				vert[MANIFOLD_PROPERTY_INVERT] = face.invert ? 1.0f : 0.0f;
+				if (p_layout.uv2) {
+					vert[p_layout.uv2_at()] = face.uv2s[i].x;
+					vert[p_layout.uv2_at() + 1] = face.uv2s[i].y;
+				}
+				if (p_layout.colors) {
+					vert[p_layout.color_at()] = face.colors[i].r;
+					vert[p_layout.color_at() + 1] = face.colors[i].g;
+					vert[p_layout.color_at() + 2] = face.colors[i].b;
+					vert[p_layout.color_at() + 3] = face.colors[i].a;
+				}
+				// A channel the brush does not carry stays zero (resize zero-fills).
+				for (int c = 0; c < brush_channels; c++) {
+					vert[p_layout.skin_at() + channel_to_layout[c]] = p_mesh_merge->skin_weights[(face_index * 3 + i) * brush_channels + c];
+				}
 			}
 		}
 	}
@@ -492,11 +574,12 @@ CSGBrush *CSGShape3D::_get_brush() {
 	brush = nullptr;
 	CSGBrush *n = _build_brush();
 	HashMap<int32_t, Ref<Material>> mesh_materials;
-	manifold::Manifold root_manifold;
-	_pack_manifold(n, root_manifold, mesh_materials, this);
-	manifold::OpType current_op = ManifoldOperation::convert_csg_op(get_operation());
-	std::vector<manifold::Manifold> manifolds;
-	manifolds.push_back(root_manifold);
+
+	// The attributes a boolean carries are fixed for the whole shape, so gather every brush before packing any.
+	CSGAttributeLayout layout;
+	layout.add(n);
+	LocalVector<CSGBrush> child_brushes;
+	LocalVector<CSGShape3D *> child_shapes;
 	for (int i = 0; i < get_child_count(); i++) {
 		CSGShape3D *child = Object::cast_to<CSGShape3D>(get_child(i));
 		if (!child || !child->is_visible()) {
@@ -506,10 +589,21 @@ CSGBrush *CSGShape3D::_get_brush() {
 		if (!child_brush) {
 			continue;
 		}
-		CSGBrush transformed_brush;
-		transformed_brush.copy_from(*child_brush, child->get_transform());
+		child_brushes.push_back(CSGBrush());
+		child_brushes[child_brushes.size() - 1].copy_from(*child_brush, child->get_transform());
+		child_shapes.push_back(child);
+		layout.add(child_brush);
+	}
+
+	manifold::Manifold root_manifold;
+	_pack_manifold(n, root_manifold, mesh_materials, layout, this);
+	manifold::OpType current_op = ManifoldOperation::convert_csg_op(get_operation());
+	std::vector<manifold::Manifold> manifolds;
+	manifolds.push_back(root_manifold);
+	for (uint32_t i = 0; i < child_brushes.size(); i++) {
+		CSGShape3D *child = child_shapes[i];
 		manifold::Manifold child_manifold;
-		_pack_manifold(&transformed_brush, child_manifold, mesh_materials, child);
+		_pack_manifold(&child_brushes[i], child_manifold, mesh_materials, layout, child);
 		manifold::OpType child_operation = ManifoldOperation::convert_csg_op(child->get_operation());
 		if (child_operation != current_op) {
 			manifold::Manifold result = manifold::Manifold::BatchBoolean(manifolds, current_op);
@@ -523,7 +617,7 @@ CSGBrush *CSGShape3D::_get_brush() {
 		manifold::Manifold manifold_result = manifold::Manifold::BatchBoolean(manifolds, current_op);
 		memdelete(n);
 		n = memnew(CSGBrush);
-		_unpack_manifold(manifold_result, mesh_materials, n);
+		_unpack_manifold(manifold_result, mesh_materials, layout, n);
 	}
 	AABB aabb;
 	if (n && !n->faces.is_empty()) {
@@ -579,6 +673,75 @@ static void _generate_tangents_unindexed(float *p_tangents, size_t p_count, cons
 			tangent_vertices.ptr()->uv, sizeof(TangentVertex), 0);
 }
 
+void CSGShape3D::_size_surface_attributes(const CSGBrush *p_brush, ShapeUpdateSurface &r_surface, int p_face_count) {
+	const int corners = p_face_count * 3;
+	if (p_brush->has_uv2) {
+		r_surface.uv2s.resize(corners);
+		r_surface.uv2sw = r_surface.uv2s.ptrw();
+	}
+	if (p_brush->has_colors) {
+		r_surface.colors.resize(corners);
+		r_surface.colorsw = r_surface.colors.ptrw();
+	}
+	if (!p_brush->skin_bones.is_empty()) {
+		r_surface.bones.resize(corners * 4);
+		r_surface.weights.resize(corners * 4);
+		r_surface.bones.fill(0);
+		r_surface.weights.fill(0.0f);
+		r_surface.bonesw = r_surface.bones.ptrw();
+		r_surface.weightsw = r_surface.weights.ptrw();
+	}
+}
+
+void CSGShape3D::_write_corner_attributes(const CSGBrush *p_brush, int p_face, int p_corner, ShapeUpdateSurface &r_surface, int p_vertex) {
+	const CSGBrush::Face &face = p_brush->faces[p_face];
+	if (r_surface.uv2sw) {
+		r_surface.uv2sw[p_vertex] = face.uv2s[p_corner];
+	}
+	if (r_surface.colorsw) {
+		r_surface.colorsw[p_vertex] = face.colors[p_corner];
+	}
+	if (!r_surface.bonesw) {
+		return;
+	}
+
+	// The four heaviest channels of this corner, renormalised. A cut corner is a weighted mean of up to three
+	// source corners, so it can hold more than four, and the lightest ones are what is dropped.
+	const int channels = p_brush->skin_bones.size();
+	const float *w = p_brush->skin_weights.ptr() + (p_face * 3 + p_corner) * channels;
+	int best[4] = { -1, -1, -1, -1 };
+	for (int c = 0; c < channels; c++) {
+		if (w[c] <= 0.0f) {
+			continue;
+		}
+		int slot = 3;
+		if (best[slot] != -1 && w[c] <= w[best[slot]]) {
+			continue;
+		}
+		best[slot] = c;
+		while (slot > 0 && (best[slot - 1] == -1 || w[best[slot]] > w[best[slot - 1]])) {
+			SWAP(best[slot], best[slot - 1]);
+			slot--;
+		}
+	}
+	float sum = 0.0f;
+	for (int k = 0; k < 4; k++) {
+		if (best[k] != -1) {
+			sum += w[best[k]];
+		}
+	}
+	for (int k = 0; k < 4; k++) {
+		const int at = p_vertex * 4 + k;
+		if (best[k] != -1 && sum > 1e-6f) {
+			r_surface.bonesw[at] = p_brush->skin_bones[best[k]];
+			r_surface.weightsw[at] = w[best[k]] / sum;
+		} else {
+			r_surface.bonesw[at] = 0;
+			r_surface.weightsw[at] = (k == 0 && sum <= 1e-6f) ? 1.0f : 0.0f;
+		}
+	}
+}
+
 void CSGShape3D::update_shape() {
 	if (!is_root_shape()) {
 		return;
@@ -626,6 +789,16 @@ void CSGShape3D::update_shape() {
 		array[Mesh::ARRAY_VERTEX] = surfaces[i].vertices;
 		array[Mesh::ARRAY_NORMAL] = surfaces[i].normals;
 		array[Mesh::ARRAY_TEX_UV] = surfaces[i].uvs;
+		if (!surfaces[i].uv2s.is_empty()) {
+			array[Mesh::ARRAY_TEX_UV2] = surfaces[i].uv2s;
+		}
+		if (!surfaces[i].colors.is_empty()) {
+			array[Mesh::ARRAY_COLOR] = surfaces[i].colors;
+		}
+		if (!surfaces[i].bones.is_empty()) {
+			array[Mesh::ARRAY_BONES] = surfaces[i].bones;
+			array[Mesh::ARRAY_WEIGHTS] = surfaces[i].weights;
+		}
 		if (have_tangents) {
 			array[Mesh::ARRAY_TANGENT] = surfaces[i].tans;
 		}
@@ -717,6 +890,7 @@ void CSGShape3D::_build_surfaces_smoothed(CSGBrush *p_brush, Vector<CSGShape3D::
 		r_surfaces.write[i].verticesw = r_surfaces.write[i].vertices.ptrw();
 		r_surfaces.write[i].normalsw = r_surfaces.write[i].normals.ptrw();
 		r_surfaces.write[i].uvsw = r_surfaces.write[i].uvs.ptrw();
+		_size_surface_attributes(p_brush, r_surfaces.write[i], r_face_count[i]);
 		if (calculate_tangents) {
 			r_surfaces.write[i].tansw = r_surfaces.write[i].tans.ptrw();
 		}
@@ -752,6 +926,7 @@ void CSGShape3D::_build_surfaces_smoothed(CSGBrush *p_brush, Vector<CSGShape3D::
 				r_surfaces[idx].verticesw[k] = v;
 				r_surfaces[idx].uvsw[k] = p_brush->faces[i].uvs[j];
 				r_surfaces[idx].normalsw[k] = normal;
+				_write_corner_attributes(p_brush, i, j, r_surfaces.write[idx], k);
 
 				if (calculate_tangents) {
 					// zero out our tangents for now
@@ -811,6 +986,7 @@ void CSGShape3D::_build_surfaces_default(CSGBrush *p_brush, Vector<CSGShape3D::S
 		r_surfaces.write[i].verticesw = r_surfaces.write[i].vertices.ptrw();
 		r_surfaces.write[i].normalsw = r_surfaces.write[i].normals.ptrw();
 		r_surfaces.write[i].uvsw = r_surfaces.write[i].uvs.ptrw();
+		_size_surface_attributes(p_brush, r_surfaces.write[i], r_face_count[i]);
 		if (calculate_tangents) {
 			r_surfaces.write[i].tansw = r_surfaces.write[i].tans.ptrw();
 		}
@@ -853,6 +1029,7 @@ void CSGShape3D::_build_surfaces_default(CSGBrush *p_brush, Vector<CSGShape3D::S
 				r_surfaces[idx].verticesw[k] = v;
 				r_surfaces[idx].uvsw[k] = p_brush->faces[i].uvs[j];
 				r_surfaces[idx].normalsw[k] = normal;
+				_write_corner_attributes(p_brush, i, j, r_surfaces.write[idx], k);
 
 				if (calculate_tangents) {
 					// zero out our tangents for now
@@ -1305,6 +1482,15 @@ CSGBrush *CSGMesh3D::_build_brush() {
 	Vector<Vector2> uvs;
 	Ref<Material> base_material = get_material();
 
+	// Extra per-corner attributes, filled as surfaces are read. A corner of a surface without them keeps the default.
+	Vector<Vector2> extra_uv2s;
+	Vector<Color> extra_colors;
+	Vector<int> extra_bones;
+	Vector<float> extra_weights;
+	bool has_uv2 = false;
+	bool has_colors = false;
+	bool has_skin = false;
+
 	for (int i = 0; i < mesh->get_surface_count(); i++) {
 		if (mesh->surface_get_primitive_type(i) != Mesh::PRIMITIVE_TRIANGLES) {
 			continue;
@@ -1344,6 +1530,8 @@ CSGBrush *CSGMesh3D::_build_brush() {
 		}
 
 		Vector<int> aindices = arrays[Mesh::ARRAY_INDEX];
+		// Where this surface starts among the corners of the whole brush, for the extra attributes below.
+		const int attribute_start = vertices.size();
 		if (aindices.size()) {
 			int as = vertices.size();
 			int is = aindices.size();
@@ -1432,13 +1620,72 @@ CSGBrush *CSGMesh3D::_build_brush() {
 				mw[(as + j) / 3] = mat;
 			}
 		}
+
+		// Extra per-corner attributes, in the same corner order as `vertices` above.
+		{
+			const int corners = vertices.size() - attribute_start;
+			const bool indexed = aindices.size() > 0;
+			Vector<Vector2> auv2s = arrays[Mesh::ARRAY_TEX_UV2];
+			Vector<Color> acolors = arrays[Mesh::ARRAY_COLOR];
+			Vector<int> abones = arrays[Mesh::ARRAY_BONES];
+			Vector<float> aweights = arrays[Mesh::ARRAY_WEIGHTS];
+			const int influences = (avertices.size() > 0 && abones.size() > 0 && abones.size() % avertices.size() == 0 && aweights.size() == abones.size()) ? abones.size() / avertices.size() : 0;
+			const bool use_uv2 = auv2s.size() == avertices.size();
+			const bool use_colors = acolors.size() == avertices.size();
+			if (use_uv2 || use_colors || influences > 0) {
+				extra_uv2s.resize(vertices.size());
+				extra_colors.resize(vertices.size());
+				extra_bones.resize(vertices.size() * 4);
+				extra_weights.resize(vertices.size() * 4);
+				// resize() leaves new elements of a plain-data vector uninitialised, and the slot search below reads them.
+				extra_bones.fill(0);
+				extra_weights.fill(0.0f);
+				for (int c = 0; c < corners; c++) {
+					const int src = indexed ? aindices[c] : c;
+					const int at = attribute_start + c;
+					if (use_uv2) {
+						extra_uv2s.write[at] = auv2s[src];
+					}
+					if (use_colors) {
+						extra_colors.write[at] = acolors[src];
+					}
+					if (influences > 0) {
+						// Keep the four heaviest influences of the vertex (a mesh may carry eight).
+						for (int k = 0; k < influences; k++) {
+							const float weight = aweights[src * influences + k];
+							if (weight <= 0.0f) {
+								continue;
+							}
+							int slot = -1;
+							float lightest = weight;
+							for (int s = 0; s < 4; s++) {
+								const float held = extra_weights[at * 4 + s];
+								if (held < lightest) {
+									lightest = held;
+									slot = s;
+								}
+							}
+							if (slot >= 0) {
+								extra_weights.write[at * 4 + slot] = weight;
+								extra_bones.write[at * 4 + slot] = abones[src * influences + k];
+							}
+						}
+						has_skin = true;
+					}
+				}
+				has_uv2 = has_uv2 || use_uv2;
+				has_colors = has_colors || use_colors;
+			}
+		}
 	}
 
 	if (vertices.is_empty()) {
 		return memnew(CSGBrush);
 	}
 
-	return _create_brush_from_arrays(vertices, uvs, smooth, materials);
+	CSGBrush *created = _create_brush_from_arrays(vertices, uvs, smooth, materials);
+	created->set_attributes(has_uv2 ? extra_uv2s : Vector<Vector2>(), has_colors ? extra_colors : Vector<Color>(), has_skin ? extra_bones : Vector<int>(), has_skin ? extra_weights : Vector<float>(), has_skin ? 4 : 0);
+	return created;
 }
 
 void CSGMesh3D::_mesh_changed() {
