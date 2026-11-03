@@ -1,0 +1,65 @@
+cff-version: 1.2.0
+message: "If you use witness-cpp in academic or engineering work, please cite it as below."
+title: "witness-cpp: exception-free property-testing ladder for C++"
+abstract: >-
+  Header-only C++17 property-testing library. Implements an
+  iterative-deepening ladder over deterministically seeded random
+  trials, with generators, shrinkers, assume/classify, and a
+  reproducer seed printed on every falsified property. Uses no
+  exceptions anywhere in its own code and its CI proves this by
+  building the test binary with -fno-exceptions -fno-rtti, so it can
+  be embedded in codebases that ship with exceptions disabled
+  (Godot, LLVM, embedded).
+license: MIT
+authors:
+  - family-names: Lee
+    given-names: "K. S. Ernest (iFire)"
+    email: ernest.lee@chibifire.com
+    orcid: "https://orcid.org/0000-0003-4570-1436"
+version: 0.1.0
+date-released: "2026-09-11"
+repository-code: "https://github.com/V-Sekai-fire/witness-cpp"
+keywords:
+  - property-testing
+  - random-testing
+  - shrinking
+  - cpp17
+  - exception-free
+  - header-only
+  - doctest
+references:
+  - type: software
+    title: "plausible-witness-dag"
+    authors:
+      - family-names: Lee
+        given-names: "K. S. Ernest (iFire)"
+    abstract: >-
+      Lean/Lake library that layers an iterative-deepening ladder and
+      deterministic readback over Plausible. The Level struct here
+      (walk_steps, fin_bound, num_inst) mirrors its rungs and the
+      DEFAULT_LADDER values here match the Lean-side defaults verbatim.
+      witness-cpp is a fresh C++ implementation of the ladder shape,
+      not a port of any Lean code.
+    repository-code: "https://github.com/fire/plausible-witness-dag"
+  - type: software
+    title: "Plausible"
+    abstract: >-
+      Lean-community property-testing library used underneath
+      plausible-witness-dag. The num_inst semantics and the
+      FOUND / PROVABLY_NONE / BUDGET_HIT outcome triple in
+      witness::Outcome reproduce Plausible's Testable.checkIO
+      result classification.
+    repository-code: "https://github.com/leanprover-community/plausible"
+    license: Apache-2.0
+  - type: software
+    title: "doctest"
+    authors:
+      - family-names: Kirilov
+        given-names: Viktor
+    abstract: >-
+      Single-header C++ test framework used by witness-cpp's own test
+      suite and by the optional witness/doctest.h bindings. Chosen for
+      being header-only and for defining DOCTEST_CONFIG_NO_EXCEPTIONS
+      variants so the test binary can build under -fno-exceptions.
+    repository-code: "https://github.com/doctest/doctest"
+    license: MIT

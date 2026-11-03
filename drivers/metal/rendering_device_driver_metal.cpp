@@ -538,7 +538,7 @@ RDD::TextureID RenderingDeviceDriverMetal::texture_create_shared_from_slice(Text
 	MTL::TextureType textureType = VIEW_TYPES[src_texture->textureType()];
 	switch (p_slice_type) {
 		case TEXTURE_SLICE_2D: {
-			textureType = MTL::TextureType2D;
+			textureType = src_texture->sampleCount() > 1 ? MTL::TextureType2DMultisample : MTL::TextureType2D;
 		} break;
 		case TEXTURE_SLICE_3D: {
 			textureType = MTL::TextureType3D;
