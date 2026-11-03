@@ -128,3 +128,22 @@ inline float oit_resolve_samples(const OITAccum *p_samples, uint32_t p_sample_co
 	}
 	return color + p_background * (1.0f - alpha);
 }
+
+// Mirrors Oit.SliceCurve.autoRange in the Lean spec (lean/Oit/SliceCurve.lean), which pins the bounds, the 1 cm floor and the thin-layer separation.
+// The slice range for a view of translucent geometry whose view-space depths run from p_min_z to p_max_z (metres in front of the camera):
+// the bounds grown by a margin, never nearer than 1 cm, with the curve that gives every slice the same relative thickness (see below). Returns false when there is nothing
+// in front of the camera, and the caller keeps the fixed planes.
+inline bool oit_auto_range(float p_min_z, float p_max_z, float p_margin, float &r_near, float &r_far, float &r_linearization) {
+	if (!(p_max_z > 0.0f) || !(p_max_z >= p_min_z)) {
+		return false;
+	}
+	r_near = p_min_z - p_margin > 0.01f ? p_min_z - p_margin : 0.01f;
+	r_far = p_max_z + p_margin;
+	if (r_far < r_near + 0.001f) {
+		r_far = r_near + 0.001f;
+	}
+	// k = span / near turns log(1 + k t) / log(1 + k) into log(z / near) / log(far / near): the same relative resolution at every depth, ln(far / near) / slices of the depth per slice. For a narrow range (hair, about 1.3 m or less) k is small and the curve is nearly linear; for a wide one (planets) it is log depth, so the range works at any scale.
+	float k = (r_far - r_near) / r_near;
+	r_linearization = k < 0.001f ? 0.001f : (k > 1.0e18f ? 1.0e18f : k);
+	return true;
+}

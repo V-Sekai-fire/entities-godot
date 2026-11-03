@@ -3761,12 +3761,15 @@ void RenderingServer::init() {
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/environment/ssil/fadeout_to", PROPERTY_HINT_RANGE, "64,65536,0.1,or_greater"), 300.0);
 
 	GLOBAL_DEF(PropertyInfo(Variant::BOOL, "rendering/oit/enabled"), false);
-	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/oit/slice_count", PROPERTY_HINT_ENUM, "64,128,256,512"), 128);
+	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/oit/slice_count", PROPERTY_HINT_ENUM, "64:64,128:128,256:256,512:512"), 128);
 	GLOBAL_DEF(PropertyInfo(Variant::VECTOR2I, "rendering/oit/tile_size"), Vector2i(6, 6));
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/oit/splat_mode", PROPERTY_HINT_ENUM, "Raster,Compute"), 0);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/oit/near_plane", PROPERTY_HINT_RANGE, "0.01,10.0,0.01"), 0.1);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/oit/far_plane", PROPERTY_HINT_RANGE, "1.0,10000.0,1.0"), 500.0);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/oit/linearization_factor", PROPERTY_HINT_RANGE, "0.001,100000.0,0.001,exp"), 1000.0);
+	// Fit the slice range to the translucent geometry each frame (its world bounds seen from the camera) instead of the fixed near and far planes: the slices then span the subject, not the scene, which is what thin layers such as hair need.
+	GLOBAL_DEF("rendering/oit/auto_range", true);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/oit/auto_range_margin", PROPERTY_HINT_RANGE, "0.0,10.0,0.001,or_greater,suffix:m"), 0.02);
 
 	// Move the project setting definitions here so they are available when we init the rendering internals.
 	GLOBAL_DEF_BASIC("rendering/viewport/hdr_2d", false);

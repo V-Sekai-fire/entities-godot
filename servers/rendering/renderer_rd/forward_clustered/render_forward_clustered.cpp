@@ -32,6 +32,7 @@
 
 #include "core/config/project_settings.h"
 #include "servers/rendering/renderer_rd/effects/oit.h"
+#include "servers/rendering/renderer_rd/effects/oit_math.h"
 #include "servers/rendering/renderer_rd/environment/fog.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
@@ -5646,6 +5647,7 @@ void RenderForwardClustered::_oit_prepass(RenderDataRD *p_render_data, const Sce
 	}
 
 	int slice_count = int(GLOBAL_GET("rendering/oit/slice_count"));
+	slice_count = CLAMP(slice_count, 8, 512); // the integrate pass holds up to 512 slices a column (128 threads, up to four each)
 	Vector2i tile_size = GLOBAL_GET("rendering/oit/tile_size");
 	int splat_mode = int(GLOBAL_GET("rendering/oit/splat_mode"));
 	uint32_t view_count = p_render_data->scene_data->view_count;
@@ -5665,9 +5667,30 @@ void RenderForwardClustered::_oit_prepass(RenderDataRD *p_render_data, const Sce
 		uint32_t froxel_dims[4];
 	};
 	SceneOITParams sp;
-	sp.slice_curve[0] = float(GLOBAL_GET("rendering/oit/near_plane"));
-	sp.slice_curve[1] = float(GLOBAL_GET("rendering/oit/far_plane"));
-	sp.slice_curve[2] = float(GLOBAL_GET("rendering/oit/linearization_factor"));
+	float oit_near = float(GLOBAL_GET("rendering/oit/near_plane"));
+	float oit_far = float(GLOBAL_GET("rendering/oit/far_plane"));
+	float oit_k = float(GLOBAL_GET("rendering/oit/linearization_factor"));
+	if (bool(GLOBAL_GET("rendering/oit/auto_range")) && !render_list[RENDER_LIST_ALPHA].elements.is_empty()) {
+		// The depths of the translucent geometry, from the world bounds of its instances seen from the camera.
+		Transform3D view_xf = p_render_data->scene_data->cam_transform.affine_inverse();
+		float lo = Math::INF;
+		float hi = -Math::INF;
+		for (const GeometryInstanceSurfaceDataCache *surf : render_list[RENDER_LIST_ALPHA].elements) {
+			if (surf == nullptr || surf->owner == nullptr) {
+				continue;
+			}
+			const AABB &bb = surf->owner->transformed_aabb;
+			for (int c = 0; c < 8; c++) {
+				float z = -view_xf.xform(bb.get_endpoint(c)).z;
+				lo = MIN(lo, z);
+				hi = MAX(hi, z);
+			}
+		}
+		oit_auto_range(lo, hi, float(GLOBAL_GET("rendering/oit/auto_range_margin")), oit_near, oit_far, oit_k);
+	}
+	sp.slice_curve[0] = oit_near;
+	sp.slice_curve[1] = oit_far;
+	sp.slice_curve[2] = oit_k;
 	sp.slice_curve[3] = float(slice_count);
 	sp.froxel_dims[0] = dims.x;
 	sp.froxel_dims[1] = dims.y;

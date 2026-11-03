@@ -654,4 +654,29 @@ TEST_CASE("[OIT] tables: control, one perturbed row changes the hash") {
 	CHECK(tables_hash(4095, false) != tables_hash(4096, false));
 }
 
+TEST_CASE("[OIT] auto range: bounds plus a margin, thin layers land in different slices") {
+	float n = 0.0f, f = 0.0f, k = 0.0f;
+	CHECK(oit_auto_range(2.0f, 2.6f, 0.02f, n, f, k));
+	CHECK(n == doctest::Approx(1.98f));
+	CHECK(f == doctest::Approx(2.62f));
+	CHECK(k == doctest::Approx(0.64f / 1.98f)); // log depth with a mild curve for a narrow range
+	CHECK(oit_auto_range(0.005f, 1.0f, 0.02f, n, f, k));
+	CHECK(n == doctest::Approx(0.01f)); // never nearer than 1 cm
+	CHECK_FALSE(oit_auto_range(-2.0f, -1.0f, 0.02f, n, f, k)); // behind the camera: keep the fixed planes
+	CHECK_FALSE(oit_auto_range(Math::INF, -Math::INF, 0.02f, n, f, k)); // nothing seen
+
+	// Solar-system scale: the same code, log depth. Two layers 10% apart at 1e11 m separate in the near cluster of a 1e11..1.5e11 m range; across a 1 m to 4.5e12 m range the relative thickness is ln(far / near) / 512 = 5.7%, so layers 10% apart still separate and 1% apart merge.
+	CHECK(oit_auto_range(1.0e11f, 1.5e11f, 1.0e9f, n, f, k));
+	CHECK(oit_depth_to_slice(n, f, k, 512, 1.20e11f) != oit_depth_to_slice(n, f, k, 512, 1.21e11f));
+	CHECK(oit_auto_range(1.0f, 4.5e12f, 0.02f, n, f, k));
+	CHECK(k > 1.0e9f);
+	CHECK(oit_depth_to_slice(n, f, k, 512, 1.0e11f) != oit_depth_to_slice(n, f, k, 512, 1.1e11f));
+	CHECK(oit_depth_to_slice(n, f, k, 512, 1.01e11f) - oit_depth_to_slice(n, f, k, 512, 1.00e11f) <= 1u);
+
+	// Two layers 2 mm apart at 2.3 m: the fixed planes put them in one slice, the auto range with 512 slices separates them.
+	CHECK(oit_depth_to_slice(0.1f, 500.0f, 1000.0f, 128, 2.300f) == oit_depth_to_slice(0.1f, 500.0f, 1000.0f, 128, 2.302f));
+	CHECK(oit_auto_range(2.0f, 2.6f, 0.02f, n, f, k));
+	CHECK(oit_depth_to_slice(n, f, k, 512, 2.300f) != oit_depth_to_slice(n, f, k, 512, 2.302f));
+}
+
 } // namespace TestOIT
