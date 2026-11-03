@@ -32,6 +32,8 @@
 
 #include "image_loader_svg.h"
 
+#include "core/object/class_db.h"
+
 #include <thorvg.h>
 
 #ifdef THREADS_ENABLED
@@ -40,9 +42,28 @@
 #define TVG_THREADS 0
 #endif
 
+#ifdef TOOLS_ENABLED
+#include "editor/editor_node.h"
+#include "editor/resource_importer_lottie.h"
+
+static void _editor_init() {
+	Ref<ResourceImporterLottie> lottie_importer;
+	lottie_importer.instantiate();
+	ResourceFormatImporter::get_singleton()->add_importer(lottie_importer);
+}
+#endif
+
 static Ref<ImageLoaderSVG> image_loader_svg;
 
 void initialize_svg_module(ModuleInitializationLevel p_level) {
+#ifdef TOOLS_ENABLED
+	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
+		GDREGISTER_CLASS(ResourceImporterLottie);
+
+		EditorNode::add_init_callback(_editor_init);
+	}
+#endif
+
 	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
 		return;
 	}
