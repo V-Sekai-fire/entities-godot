@@ -2384,10 +2384,14 @@ void main() {
 
 #else // MODE_RENDER_DEPTH
 
+	// The splat pass writes one sample per tile, so on a sloped surface a pixel can lie behind its tile's sample; with thin slices that sample falls in an earlier slice and the surface would shade itself. Look up at the shallowest depth the surface reaches inside the tile: this pixel's depth minus half the depth change across the tile.
+	vec2 oit_tile_px = 1.0 / max(vec2(oit_params.froxel_dims.xy) * vec2(abs(dFdx(screen_uv.x)), abs(dFdy(screen_uv.y))), vec2(1e-6));
+	float oit_spread = 0.5 * (abs(dFdx(-vertex.z)) * oit_tile_px.x + abs(dFdy(-vertex.z)) * oit_tile_px.y);
+	float oit_lookup_z = max(-vertex.z - oit_spread, 0.0001);
 #ifdef MODE_OIT_ACCUMULATE
-	float oit_front = oit_transmittance_in_front(screen_uv, uint(ViewIndex), -vertex.z);
+	float oit_front = oit_transmittance_in_front(screen_uv, uint(ViewIndex), oit_lookup_z);
 #else
-	alpha = half(oit_apply(screen_uv, uint(ViewIndex), -vertex.z, float(alpha)));
+	alpha = half(oit_apply(screen_uv, uint(ViewIndex), oit_lookup_z, float(alpha)));
 #endif // MODE_OIT_ACCUMULATE
 
 	// multiply by albedo
