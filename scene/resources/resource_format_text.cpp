@@ -703,6 +703,11 @@ Error ResourceLoaderText::load() {
 					res = _parse_node_tag(res, rp);
 				}
 
+				if (has_missing_dependencies || error == ERR_FILE_MISSING_DEPENDENCIES) {
+					error = ERR_FILE_MISSING_DEPENDENCIES;
+					resource = Ref<Resource>(); // Clear resource before returning error
+					return error;
+				}
 				error = OK;
 				break;
 			} else {
