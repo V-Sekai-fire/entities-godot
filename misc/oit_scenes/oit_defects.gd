@@ -2,7 +2,7 @@ extends SceneTree
 # OIT defect tests. OIT_TEST = alpha | skin | stack | shimmer, OIT_SCALE multiplies every distance (1 = hair on a character, 1e9 = solar system).
 # Every pixel of the render is compared with the exact depth-ordered over-blend of the layers (rays against planes, circles for clipped layers), linear space, black background.
 var S := 1.0
-var edge_px := 1.0   # pixels around a coverage edge to skip; the froxel tile is 6 px, so a tile-sized skip hides the tile edge
+var edge_px := float(OS.get_environment("EDGE")) if OS.get_environment("EDGE") != "" else 1.0
 var cam: Camera3D
 var layers: Array = []   # {mi, color, radius (0 = unclipped)}
 func mat(c: Color) -> StandardMaterial3D:
