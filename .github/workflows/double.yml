@@ -303,9 +303,19 @@ jobs:
             else mv "$f" release/; fi
           done
           cd release && sha256sum * | tee SHA256SUMS
+      # The job's github.token is refused on POST /releases (HTTP 403, runs 42291173805 and 42286733584) although it
+      # holds contents: write, so publish with an installation token from the persona App, as model-explorer does.
+      - name: Mint a GitHub App token to publish with
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.PERSONA_APP_ID }}
+          private-key: ${{ secrets.PERSONA_APP_PRIVATE_KEY }}
+          owner: V-Sekai-fire
+          repositories: entities-zone
       - name: Publish
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           tag="${{ inputs.release_tag || github.ref_name }}"
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$tag" \
