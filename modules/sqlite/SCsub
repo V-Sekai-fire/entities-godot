@@ -36,6 +36,10 @@ if not os.path.isfile(os.path.join(env["fdb_include"], "fdb_c.h")):
     Exit(255)
 
 env.Append(CPPPATH=[env["fdb_include"]], LIBPATH=[env["fdb_libpath"]], LIBS=["fdb_c"])
+if env["platform"] == "linuxbsd":
+    # The client library ships beside the binary, so the binary looks for it there and the package can be
+    # unpacked anywhere. $$ survives SCons, the single quotes survive the shell, the linker records $ORIGIN.
+    env.Append(LINKFLAGS=["-Wl,-rpath,'$$ORIGIN'", "-Wl,-z,origin"])
 if env["platform"] == "windows":
     env.Append(LIBS=["pthread"])
 if env["platform"] == "macos":
