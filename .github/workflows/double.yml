@@ -112,6 +112,7 @@ jobs:
           path: |
             bin/*
             !bin/obj
+            !bin/obj/**
           if-no-files-found: error
 
   linux:
@@ -183,6 +184,7 @@ jobs:
           path: |
             bin/*
             !bin/obj
+            !bin/obj/**
           if-no-files-found: error
 
   macos:
@@ -264,6 +266,7 @@ jobs:
           path: |
             bin/*
             !bin/obj
+            !bin/obj/**
           if-no-files-found: error
 
   release:
@@ -277,7 +280,12 @@ jobs:
       - name: One directory, one sha256 line per binary
         run: |
           mkdir -p release
-          find out -type f -exec mv -t release/ {} +
+          # The editor and template uploads of a platform ship the same FoundationDB client; keep one copy, fail on any other clash.
+          find out -type f -not -path '*/obj/*' | sort | while read -r f; do
+            b=$(basename "$f")
+            if [ -e "release/$b" ]; then cmp -s "$f" "release/$b" || { echo "different files named $b"; exit 1; }
+            else mv "$f" release/; fi
+          done
           cd release && sha256sum * | tee SHA256SUMS
       - name: Publish
         env:
