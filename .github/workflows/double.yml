@@ -178,6 +178,21 @@ jobs:
             Linux) cp "$lib/libfdb_c.so" bin/ ;;
             Windows) cp "$(dirname "$lib")/../bin/fdb_c.dll" bin/ ;;
           esac
+      # The check above runs where the client library is installed, so it cannot tell whether the binary finds
+      # the library beside itself. Copy it to a fresh folder and start it with a clean environment; the copy
+      # without the library is the control and must fail to start.
+      - name: The binary starts from a copy elsewhere, with a clean environment
+        if: matrix.target == 'editor' && steps.fdb-client.outputs.scons-flags != ''
+        shell: bash
+        run: |
+          set -eu
+          d="$(mktemp -d)"
+          cp "bin/${{ matrix.bin }}" "$d/"
+          if env -i PATH=/usr/bin:/bin "$d/${{ matrix.bin }}" --headless --version > /dev/null 2>&1; then
+            echo "control failed: the copy started without libfdb_c beside it, so this check proves nothing"; exit 1
+          fi
+          cp bin/libfdb_c.* "$d/"
+          env -i PATH=/usr/bin:/bin "$d/${{ matrix.bin }}" --headless --version
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.cache-name }}
@@ -260,6 +275,21 @@ jobs:
             Linux) cp "$lib/libfdb_c.so" bin/ ;;
             Windows) cp "$(dirname "$lib")/../bin/fdb_c.dll" bin/ ;;
           esac
+      # The check above runs where the client library is installed, so it cannot tell whether the binary finds
+      # the library beside itself. Copy it to a fresh folder and start it with a clean environment; the copy
+      # without the library is the control and must fail to start.
+      - name: The binary starts from a copy elsewhere, with a clean environment
+        if: matrix.target == 'editor' && steps.fdb-client.outputs.scons-flags != ''
+        shell: bash
+        run: |
+          set -eu
+          d="$(mktemp -d)"
+          cp "bin/${{ matrix.bin }}" "$d/"
+          if env -i PATH=/usr/bin:/bin "$d/${{ matrix.bin }}" --headless --version > /dev/null 2>&1; then
+            echo "control failed: the copy started without libfdb_c beside it, so this check proves nothing"; exit 1
+          fi
+          cp bin/libfdb_c.* "$d/"
+          env -i PATH=/usr/bin:/bin "$d/${{ matrix.bin }}" --headless --version
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.cache-name }}
