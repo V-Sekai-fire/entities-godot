@@ -109,7 +109,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.cache-name }}
-          path: bin/*
+          path: |
+            bin/*
+            !bin/obj
           if-no-files-found: error
 
   linux:
@@ -178,7 +180,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.cache-name }}
-          path: bin/*
+          path: |
+            bin/*
+            !bin/obj
           if-no-files-found: error
 
   macos:
@@ -257,7 +261,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.cache-name }}
-          path: bin/*
+          path: |
+            bin/*
+            !bin/obj
           if-no-files-found: error
 
   release:
