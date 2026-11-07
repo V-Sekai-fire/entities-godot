@@ -236,6 +236,18 @@
 /modules/multiplayer/doc_classes/             @godotengine/network @godotengine/documentation
 /modules/multiplayer/editor/                  @godotengine/network @godotengine/editor
 /modules/multiplayer/tests/                   @godotengine/network @godotengine/tests
+/modules/sandbox/                              @V-Sekai-fire/v-sekai-fire-staff
+/modules/sandbox/**/*.py                       @V-Sekai-fire/v-sekai-fire-staff @godotengine/buildsystem
+/modules/sandbox/**/*.sh                       @V-Sekai-fire/v-sekai-fire-staff @godotengine/buildsystem
+/modules/sandbox/**/SConstruct                 @V-Sekai-fire/v-sekai-fire-staff @godotengine/buildsystem
+/modules/sandbox/**/SCsub                      @V-Sekai-fire/v-sekai-fire-staff @godotengine/buildsystem
+/modules/sandbox/doc_classes/                  @V-Sekai-fire/v-sekai-fire-staff @godotengine/documentation
+/modules/sandbox/**/tests/                     @V-Sekai-fire/v-sekai-fire-staff @godotengine/tests
+/modules/sandbox/**/doc_classes/               @V-Sekai-fire/v-sekai-fire-staff @godotengine/documentation
+/modules/sandbox/**/editor/                    @V-Sekai-fire/v-sekai-fire-staff @godotengine/editor
+/modules/sandbox/**/tests/**/*.py              @V-Sekai-fire/v-sekai-fire-staff @godotengine/tests @godotengine/buildsystem
+/modules/sandbox/**/tests/**/*.sh              @V-Sekai-fire/v-sekai-fire-staff @godotengine/tests @godotengine/buildsystem
+/modules/sandbox/**/tests/**/editor/           @V-Sekai-fire/v-sekai-fire-staff @godotengine/tests @godotengine/editor
 /modules/upnp/                                @godotengine/network
 /modules/upnp/**/*.py                         @godotengine/network @godotengine/buildsystem
 /modules/upnp/**/SCsub                        @godotengine/network @godotengine/buildsystem

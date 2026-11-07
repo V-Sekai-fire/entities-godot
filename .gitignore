@@ -396,3 +396,10 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 *.generated.props
+
+# modules/sandbox tracks files that the generic rules above would ignore
+!modules/sandbox/**/bin/
+!modules/sandbox/ext/libriscv/lib/libriscv/win32/
+!modules/sandbox/ext/godot-cpp/gdextension/extension_api.json
+!modules/sandbox/godot-sandbox.code-workspace
+!modules/sandbox/src/safegdscript/builtin_api.gen.inc

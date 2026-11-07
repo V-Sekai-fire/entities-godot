@@ -23,7 +23,7 @@ else:
     api_file = os.path.join(godot_cpp, "gdextension", "extension_api.json")
 gen_root = os.path.join(here, "ext", "godot-cpp-gen", precision + "_" + bits)
 stamp_path = os.path.join(gen_root, "stamp")
-stamp = "%s %d" % (api_file, os.path.getmtime(api_file))
+stamp = f"{api_file} {int(os.path.getmtime(api_file))}"
 if not os.path.exists(stamp_path) or open(stamp_path).read() != stamp:
     sys.path.insert(0, godot_cpp)
     from binding_generator import generate_bindings
@@ -60,11 +60,15 @@ env_ext.Prepend(CPPPATH=["#modules/sandbox/" + libriscv + "/lib/" + platform_dir
 if env.msvc:
     env_ext.Append(CXXFLAGS=["/std:c++20", "/EHsc"])
 else:
-    env_ext.Append(CXXFLAGS=["-std=c++20", "-fexceptions"])
+    # Web adds -fwasm-exceptions: -fexceptions alone selects JS exceptions, which clang rejects together
+    # with the engine's -sSUPPORT_LONGJMP='wasm'. -fexceptions is still needed to override -fno-exceptions.
+    env_ext.Append(
+        CXXFLAGS=["-std=c++20", "-fexceptions"] + (["-fwasm-exceptions"] if env["platform"] == "web" else [])
+    )
     # godot-cpp's godot.cpp calls realloc and free without <cstdlib>.
     env_ext.Append(CXXFLAGS=["-include", "cstdlib"])
 if env["platform"] == "web":
-    env.Append(LINKFLAGS=["-fexceptions", "-sDISABLE_EXCEPTION_CATCHING=0"])
+    env.Append(LINKFLAGS=["-fwasm-exceptions"])
 elif env["platform"] == "windows":
     env.Append(LIBS=["ws2_32"])
 elif env["platform"] == "macos":
