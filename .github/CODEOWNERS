@@ -66,6 +66,8 @@
 /drivers/metal/**/SCsub                       @godotengine/rendering @godotengine/buildsystem
 /drivers/vulkan/                              @godotengine/rendering
 /drivers/vulkan/**/SCsub                      @godotengine/rendering @godotengine/buildsystem
+/drivers/webgpu/                              @godotengine/rendering
+/drivers/webgpu/**/SCsub                      @godotengine/rendering @godotengine/buildsystem
 
 ## OS
 /drivers/apple/                               @godotengine/macos @godotengine/ios
