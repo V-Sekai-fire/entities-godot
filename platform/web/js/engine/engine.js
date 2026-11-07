@@ -69,13 +69,14 @@ const Engine = (function () {
 	 * Otherwise the project's settings choose the driver and the renderer.
 	 * An explicit `--rendering-driver` in `EngineConfig.args` always wins.
 	 *
-	 * @param {Array<string>} args The engine arguments.
-	 * @returns {Promise<Array<string>>} The same args, possibly with the
+	 * @param {!Array<string>} args The engine arguments.
+	 * @returns {!Promise<!Array<string>>} The same args, possibly with the
 	 *   fallback prepended.
 	 * @ignore
 	 */
 	Engine.selectRenderingDriver = async function (args) {
-		if (!___GODOT_WEBGPU_ENABLED || args.includes('--rendering-driver')) {
+		const webgpuTemplate = ___GODOT_WEBGPU_ENABLED;
+		if (!webgpuTemplate || args.includes('--rendering-driver')) {
 			return args;
 		}
 		let adapter = null;
