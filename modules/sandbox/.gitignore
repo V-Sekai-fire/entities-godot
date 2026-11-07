@@ -37,3 +37,9 @@ tests/bench/baseline*.json
 # (src/bintr/README.md); keep them local.
 src/bintr/*/
 ext/godot-cpp-gen/
+
+# Tracked in this tree
+!*.uid
+!*.elf
+!bin/addons/godot_sandbox/bin/*
+!tests/extensions/bin/*.so
