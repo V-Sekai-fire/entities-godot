@@ -311,36 +311,14 @@ public:
 	}
 
 protected:
-	static void _bind_methods() {
-		ClassDB::bind_method(D_METHOD("connect_to_host", "host", "port"), &QUICClient::connect_to_host);
-		ClassDB::bind_method(D_METHOD("close"), &QUICClient::close);
-		ClassDB::bind_method(D_METHOD("poll"), &QUICClient::poll);
-		ClassDB::bind_method(D_METHOD("get_status"), &QUICClient::get_status);
-		ClassDB::bind_method(D_METHOD("get_connected_host"), &QUICClient::get_connected_host);
-		ClassDB::bind_method(D_METHOD("get_connected_port"), &QUICClient::get_connected_port);
-		ClassDB::bind_method(D_METHOD("set_blocking_mode", "enabled"), &QUICClient::set_blocking_mode);
-		ClassDB::bind_method(D_METHOD("is_blocking_mode_enabled"), &QUICClient::is_blocking_mode_enabled);
-		ClassDB::bind_method(D_METHOD("set_read_chunk_size", "size"), &QUICClient::set_read_chunk_size);
-		ClassDB::bind_method(D_METHOD("get_read_chunk_size"), &QUICClient::get_read_chunk_size);
-		ClassDB::bind_method(D_METHOD("set_alpn", "alpn"), &QUICClient::set_alpn);
-		ClassDB::bind_method(D_METHOD("get_alpn"), &QUICClient::get_alpn);
-		ClassDB::bind_method(D_METHOD("set_tls_options", "options"), &QUICClient::set_tls_options);
-		ClassDB::bind_method(D_METHOD("get_tls_options"), &QUICClient::get_tls_options);
-		ClassDB::bind_method(D_METHOD("send_datagram", "payload"), &QUICClient::send_datagram);
-		ClassDB::bind_method(D_METHOD("receive_datagram"), &QUICClient::receive_datagram);
-		ClassDB::bind_method(D_METHOD("open_stream", "bidirectional"), &QUICClient::open_stream);
-		ClassDB::bind_method(D_METHOD("stream_send", "stream_id", "payload"), &QUICClient::stream_send);
-		ClassDB::bind_method(D_METHOD("stream_read", "stream_id"), &QUICClient::stream_read);
-		ClassDB::bind_method(D_METHOD("stream_close", "stream_id"), &QUICClient::stream_close);
-
-		BIND_ENUM_CONSTANT(STATUS_DISCONNECTED);
-		BIND_ENUM_CONSTANT(STATUS_RESOLVING);
-		BIND_ENUM_CONSTANT(STATUS_CONNECTING);
-		BIND_ENUM_CONSTANT(STATUS_HANDSHAKING);
-		BIND_ENUM_CONSTANT(STATUS_CONNECTED);
-		BIND_ENUM_CONSTANT(STATUS_BUSY);
-		BIND_ENUM_CONSTANT(STATUS_CONNECTION_ERROR);
-	}
+	// Defined out-of-class in quic_client.cpp, not inline here: an inline
+	// body is compiled in the "complete-class context" immediately after
+	// the class closes, which is *before* the VARIANT_ENUM_CAST(Status)
+	// specialization below is parsed. BIND_ENUM_CONSTANT needs
+	// GetTypeInfo<Status> to already be specialized, so keeping this out
+	// of line (same pattern as core/io/http_client.h) is required, not
+	// stylistic.
+	static void _bind_methods();
 
 private:
 	SafeNumeric<int> status{ STATUS_DISCONNECTED };
