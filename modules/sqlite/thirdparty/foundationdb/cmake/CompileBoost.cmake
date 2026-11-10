@@ -1,0 +1,191 @@
+## Boost
+
+# iostreams can include support for different compression libraries,
+# but this boost build disables them all except for basic zlib.
+# If FLOW_USE_ZSTD enabled then "flow" subdir will build and link
+# the boost iostream zstd implementation, it is not built here.
+
+# To use a separate boost build for fdb, do not build with bzip2/lzma/zstd
+# enabled, or add appropriate link flags via cmake options.
+
+function(compile_boost)
+  # Initialize function incoming parameters
+  set(options)
+  set(oneValueArgs TARGET)
+  set(multiValueArgs BUILD_ARGS CXXFLAGS LDFLAGS)
+  cmake_parse_arguments(COMPILE_BOOST "${options}" "${oneValueArgs}"
+                          "${multiValueArgs}" ${ARGN} )
+
+  # Configure bootstrap command
+  set(BOOTSTRAP_COMMAND "./bootstrap.sh")
+  set(BOOTSTRAP_LIBRARIES "context,filesystem,iostreams,system,serialization")
+
+  set(BOOST_CXX_COMPILER "${CMAKE_CXX_COMPILER}")
+  # Can't build Boost with Intel compiler, use clang instead.
+  if(ICX)
+    execute_process (
+      COMMAND bash -c "which clang++ | tr -d '\n'"
+      OUTPUT_VARIABLE BOOST_CXX_COMPILER
+    )
+    set(BOOST_TOOLSET "clang")
+  elseif(CLANG)
+    set(BOOST_TOOLSET "clang")
+  else()
+    set(BOOST_TOOLSET "gcc")
+  endif()
+  message(STATUS "Use ${BOOST_TOOLSET} to build boost")
+
+  # Configure b2 command
+  set(B2_COMMAND "./b2")
+  set(BOOST_COMPILER_FLAGS -fvisibility=hidden -fPIC -std=c++17 --no-warnings)
+  set(BOOST_LINK_FLAGS "")
+  if(APPLE OR ICX OR USE_LIBCXX)
+    list(APPEND BOOST_COMPILER_FLAGS -stdlib=libc++ -nostdlib++)
+    list(APPEND BOOST_LINK_FLAGS -lc++ -lc++abi)
+    if (NOT APPLE)
+      list(APPEND BOOST_LINK_FLAGS -static-libgcc)
+    endif()
+    # Remove this after boost 1.81 or above is used
+    # avoid unary_function errors with macOS 26 toolchain using c++17:
+    #  > no template named 'unary_function' in namespace 'std'; did you mean '__unary_function'?
+    list(APPEND BOOST_COMPILER_FLAGS -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION)
+  endif()
+  # b2 runs its own compiler and never sees CMAKE_OSX_DEPLOYMENT_TARGET, so without this Boost
+  # targets the build host's macOS and libfdb_c links objects newer than its own minimum.
+  if(APPLE AND CMAKE_OSX_DEPLOYMENT_TARGET)
+    list(APPEND BOOST_COMPILER_FLAGS -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET})
+    list(APPEND BOOST_LINK_FLAGS -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET})
+  endif()
+
+  # Update the user-config.jam
+  set(BOOST_ADDITIONAL_COMPILE_OPTIONS "")
+  foreach(flag IN LISTS BOOST_COMPILER_FLAGS COMPILE_BOOST_CXXFLAGS)
+    string(APPEND BOOST_ADDITIONAL_COMPILE_OPTIONS "<cxxflags>${flag} ")
+  endforeach()
+  foreach(flag IN LISTS BOOST_LINK_FLAGS COMPILE_BOOST_LDFLAGS)
+    string(APPEND BOOST_ADDITIONAL_COMPILE_OPTIONS "<linkflags>${flag} ")
+  endforeach()
+  configure_file(${CMAKE_SOURCE_DIR}/cmake/user-config.jam.cmake ${CMAKE_BINARY_DIR}/user-config.jam)
+  set(USER_CONFIG_FLAG --user-config=${CMAKE_BINARY_DIR}/user-config.jam)
+
+  # Build boost
+  include(ExternalProject)
+
+  set(BOOST_INSTALL_DIR "${CMAKE_BINARY_DIR}/boost_install")
+  ExternalProject_add("${COMPILE_BOOST_TARGET}Project"
+    URL                "https://archives.boost.io/release/1.78.0/source/boost_1_78_0.tar.bz2"
+    URL_HASH           SHA256=8681f175d4bdb26c52222665793eef08490d7758529330f98d3b29dd0735bccc
+    CONFIGURE_COMMAND  ${BOOTSTRAP_COMMAND}
+                       --with-libraries=${BOOTSTRAP_LIBRARIES}
+                       --with-toolset=${BOOST_TOOLSET}
+    BUILD_COMMAND      ${B2_COMMAND}
+                       link=static
+                       -s NO_BZIP2=1 -s NO_LZMA=1 -s NO_ZSTD=1
+                       ${COMPILE_BOOST_BUILD_ARGS}
+                       --prefix=${BOOST_INSTALL_DIR}
+                       ${USER_CONFIG_FLAG} install
+    BUILD_IN_SOURCE    ON
+    INSTALL_COMMAND    ""
+    UPDATE_COMMAND     ""
+    BUILD_BYPRODUCTS   "${BOOST_INSTALL_DIR}/include/boost/config.hpp"
+                       "${BOOST_INSTALL_DIR}/lib/libboost_context.a"
+                       "${BOOST_INSTALL_DIR}/lib/libboost_filesystem.a"
+                       "${BOOST_INSTALL_DIR}/lib/libboost_iostreams.a"
+                       "${BOOST_INSTALL_DIR}/lib/libboost_serialization.a"
+                       "${BOOST_INSTALL_DIR}/lib/libboost_system.a")
+
+  add_library(${COMPILE_BOOST_TARGET}_context STATIC IMPORTED)
+  add_dependencies(${COMPILE_BOOST_TARGET}_context ${COMPILE_BOOST_TARGET}Project)
+  set_target_properties(${COMPILE_BOOST_TARGET}_context PROPERTIES IMPORTED_LOCATION "${BOOST_INSTALL_DIR}/lib/libboost_context.a")
+
+  add_library(${COMPILE_BOOST_TARGET}_filesystem STATIC IMPORTED)
+  add_dependencies(${COMPILE_BOOST_TARGET}_filesystem ${COMPILE_BOOST_TARGET}Project)
+  set_target_properties(${COMPILE_BOOST_TARGET}_filesystem PROPERTIES IMPORTED_LOCATION "${BOOST_INSTALL_DIR}/lib/libboost_filesystem.a")
+
+  add_library(${COMPILE_BOOST_TARGET}_iostreams STATIC IMPORTED)
+  add_dependencies(${COMPILE_BOOST_TARGET}_iostreams ${COMPILE_BOOST_TARGET}Project)
+  set_target_properties(${COMPILE_BOOST_TARGET}_iostreams PROPERTIES IMPORTED_LOCATION "${BOOST_INSTALL_DIR}/lib/libboost_iostreams.a")
+
+  add_library(${COMPILE_BOOST_TARGET}_serialization STATIC IMPORTED)
+  add_dependencies(${COMPILE_BOOST_TARGET}_serialization ${COMPILE_BOOST_TARGET}Project)
+  set_target_properties(${COMPILE_BOOST_TARGET}_serialization PROPERTIES IMPORTED_LOCATION "${BOOST_INSTALL_DIR}/lib/libboost_serialization.a")
+
+  add_library(${COMPILE_BOOST_TARGET}_system STATIC IMPORTED)
+  add_dependencies(${COMPILE_BOOST_TARGET}_system ${COMPILE_BOOST_TARGET}Project)
+  set_target_properties(${COMPILE_BOOST_TARGET}_system PROPERTIES IMPORTED_LOCATION "${BOOST_INSTALL_DIR}/lib/libboost_system.a")
+
+  add_library(${COMPILE_BOOST_TARGET} INTERFACE)
+  target_include_directories(${COMPILE_BOOST_TARGET} SYSTEM INTERFACE ${BOOST_INSTALL_DIR}/include)
+  target_link_libraries(${COMPILE_BOOST_TARGET} INTERFACE ${COMPILE_BOOST_TARGET}_context ${COMPILE_BOOST_TARGET}_filesystem ${COMPILE_BOOST_TARGET}_iostreams ${COMPILE_BOOST_TARGET}_system ${COMPILE_BOOST_TARGET}_serialization)
+
+endfunction(compile_boost)
+
+if(USE_SANITIZER)
+  if(WIN32)
+    message(FATAL_ERROR "Sanitizers are not supported on Windows")
+  endif()
+  message(STATUS "A sanitizer is enabled, need to build boost from source")
+  if (USE_VALGRIND)
+    compile_boost(TARGET boost_target BUILD_ARGS valgrind=on
+      CXXFLAGS ${SANITIZER_COMPILE_OPTIONS} LDFLAGS ${SANITIZER_LINK_OPTIONS})
+  else()
+    compile_boost(TARGET boost_target BUILD_ARGS context-impl=ucontext
+      CXXFLAGS ${SANITIZER_COMPILE_OPTIONS} LDFLAGS ${SANITIZER_LINK_OPTIONS})
+  endif()
+  return()
+endif()
+
+# since boost 1.72 boost installs cmake configs. We will enforce config mode
+set(Boost_USE_STATIC_LIBS ON)
+
+# Clang and Gcc will have different name mangling to std::call_once, etc.
+if (UNIX AND CMAKE_CXX_COMPILER_ID MATCHES "Clang$")
+  list(APPEND CMAKE_PREFIX_PATH /opt/boost_1_78_0_clang)
+  set(BOOST_HINT_PATHS /opt/boost_1_78_0_clang)
+  message(STATUS "Preferring _clang build of boost ...")
+else ()
+  list(APPEND CMAKE_PREFIX_PATH /opt/boost_1_78_0)
+  set(BOOST_HINT_PATHS /opt/boost_1_78_0)
+endif ()
+
+if(BOOST_ROOT)
+  list(APPEND BOOST_HINT_PATHS ${BOOST_ROOT})
+endif()
+
+if(WIN32)
+  # this should be done with the line below -- but apparently the CI is not set up
+  # properly for config mode. So we use the old way on Windows
+  #  find_package(Boost 1.72.0 EXACT QUIET REQUIRED CONFIG PATHS ${BOOST_HINT_PATHS})
+  # I think depending on the cmake version this will cause weird warnings
+  find_package(Boost 1.78 COMPONENTS filesystem iostreams serialization system)
+  add_library(boost_target INTERFACE)
+  target_link_libraries(boost_target INTERFACE Boost::boost Boost::filesystem Boost::iostreams Boost::serialization Boost::system)
+  return()
+endif()
+
+find_package(Boost 1.78.0 EXACT QUIET COMPONENTS context filesystem iostreams serialization system CONFIG PATHS ${BOOST_HINT_PATHS})
+set(FORCE_BOOST_BUILD OFF CACHE BOOL "Forces cmake to build boost and ignores any installed boost")
+
+# If the build is picking up your locally installed or partial version of boost, and you don't want
+# to / cannot fix it, pass in -DFORCE_BOOST_BUILD=on as a workaround.
+if(Boost_FOUND AND NOT FORCE_BOOST_BUILD)
+  message(STATUS "Found Boost: ${Boost_DIR}")
+  add_library(boost_target INTERFACE)
+  target_link_libraries(boost_target
+                        INTERFACE Boost::boost
+                                  Boost::context
+                                  Boost::filesystem
+                                  Boost::iostreams
+                                  Boost::serialization
+                                  Boost::system
+  )
+elseif(WIN32)
+  message(FATAL_ERROR "Could not find Boost")
+else()
+  if(FORCE_BOOST_BUILD)
+    message(STATUS "Compile boost because FORCE_BOOST_BUILD is set")
+  else()
+    message(STATUS "Didn't find Boost -- will compile from source")
+  endif()
+  compile_boost(TARGET boost_target)
+endif()

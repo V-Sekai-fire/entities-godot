@@ -1,0 +1,8 @@
+# msiextract, which unpacks the release installer's headers on Linux.
+[workspace]
+name = "fdb-client-tools"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+msitools = "*"
