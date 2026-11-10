@@ -1,0 +1,43 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "datasource-foundationdb: the multiplayer-fabric fork of FoundationDB"
+abstract: >
+  FoundationDB, the distributed ordered key-value store with ACID transactions,
+  forked so this project can own the Windows builds and carry the
+  portability-consensus branch. The database is upstream's and so is its README; what
+  this copy holds is that branch. A data source implements a repository, and this is
+  the one every durable transaction in the fabric ultimately lands in -- datasource-queen
+  and datasource-store are its callers, through a SQLite VFS whose pages live here.
+authors:
+  - name: "Apple Inc. and the FoundationDB project authors"
+version: 0.1.0-dev.1
+date-released: "2026-08-17"
+license: Apache-2.0
+repository-code: "https://github.com/v-sekai-multiplayer-fabric/datasource-foundationdb"
+keywords:
+  - foundationdb
+  - distributed-database
+  - acid-transactions
+  - fork
+references:
+
+  - type: software
+    title: "FoundationDB"
+    authors:
+      - name: "Apple Inc. and the FoundationDB project authors"
+    url: "https://github.com/apple/foundationdb"
+    notes: >
+      Upstream, and GitHub carries the fork flag for this one. It tracks
+      portability-consensus rather than a release branch. Owning the Windows builds is
+      not owning the code, which is why the README here stays upstream's and this file
+      does not.
+
+  - type: software
+    title: "datasource-queen: durable state, SQLite on a VFS whose pages live in FoundationDB"
+    authors:
+      - family-names: Lee
+        given-names: "K. S. Ernest (iFire)"
+    url: "https://github.com/v-sekai-multiplayer-fabric/datasource-queen"
+    notes: >
+      The consumer this fork exists for. No client opens a database and authority never
+      moves, because the pages are transactions here rather than a file anybody holds.

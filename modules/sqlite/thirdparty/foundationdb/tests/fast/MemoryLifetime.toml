@@ -1,0 +1,8 @@
+[configuration]
+storageEngineExcludeTypes = [5]
+
+[[test]]
+testTitle = 'MemoryLifetimeTest'
+
+    [[test.workload]]
+    testName = 'MemoryLifetime'

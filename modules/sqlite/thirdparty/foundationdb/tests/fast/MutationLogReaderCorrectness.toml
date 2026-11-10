@@ -1,0 +1,9 @@
+[configuration]
+storageEngineExcludeTypes = [5]
+
+[[test]]
+testTitle = 'MutationLogReaderCorrectness'
+useDB = true
+
+    [[test.workload]]
+    testName = 'MutationLogReaderCorrectness'

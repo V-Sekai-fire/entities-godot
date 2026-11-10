@@ -1,0 +1,11 @@
+[configuration]
+StderrSeverity = 30
+allowDefaultTenant = false
+tenantModes = ['optional', 'required']
+
+[[test]]
+testTitle = 'FuzzApiCorrectness'
+
+    [[test.workload]]
+    testName = 'FuzzApiCorrectness'
+    testDuration = 30.0
