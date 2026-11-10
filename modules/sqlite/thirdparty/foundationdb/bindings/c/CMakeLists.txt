@@ -50,8 +50,14 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/foundationdb/fdb_c_apiversion.h.cmake
 
 include(GenerateExportHeader)
 
+option(FDB_BUILD_FDB_C_STATIC
+       "Build the FoundationDB C client library (fdb_c) as a static library")
+
 if(OPEN_FOR_IDE)
   add_library(fdb_c OBJECT ${FDB_C_SRCS} ${fdb_c_apiversion_file} ${asm_file})
+elseif(FDB_BUILD_FDB_C_STATIC)
+  add_library(fdb_c STATIC ${FDB_C_SRCS} ${fdb_c_apiversion_file} ${asm_file})
+  strip_debug_symbols(fdb_c)
 else()
   add_library(fdb_c SHARED ${FDB_C_SRCS} ${fdb_c_apiversion_file} ${asm_file})
   strip_debug_symbols(fdb_c)
@@ -70,6 +76,9 @@ if(USE_UBSAN)
   set_target_properties(force_cxx_linker PROPERTIES IMPORTED_LINK_INTERFACE_LANGUAGES CXX)
   target_link_libraries(fdb_c PUBLIC $<BUILD_INTERFACE:force_cxx_linker>)
 endif()
+# The version-script / symbol-export link options only apply to the
+# dynamically-linked (SHARED) build, not the static or OBJECT builds.
+if(NOT OPEN_FOR_IDE AND NOT FDB_BUILD_FDB_C_STATIC)
 if(APPLE)
   set(symbols ${CMAKE_CURRENT_BINARY_DIR}/fdb_c.symbols)
   add_custom_command(OUTPUT ${symbols}
@@ -90,6 +99,7 @@ else()
     target_link_options(fdb_c PRIVATE "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/fdb_c.map")
   endif()
   target_link_options(fdb_c PRIVATE "LINKER:-z,nodelete,-z,noexecstack")
+endif()
 endif()
 target_include_directories(fdb_c PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>

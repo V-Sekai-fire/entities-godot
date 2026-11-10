@@ -16,18 +16,101 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Threads REQUIRED)
-find_path(FDB_INCLUDE_DIR foundationdb/fdb_c.h REQUIRED)
-find_library(FDB_LIBRARY NAMES fdb_c REQUIRED)
 find_path(SQLITE_INCLUDE_DIR sqlite3.h REQUIRED)
 find_library(SQLITE_LIBRARY NAMES sqlite3 REQUIRED)
+
+if(APPLE)
+  # On this machine `xcode-select --show-sdk-path` is unavailable, so CMake leaves
+  # CMAKE_OSX_SYSROOT empty and `-framework` / SDK-resolved symbols fail to link.
+  # Locate the macOS SDK root from the active developer directory (CLT as fallback)
+  # and point the build at it.
+  execute_process(COMMAND xcode-select --print-path
+                 OUTPUT_VARIABLE XCODE_DEVELOPER_DIR
+                 ERROR_VARIABLE XCODE_SEL_ERR
+                 )
+  set(MACOSX_SDK "")
+  if(XCODE_DEVELOPER_DIR)
+    set(MACOSX_SDK "${XCODE_DEVELOPER_DIR}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk")
+  endif()
+  if(NOT EXISTS "${MACOSX_SDK}/System/Library/Frameworks/CoreFoundation.framework")
+    set(MACOSX_SDK "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk")
+  endif()
+  if(EXISTS "${MACOSX_SDK}/System/Library/Frameworks/CoreFoundation.framework")
+    if(NOT CMAKE_OSX_SYSROOT)
+      message(STATUS "Using macOS SDK: ${MACOSX_SDK}")
+      set(CMAKE_OSX_SYSROOT "${MACOSX_SDK}")
+    endif()
+  endif()
+endif()
+
+# FoundationDB C client: static, from the subtrees fork
+# (modules/sqlite/thirdparty/foundationdb), configured and built by that fork's own
+# CMake (FDB_BUILD_FDB_C_STATIC=ON, python tools, no bindings/docs). It is a standalone
+# CMake project, so we consume its build tree directly.
+set(FDB_SRC_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/../foundationdb)
+set(FDB_BUILD_DIR ${FDB_SRC_DIR}/build)
+set(FDB_LIB_DIR   ${FDB_BUILD_DIR}/lib)
+set(FDB_BOOST_LIB ${FDB_SRC_DIR}/build/boost_install/lib)
+# Source + generated C headers live in two directories.
+set(FDB_INCLIB    ${FDB_SRC_DIR}/bindings/c/foundationdb)      # fdb_c.h, fdb_c_types.h, fdb_c_internal.h
+set(FDB_GEN_INCLIB ${FDB_BUILD_DIR}/bindings/c/foundationdb)    # fdb_c_options.g.h, fdb_c_apiversion.g.h
+if(APPLE)
+  # The fork statically links its own copy of OpenSSL; link the same one it used.
+  set(FDB_OPENSSL_LIB_DIR /opt/homebrew/opt/openssl@3
+        CACHE STRING "OpenSSL prefix the FoundationDB client statically linked")
+  # The C client chain needs the IOKit/CoreFoundation frameworks on macOS (flow's
+  # platform code references _kIOMasterPortDefault / _kCFAllocatorDefault). They are
+  # added per target via -Wl,-framework,... below (CMAKE_OSX_SYSTEM_FRAMEWORKS is
+  # not honored by this CMake on this machine).
+endif()
+set(FDB_SSL_LIB    ${FDB_OPENSSL_LIB_DIR}/lib/libssl.a)
+set(FDB_CRYPTO_LIB ${FDB_OPENSSL_LIB_DIR}/lib/libcrypto.a)
+if(NOT EXISTS ${FDB_LIB_DIR}/libfdb_c.a)
+  message(FATAL_ERROR
+    "FoundationDB C client not built at ${FDB_LIB_DIR}/libfdb_c.a.\n"
+    "Build the fork first:\n"
+    "  cmake -S ${FDB_SRC_DIR} -B ${FDB_BUILD_DIR} -DCMAKE_BUILD_TYPE=Release "
+    "-DFDB_BUILD_FDB_C_STATIC=ON -DFDB_USE_CSHARP_TOOLS=OFF "
+    "-DBUILD_PYTHON_BINDING=OFF -DBUILD_JAVA_BINDING=OFF -DBUILD_GO_BINDING=OFF "
+    "-DBUILD_RUBY_BINDING=OFF -DBUILD_DOCUMENTATION=OFF "
+    "-DOpenSSL_DIR=/opt/homebrew/opt/openssl@3 -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/openssl@3\n"
+    "  cmake --build ${FDB_BUILD_DIR} --target fdb_c")
+endif()
+# Authoritative static link chain — the fork's own CMake link order. libfdb_c.a is a thin
+# C wrapper; fdbclient is its private impl plus that impl's dependencies. (The fork also
+# linked -framework IOKit/CoreFoundation for its executables; the C client chain needs neither.)
+set(FDB_STATIC_CHAIN
+  ${FDB_LIB_DIR}/libfdb_c.a
+  ${FDB_LIB_DIR}/libfdbclient.a
+  ${FDB_LIB_DIR}/libfdbrpc.a
+  ${FDB_LIB_DIR}/libflow.a
+  ${FDB_LIB_DIR}/libstacktrace.a
+  ${FDB_LIB_DIR}/libfmt.a
+  ${FDB_LIB_DIR}/libcrc32.a
+  ${FDB_SSL_LIB}
+  ${FDB_CRYPTO_LIB}
+  ${FDB_BOOST_LIB}/libboost_context.a
+  ${FDB_BOOST_LIB}/libboost_filesystem.a
+  ${FDB_BOOST_LIB}/libboost_iostreams.a
+  ${FDB_BOOST_LIB}/libboost_system.a
+  ${FDB_BOOST_LIB}/libboost_serialization.a
+  ${FDB_LIB_DIR}/liblibb64.a
+  ${FDB_LIB_DIR}/libmd5.a
+  ${FDB_LIB_DIR}/libeio.a
+  stdc++)
 
 add_library(weft_fdb_vfs STATIC fdb_vfs.c)
 # Position-independent, so the library can be linked into a shared object.
 set_property(TARGET weft_fdb_vfs PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_include_directories(weft_fdb_vfs PUBLIC
-  ${FDB_INCLUDE_DIR}/foundationdb ${SQLITE_INCLUDE_DIR})
+  ${FDB_INCLIB} ${FDB_GEN_INCLIB} ${SQLITE_INCLUDE_DIR})
 target_compile_definitions(weft_fdb_vfs PUBLIC FDB_API_VERSION=730)
-target_link_libraries(weft_fdb_vfs PUBLIC ${FDB_LIBRARY} ${SQLITE_LIBRARY} Threads::Threads)
+target_link_libraries(weft_fdb_vfs PUBLIC ${FDB_STATIC_CHAIN} ${SQLITE_LIBRARY} Threads::Threads)
+if(APPLE)
+  # IOKit/CoreFoundation are needed by the static FDB chain's platform code; propagate to
+  # every consumer of weft_fdb_vfs so the frameworks land on each executable's link line.
+  target_link_options(weft_fdb_vfs PUBLIC -Wl,-framework,IOKit -Wl,-framework,CoreFoundation)
+endif()
 
 # The VFS as a loadable extension for a host that brings its own SQLite (exqlite in the BEAM).
 # fdb_vfs_ext.c compiles fdb_vfs.c against sqlite3ext.h, so the module links no SQLite.
@@ -37,9 +120,13 @@ if(APPLE)
   set_target_properties(weftfdb PROPERTIES SUFFIX ".dylib")
 endif()
 target_include_directories(weftfdb PRIVATE
-  ${FDB_INCLUDE_DIR}/foundationdb ${SQLITE_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+  ${FDB_INCLIB} ${FDB_GEN_INCLIB} ${SQLITE_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(weftfdb PRIVATE FDB_API_VERSION=730)
-target_link_libraries(weftfdb PRIVATE ${FDB_LIBRARY} Threads::Threads)
+target_link_libraries(weftfdb PRIVATE ${FDB_STATIC_CHAIN} Threads::Threads)
+if(APPLE)
+  # IOKit/CoreFoundation needed by the static FDB chain's platform code.
+  target_link_options(weftfdb PRIVATE -Wl,-framework,IOKit -Wl,-framework,CoreFoundation)
+endif()
 
 # The programs that assert something in-process. These are the default build: each opens a
 # database, checks a property and exits, so a plain `cmake --build` produces exactly the set
