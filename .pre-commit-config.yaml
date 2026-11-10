@@ -1,0 +1,40 @@
+repos:
+# Every hook here is scoped to this fork's own files. The tree is origin/release-7.3 plus a diff
+# that has to stay reviewable, so a formatter over the whole tree would rewrite upstream files.
+# black and flake8 were pinned at 22.8.0 and 5.0.4, which fail on every file under Python 3.12
+# (ast.Str is gone), so they are bumped as well as scoped.
+-   repo: https://github.com/psf/black
+    rev: 8a737e727ac5ab2f1d4cf5876720ed276dc8dc4b  # frozen: 25.1.0
+    hooks:
+    - id: black
+      files: ^(\.github/scripts|flowquic)/.*\.py$
+-   repo: https://github.com/pycqa/flake8
+    rev: cf1542cefa3e766670b2066dd75c4571d682a649  # frozen: 7.1.1
+    hooks:
+    - id: flake8
+      files: ^(\.github/scripts|flowquic)/.*\.py$
+-   repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v15.0.7  # the version .github/workflows/format.yml installs
+    hooks:
+    - id: clang-format
+      files: ^flowquic/.*\.(c|cpp|h)$
+-   repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+    - id: shellcheck
+      files: ^flowquic/.*\.sh$
+-   repo: https://github.com/Mateusz-Grzelinski/actionlint-py
+    rev: v1.7.7.23
+    hooks:
+    - id: actionlint
+      # No shellcheck pass inside run: blocks, so a desk and CI agree whatever each has installed.
+      args: ["-shellcheck="]
+      files: ^\.github/workflows/(fdb-portability|checks)\.yml$
+-   repo: local
+    hooks:
+    - id: workflow-scripts-tests
+      name: unit tests of .github/scripts
+      entry: python -m unittest discover -s .github/scripts -p "test_*.py"
+      language: python
+      pass_filenames: false
+      files: ^\.github/(scripts|workflows)/

@@ -1,0 +1,28 @@
+# One job runs prek, and every gate is a hook in .pre-commit-config.yaml (RFD66606-2258), so a desk
+# runs `prek run --all-files` and gets what CI gets. No branch filter on pull_request: this fork's
+# work is stacked on dev/* branches, and a branch-scoped trigger shows "no checks" on them.
+name: checks
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  prek:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install prek==0.5.9
+      - run: prek run --all-files --show-diff-on-failure

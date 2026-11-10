@@ -1,0 +1,25 @@
+# The macOS build's tools, from conda-forge rather than Homebrew. conda-forge builds its osx-arm64
+# packages for macOS 11, so the OpenSSL that libfdb_c links statically does not raise its
+# deployment target above the 13.0 the build asks for.
+[workspace]
+name = "fdb-macos-build"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64"]
+
+[dependencies]
+cmake = "*"
+ninja = "*"
+python = "3.12.*"
+jinja2 = "==3.1.6"
+markupsafe = "==2.1.3"
+openssl = "3.6.*"
+libopenssl-static = "3.6.*"
+
+# mcs builds the actor compiler on the host. conda-forge has mono only for osx-64, which runs
+# under Rosetta; nothing it produces ships.
+[feature.mono]
+platforms = ["osx-64"]
+dependencies = { mono = "6.12.*" }
+
+[environments]
+mono = { features = ["mono"], no-default-feature = true }

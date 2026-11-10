@@ -1,0 +1,15 @@
+[configuration]
+extraDatabaseMode = 'Single'
+# Temporarily disable default tenants in this test pending tenant implementation changes
+allowDefaultTenant = false
+
+[[test]]
+testTitle = 'DifferentClustersSameRV'
+clearAfterTest = false
+
+    [[test.workload]]
+    testName = 'DifferentClustersSameRV'
+    testDuration = 500
+    switchAfter = 50
+    keyToRead = 'someKey'
+    keyToWatch = 'anotherKey'

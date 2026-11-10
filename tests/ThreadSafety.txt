@@ -1,0 +1,5 @@
+testTitle=ThreadSafetyTest
+runSetup=true
+clearAfterTest=true
+
+	testName=ThreadSafety
