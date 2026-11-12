@@ -50,74 +50,35 @@ void XRGridZoneSceneTree::_parse_cmdline() {
 }
 
 bool XRGridZoneSceneTree::_try_start_server() {
-	// Resolve WebTransportPeer + Crypto via ClassDB so the engine fork
-	// without modules/http3 still links — the failure is surfaced at
-	// boot time rather than at compile time.
-	Object *peer_obj = ClassDB::instantiate("WebTransportPeer");
+	// Resolve ENetMultiplayerPeer via ClassDB so the engine builds
+	// without modules/enet still link; the failure is surfaced at boot.
+	Object *peer_obj = ClassDB::instantiate("ENetMultiplayerPeer");
 	if (peer_obj == nullptr) {
-		print_error("XRGridZoneSceneTree: WebTransportPeer is not "
-					"registered. Build with modules/http3 enabled.");
+		print_error("XRGridZoneSceneTree: ENetMultiplayerPeer is not "
+					"registered. Build with modules/enet enabled.");
 		return false;
 	}
 	MultiplayerPeer *peer = Object::cast_to<MultiplayerPeer>(peer_obj);
 	if (peer == nullptr) {
 		memdelete(peer_obj);
-		print_error("XRGridZoneSceneTree: WebTransportPeer is "
+		print_error("XRGridZoneSceneTree: ENetMultiplayerPeer is "
 					"registered but is not a MultiplayerPeer subclass.");
 		return false;
 	}
 	Ref<MultiplayerPeer> peer_ref;
 	peer_ref.reference_ptr(peer);
 
-	// Build a self-signed cert + key via Crypto, mirroring zone_server.gd.
-	Object *crypto_obj = ClassDB::instantiate("Crypto");
-	if (crypto_obj == nullptr) {
-		print_error("XRGridZoneSceneTree: Crypto is not registered "
-					"(modules/mbedtls or equivalent is needed).");
-		return false;
-	}
-	const Variant key = crypto_obj->call("generate_ecdsa");
-	const int64_t now = Time::get_singleton()->get_unix_time_from_system();
-	const int64_t expiry = now + int64_t(13) * 86400;
-	// "YYYYMMDDhhmmss" format for the certificate validity timestamps.
-	auto _fmt = [](int64_t p_unix) {
-		const Dictionary d = Time::get_singleton()->get_datetime_dict_from_unix_time(p_unix);
-		return vformat("%04d%02d%02d%02d%02d%02d",
-				int(d.get("year", 0)),
-				int(d.get("month", 0)),
-				int(d.get("day", 0)),
-				int(d.get("hour", 0)),
-				int(d.get("minute", 0)),
-				int(d.get("second", 0)));
-	};
-	const String not_before = _fmt(now);
-	const String not_after = _fmt(expiry);
-	PackedStringArray sans;
-	sans.push_back("DNS:localhost");
-	sans.push_back("IP:127.0.0.1");
-	Array cert_args;
-	cert_args.push_back(key);
-	cert_args.push_back(String("CN=xr-grid-zone"));
-	cert_args.push_back(not_before);
-	cert_args.push_back(not_after);
-	cert_args.push_back(sans);
-	const Variant cert = crypto_obj->callv("generate_self_signed_certificate_san", cert_args);
-
 	Array server_args;
 	server_args.push_back(zone_port);
-	server_args.push_back(String("/wt"));
-	server_args.push_back(cert);
-	server_args.push_back(key);
 	const Variant err = peer->callv("create_server", server_args);
 	const int err_code = int(err);
-	memdelete(crypto_obj);
 	if (err_code != OK) {
 		print_error(vformat("XRGridZoneSceneTree: create_server failed on port %d (err=%d).",
 				zone_port, err_code));
 		return false;
 	}
 	server_peer = peer_ref;
-	print_line(vformat("XRGridZoneSceneTree: WebTransport listening on port %d/wt", zone_port));
+	print_line(vformat("XRGridZoneSceneTree: ENet listening on port %d", zone_port));
 	return true;
 }
 

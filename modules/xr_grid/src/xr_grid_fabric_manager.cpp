@@ -43,36 +43,32 @@ void XRGridFabricManager::set_peer(const Ref<MultiplayerPeer> &p_peer) {
 }
 
 Error XRGridFabricManager::connect_to_zone(const String &p_address, int p_port) {
-	// WebTransportPeer is provided by modules/http3. Resolve it
-	// dynamically via ClassDB so this module doesn't take a hard build
-	// dependency on modules/http3 — if http3 isn't compiled in, the
-	// instantiate call returns null and we surface a clear error.
-	Object *raw = ClassDB::instantiate("WebTransportPeer");
+	// ENetMultiplayerPeer is provided by modules/enet. Resolve it via
+	// ClassDB so this module doesn't take a hard build dependency on
+	// modules/enet; if it isn't compiled in the instantiate call returns
+	// null and we surface a clear error.
+	Object *raw = ClassDB::instantiate("ENetMultiplayerPeer");
 	ERR_FAIL_NULL_V_MSG(raw, ERR_UNAVAILABLE,
-			"XRGridFabricManager::connect_to_zone — WebTransportPeer "
-			"is not registered. Enable modules/http3 in the build or "
+			"XRGridFabricManager::connect_to_zone — ENetMultiplayerPeer "
+			"is not registered. Enable modules/enet in the build or "
 			"call set_peer with another MultiplayerPeer subclass.");
 	MultiplayerPeer *new_peer = Object::cast_to<MultiplayerPeer>(raw);
 	if (new_peer == nullptr) {
 		memdelete(raw);
 		ERR_FAIL_V_MSG(ERR_INVALID_DATA,
-				"WebTransportPeer registered but does not inherit "
+				"ENetMultiplayerPeer registered but does not inherit "
 				"MultiplayerPeer — cannot use it as the fabric peer.");
 	}
 	Ref<MultiplayerPeer> peer_ref;
 	peer_ref.reference_ptr(new_peer);
-	// upstream xr-grid calls create_client(address, port, "/wt"). The
-	// signature is part of the http3 module; route through Object::call
-	// so we don't need to include its header.
 	Array args;
 	args.push_back(p_address);
 	args.push_back(p_port);
-	args.push_back("/wt");
 	const Variant rv = new_peer->callv("create_client", args);
 	const int err_code = int(rv);
 	if (err_code != OK) {
 		ERR_FAIL_V_MSG(Error(err_code),
-				vformat("WebTransportPeer::create_client failed (%d) for %s:%d",
+				vformat("ENetMultiplayerPeer::create_client failed (%d) for %s:%d",
 						err_code, p_address, p_port));
 	}
 	set_peer(peer_ref);
