@@ -107,6 +107,17 @@ jobs:
         with:
           cache-name: ${{ matrix.cache-name }}
         continue-on-error: true
+      - name: AccessKit is in the build
+        # The engine drops AccessKit with only a warning when the SDK version check
+        # fails, and then never compiles the driver. godot-build sets
+        # redirect_build_objects=no, so the driver's object sits beside its source.
+        shell: bash
+        run: |
+          n=0
+          for f in drivers/accesskit/*.o drivers/accesskit/*.obj; do
+            if [ -f "$f" ]; then n=$((n+1)); echo "$f"; fi
+          done
+          if [ "$n" -eq 0 ]; then echo "::error::the engine built without AccessKit: no driver object in drivers/accesskit"; exit 1; fi
       - name: The binary runs
         shell: sh
         run: |
@@ -212,6 +223,17 @@ jobs:
         with:
           cache-name: ${{ matrix.cache-name }}
         continue-on-error: true
+      - name: AccessKit is in the build
+        # The engine drops AccessKit with only a warning when the SDK version check
+        # fails, and then never compiles the driver. godot-build sets
+        # redirect_build_objects=no, so the driver's object sits beside its source.
+        shell: bash
+        run: |
+          n=0
+          for f in drivers/accesskit/*.o drivers/accesskit/*.obj; do
+            if [ -f "$f" ]; then n=$((n+1)); echo "$f"; fi
+          done
+          if [ "$n" -eq 0 ]; then echo "::error::the engine built without AccessKit: no driver object in drivers/accesskit"; exit 1; fi
       - name: The binary runs headless
         run: |
           ls -l bin/
@@ -339,6 +361,17 @@ jobs:
         with:
           cache-name: ${{ matrix.cache-name }}
         continue-on-error: true
+      - name: AccessKit is in the build
+        # The engine drops AccessKit with only a warning when the SDK version check
+        # fails, and then never compiles the driver. godot-build sets
+        # redirect_build_objects=no, so the driver's object sits beside its source.
+        shell: bash
+        run: |
+          n=0
+          for f in drivers/accesskit/*.o drivers/accesskit/*.obj; do
+            if [ -f "$f" ]; then n=$((n+1)); echo "$f"; fi
+          done
+          if [ "$n" -eq 0 ]; then echo "::error::the engine built without AccessKit: no driver object in drivers/accesskit"; exit 1; fi
       - name: The binary runs headless
         run: |
           ls -l bin/
