@@ -155,8 +155,8 @@ jobs:
           cd bin
           shopt -s nullglob
           n=0
-          for f in godot.*.debugsymbols godot.*.pdb; do zstd -T0 -19 --long=27 --rm -q "$f"; n=$((n+1)); done
-          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -19 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; n=$((n+1)); done
+          for f in godot.*.debugsymbols godot.*.pdb; do zstd -T0 -9 --long=27 --rm -q "$f"; n=$((n+1)); done
+          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -9 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; n=$((n+1)); done
           if [ "$n" -eq 0 ]; then echo "::error::no debug symbols were built"; exit 1; fi
           ls -l
           big=$(find . -maxdepth 1 -type f -size +2040M)
@@ -298,8 +298,8 @@ jobs:
           cd bin
           shopt -s nullglob
           n=0
-          for f in godot.*.debugsymbols godot.*.pdb; do zstd -T0 -19 --long=27 --rm -q "$f"; n=$((n+1)); done
-          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -19 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; n=$((n+1)); done
+          for f in godot.*.debugsymbols godot.*.pdb; do zstd -T0 -9 --long=27 --rm -q "$f"; n=$((n+1)); done
+          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -9 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; n=$((n+1)); done
           if [ "$n" -eq 0 ]; then echo "::error::no debug symbols were built"; exit 1; fi
           ls -l
           big=$(find . -maxdepth 1 -type f -size +2040M)
@@ -449,8 +449,8 @@ jobs:
           cd bin
           shopt -s nullglob
           n=0
-          for f in godot.*.debugsymbols godot.*.pdb; do zstd -T0 -19 --long=27 --rm -q "$f"; n=$((n+1)); done
-          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -19 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; n=$((n+1)); done
+          for f in godot.*.debugsymbols godot.*.pdb; do zstd -T0 -9 --long=27 --rm -q "$f"; n=$((n+1)); done
+          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -9 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; n=$((n+1)); done
           if [ "$n" -eq 0 ]; then echo "::error::no debug symbols were built"; exit 1; fi
           ls -l
           big=$(find . -maxdepth 1 -type f -size +2040M)
