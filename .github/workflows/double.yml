@@ -19,14 +19,19 @@ on:
 env:
   LLVM_MINGW: "20260922"
   # The flags every job shares. No dev_mode: these are the binaries the rung
-  # runs, not a lint of the engine.
+  # runs, not a lint of the engine. AccessKit is on, from the SDK the engine's
+  # install_accesskit.py fetches; a failed fetch fails the job. Debug symbols are
+  # on in every build, split beside the binary and zstd-compressed
+  # (.debugsymbols.zst, .dSYM.tar.zst; unpack with zstd -d) (RFD 2287 step 1).
   SCONS_FLAGS: >-
     precision=double
     module_text_server_fb_enabled=yes
     optimize=speed
     d3d12=no
     angle=no
-    accesskit=no
+    accesskit=yes
+    debug_symbols=yes
+    separate_debug_symbols=yes
 permissions:
   contents: write
 concurrency:
@@ -35,19 +40,16 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 330
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: editor
             cache-name: windows-editor-double
-            flags: debug_symbols=no
             bin: godot.windows.editor.double.x86_64.llvm.exe
           - target: template_release
             cache-name: windows-template-double
-            # Symbols on, for the StringName fault RFD 2287 step 1 diagnoses.
-            flags: debug_symbols=yes separate_debug_symbols=yes
             bin: godot.windows.template_release.double.x86_64.llvm.exe
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +73,21 @@ jobs:
           cache-name: ${{ matrix.cache-name }}
         continue-on-error: true
       - uses: ./.github/actions/godot-deps
+      - name: AccessKit SDK
+        # The engine only warns and drops AccessKit when the SDK is missing, so a
+        # failed fetch must fail here, and the path is passed explicitly.
+        shell: bash
+        run: |
+          python3 misc/scripts/install_accesskit.py || python misc/scripts/install_accesskit.py
+          for d in "bin/build_deps/accesskit" "${LOCALAPPDATA:-/nonexistent}/Godot/build_deps/accesskit"; do
+            if [ -d "$d/include" ]; then
+              if command -v cygpath > /dev/null; then sdk=$(cygpath -am "$d"); else sdk=$(cd "$d" && pwd); fi
+              echo "ACCESSKIT_SDK=$sdk" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          echo "::error::AccessKit SDK not found after install"
+          exit 1
       - name: llvm-mingw, the compiler the headset build used
         shell: sh
         run: |
@@ -84,7 +101,7 @@ jobs:
         with:
           platform: windows
           target: ${{ matrix.target }}
-          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.flags }} ${{ steps.fdb-client.outputs.scons-flags }} arch=x86_64 use_mingw=yes use_llvm=yes mingw_prefix=${{ env.MINGW_PREFIX }}
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ steps.fdb-client.outputs.scons-flags }} accesskit_sdk_path=${{ env.ACCESSKIT_SDK }} arch=x86_64 use_mingw=yes use_llvm=yes mingw_prefix=${{ env.MINGW_PREFIX }}
       - name: Save the SCons cache
         uses: ./.github/actions/godot-cache-save
         with:
@@ -106,6 +123,20 @@ jobs:
             Linux) cp "$lib/libfdb_c.so" bin/ ;;
             Windows) cp "$(dirname "$lib")/../bin/fdb_c.dll" bin/ ;;
           esac
+      - name: Symbols to zstd, under the 2 GiB release-asset limit
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v zstd
+          cd bin
+          shopt -s nullglob
+          n=0
+          for f in godot.*.debugsymbols godot.*.pdb; do zstd -T0 -19 --long=27 --rm -q "$f"; n=$((n+1)); done
+          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -19 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; n=$((n+1)); done
+          if [ "$n" -eq 0 ]; then echo "::error::no debug symbols were built"; exit 1; fi
+          ls -l
+          big=$(find . -maxdepth 1 -type f -size +2040M)
+          if [ -n "$big" ]; then echo "::error::over the 2 GiB release-asset limit: $big"; exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.cache-name }}
@@ -113,27 +144,30 @@ jobs:
             bin/*
             !bin/obj
             !bin/obj/**
+            !bin/build_deps
+            !bin/build_deps/**
+          compression-level: 0
           if-no-files-found: error
 
   linux:
     runs-on: ubuntu-22.04
-    timeout-minutes: 240
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: editor
             cache-name: linux-editor-double
-            flags: debug_symbols=no
             bin: godot.linuxbsd.editor.double.x86_64
           - target: template_release
             cache-name: linux-template-double
-            flags: debug_symbols=no
             bin: godot.linuxbsd.template_release.double.x86_64
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Room for a debug-symbol build
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost && df -h .
       - name: Build tools from pixi (glslc everywhere, wayland-scanner on Linux)
         uses: prefix-dev/setup-pixi@v0.11.3
         with:
@@ -152,12 +186,27 @@ jobs:
           cache-name: ${{ matrix.cache-name }}
         continue-on-error: true
       - uses: ./.github/actions/godot-deps
+      - name: AccessKit SDK
+        # The engine only warns and drops AccessKit when the SDK is missing, so a
+        # failed fetch must fail here, and the path is passed explicitly.
+        shell: bash
+        run: |
+          python3 misc/scripts/install_accesskit.py || python misc/scripts/install_accesskit.py
+          for d in "bin/build_deps/accesskit" "${LOCALAPPDATA:-/nonexistent}/Godot/build_deps/accesskit"; do
+            if [ -d "$d/include" ]; then
+              if command -v cygpath > /dev/null; then sdk=$(cygpath -am "$d"); else sdk=$(cd "$d" && pwd); fi
+              echo "ACCESSKIT_SDK=$sdk" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          echo "::error::AccessKit SDK not found after install"
+          exit 1
       - name: Compile
         uses: ./.github/actions/godot-build
         with:
           platform: linuxbsd
           target: ${{ matrix.target }}
-          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.flags }} ${{ steps.fdb-client.outputs.scons-flags }} arch=x86_64
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ steps.fdb-client.outputs.scons-flags }} accesskit_sdk_path=${{ env.ACCESSKIT_SDK }} arch=x86_64
       - name: Save the SCons cache
         uses: ./.github/actions/godot-cache-save
         with:
@@ -193,6 +242,20 @@ jobs:
           fi
           cp bin/libfdb_c.* "$d/"
           env -i PATH=/usr/bin:/bin "$d/${{ matrix.bin }}" --headless --version
+      - name: Symbols to zstd, under the 2 GiB release-asset limit
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v zstd
+          cd bin
+          shopt -s nullglob
+          n=0
+          for f in godot.*.debugsymbols godot.*.pdb; do zstd -T0 -19 --long=27 --rm -q "$f"; n=$((n+1)); done
+          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -19 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; n=$((n+1)); done
+          if [ "$n" -eq 0 ]; then echo "::error::no debug symbols were built"; exit 1; fi
+          ls -l
+          big=$(find . -maxdepth 1 -type f -size +2040M)
+          if [ -n "$big" ]; then echo "::error::over the 2 GiB release-asset limit: $big"; exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.cache-name }}
@@ -200,22 +263,23 @@ jobs:
             bin/*
             !bin/obj
             !bin/obj/**
+            !bin/build_deps
+            !bin/build_deps/**
+          compression-level: 0
           if-no-files-found: error
 
   macos:
     runs-on: macos-26
-    timeout-minutes: 240
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: editor
             cache-name: macos-editor-double
-            flags: debug_symbols=no
             bin: godot.macos.editor.double.arm64
           - target: template_release
             cache-name: macos-template-double
-            flags: debug_symbols=no
             bin: godot.macos.template_release.double.arm64
     steps:
       - uses: actions/checkout@v4
@@ -239,6 +303,21 @@ jobs:
           cache-name: ${{ matrix.cache-name }}
         continue-on-error: true
       - uses: ./.github/actions/godot-deps
+      - name: AccessKit SDK
+        # The engine only warns and drops AccessKit when the SDK is missing, so a
+        # failed fetch must fail here, and the path is passed explicitly.
+        shell: bash
+        run: |
+          python3 misc/scripts/install_accesskit.py || python misc/scripts/install_accesskit.py
+          for d in "bin/build_deps/accesskit" "${LOCALAPPDATA:-/nonexistent}/Godot/build_deps/accesskit"; do
+            if [ -d "$d/include" ]; then
+              if command -v cygpath > /dev/null; then sdk=$(cygpath -am "$d"); else sdk=$(cd "$d" && pwd); fi
+              echo "ACCESSKIT_SDK=$sdk" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          echo "::error::AccessKit SDK not found after install"
+          exit 1
       - name: Vulkan SDK (MoltenVK), beside Metal
         id: vulkan-sdk
         run: |
@@ -254,7 +333,7 @@ jobs:
         with:
           platform: macos
           target: ${{ matrix.target }}
-          scons-flags: ${{ env.SCONS_FLAGS }} ${{ matrix.flags }} ${{ steps.fdb-client.outputs.scons-flags }} arch=arm64 vulkan=${{ steps.vulkan-sdk.outputs.VULKAN_ENABLED }}
+          scons-flags: ${{ env.SCONS_FLAGS }} ${{ steps.fdb-client.outputs.scons-flags }} accesskit_sdk_path=${{ env.ACCESSKIT_SDK }} arch=arm64 vulkan=${{ steps.vulkan-sdk.outputs.VULKAN_ENABLED }}
       - name: Save the SCons cache
         uses: ./.github/actions/godot-cache-save
         with:
@@ -290,6 +369,20 @@ jobs:
           fi
           cp bin/libfdb_c.* "$d/"
           env -i PATH=/usr/bin:/bin "$d/${{ matrix.bin }}" --headless --version
+      - name: Symbols to zstd, under the 2 GiB release-asset limit
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v zstd
+          cd bin
+          shopt -s nullglob
+          n=0
+          for f in godot.*.debugsymbols godot.*.pdb; do zstd -T0 -19 --long=27 --rm -q "$f"; n=$((n+1)); done
+          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -19 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; n=$((n+1)); done
+          if [ "$n" -eq 0 ]; then echo "::error::no debug symbols were built"; exit 1; fi
+          ls -l
+          big=$(find . -maxdepth 1 -type f -size +2040M)
+          if [ -n "$big" ]; then echo "::error::over the 2 GiB release-asset limit: $big"; exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.cache-name }}
@@ -297,6 +390,9 @@ jobs:
             bin/*
             !bin/obj
             !bin/obj/**
+            !bin/build_deps
+            !bin/build_deps/**
+          compression-level: 0
           if-no-files-found: error
 
   release:
@@ -327,7 +423,7 @@ jobs:
         run: |
           mkdir -p release
           # The editor and template uploads of a platform ship the same FoundationDB client; keep one copy, fail on any other clash.
-          find out -type f -not -path '*/obj/*' | sort | while read -r f; do
+          find out -type f -not -path '*/obj/*' -not -path '*/build_deps/*' | sort | while read -r f; do
             b=$(basename "$f")
             if [ -e "release/$b" ]; then cmp -s "$f" "release/$b" || { echo "different files named $b"; exit 1; }
             else mv "$f" release/; fi
@@ -349,5 +445,5 @@ jobs:
         run: |
           tag="${{ inputs.release_tag || github.ref_name }}"
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$tag" \
-            --notes "${GITHUB_REPOSITORY} ${GITHUB_SHA} at precision=double: windows x86_64 (llvm-mingw ${LLVM_MINGW}), linux x86_64, macos arm64; editor and template_release. Flags: ${SCONS_FLAGS}. FoundationDB client and fdbserver from datasource-foundationdb ${FDB_RELEASE}." \
+            --notes "${GITHUB_REPOSITORY} ${GITHUB_SHA} at precision=double: windows x86_64 (llvm-mingw ${LLVM_MINGW}), linux x86_64, macos arm64; editor and template_release. Flags: ${SCONS_FLAGS}. FoundationDB client and fdbserver from datasource-foundationdb ${FDB_RELEASE}. Debug symbols are zstd: zstd -d for .zst, tar --zstd -xf for .dSYM.tar.zst." \
             release/* || gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber release/*
