@@ -250,6 +250,10 @@
 /modules/websocket/doc_classes/               @godotengine/network @godotengine/documentation
 /modules/websocket/editor/                    @godotengine/network @godotengine/editor
 /modules/http3/                               @fire
+/modules/http3/**/*.py                        @fire @godotengine/buildsystem
+/modules/http3/**/SCsub                       @fire @godotengine/buildsystem
+/modules/http3/doc_classes/                   @fire @godotengine/documentation
+/modules/http3/tests/                         @fire @godotengine/tests
 /lean/http3/                                  @fire
 
 ## Physics
@@ -526,3 +530,6 @@
 
 /thirdparty/                                  @godotengine/buildsystem
 /thirdparty/jolt_physics/                     @godotengine/buildsystem @godotengine/jolt-physics
+/thirdparty/picoquic/certs/tests/              @godotengine/buildsystem @godotengine/tests
+/thirdparty/picoquic/doc/                     @godotengine/buildsystem @godotengine/documentation
+/thirdparty/picotls/deps/cifra/doc/           @godotengine/buildsystem @godotengine/documentation
