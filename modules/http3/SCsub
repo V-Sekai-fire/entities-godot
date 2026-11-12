@@ -101,6 +101,7 @@ if picoquic_present and picotls_present and env["platform"] != "web":
     env_thirdparty.disable_warnings()
     env_thirdparty.Append(
         CPPDEFINES=[
+            "MBEDTLS_PK_HAVE_ECC_KEYS",
             "PTLS_WITHOUT_OPENSSL",
             "PTLS_WITHOUT_FUSION",
             "PICOQUIC_WITH_MBEDTLS",
