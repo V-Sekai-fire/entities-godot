@@ -78,10 +78,24 @@ jobs:
         # failed fetch must fail here, and the path is passed explicitly.
         shell: bash
         run: |
+          # The symbol step after the compile needs zstd; fail now, not hours in.
+          command -v zstd || { echo "::error::zstd is not on this runner"; exit 1; }
           python3 misc/scripts/install_accesskit.py || python misc/scripts/install_accesskit.py
           for d in "bin/build_deps/accesskit" "${LOCALAPPDATA:-/nonexistent}/Godot/build_deps/accesskit"; do
             if [ -d "$d/include" ]; then
               if command -v cygpath > /dev/null; then sdk=$(cygpath -am "$d"); else sdk=$(cd "$d" && pwd); fi
+              # The engine drops AccessKit on a version mismatch with only a warning;
+              # catch it here, in seconds, instead of after the compile.
+              want=$(sed -n 's/^def check_accesskit_version(path, req_ver="\([^"]*\)".*/\1/p' platform_methods.py)
+              have=$(tr -d '[:space:]' < "$d/version" 2>/dev/null || true)
+              if [ -z "$want" ] || [ -z "$have" ]; then
+                echo "::warning::AccessKit version not checked (required '$want', found '$have'); the post-compile check still runs"
+              elif [ "$want" != "$have" ]; then
+                echo "::error::AccessKit SDK $have, the engine requires $want"
+                exit 1
+              else
+                echo "AccessKit SDK $have, as the engine requires"
+              fi
               echo "ACCESSKIT_SDK=$sdk" >> "$GITHUB_ENV"
               exit 0
             fi
@@ -138,7 +152,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          command -v zstd
           cd bin
           shopt -s nullglob
           n=0
@@ -202,10 +215,24 @@ jobs:
         # failed fetch must fail here, and the path is passed explicitly.
         shell: bash
         run: |
+          # The symbol step after the compile needs zstd; fail now, not hours in.
+          command -v zstd || { echo "::error::zstd is not on this runner"; exit 1; }
           python3 misc/scripts/install_accesskit.py || python misc/scripts/install_accesskit.py
           for d in "bin/build_deps/accesskit" "${LOCALAPPDATA:-/nonexistent}/Godot/build_deps/accesskit"; do
             if [ -d "$d/include" ]; then
               if command -v cygpath > /dev/null; then sdk=$(cygpath -am "$d"); else sdk=$(cd "$d" && pwd); fi
+              # The engine drops AccessKit on a version mismatch with only a warning;
+              # catch it here, in seconds, instead of after the compile.
+              want=$(sed -n 's/^def check_accesskit_version(path, req_ver="\([^"]*\)".*/\1/p' platform_methods.py)
+              have=$(tr -d '[:space:]' < "$d/version" 2>/dev/null || true)
+              if [ -z "$want" ] || [ -z "$have" ]; then
+                echo "::warning::AccessKit version not checked (required '$want', found '$have'); the post-compile check still runs"
+              elif [ "$want" != "$have" ]; then
+                echo "::error::AccessKit SDK $have, the engine requires $want"
+                exit 1
+              else
+                echo "AccessKit SDK $have, as the engine requires"
+              fi
               echo "ACCESSKIT_SDK=$sdk" >> "$GITHUB_ENV"
               exit 0
             fi
@@ -268,7 +295,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          command -v zstd
           cd bin
           shopt -s nullglob
           n=0
@@ -330,10 +356,24 @@ jobs:
         # failed fetch must fail here, and the path is passed explicitly.
         shell: bash
         run: |
+          # The symbol step after the compile needs zstd; fail now, not hours in.
+          command -v zstd || { echo "::error::zstd is not on this runner"; exit 1; }
           python3 misc/scripts/install_accesskit.py || python misc/scripts/install_accesskit.py
           for d in "bin/build_deps/accesskit" "${LOCALAPPDATA:-/nonexistent}/Godot/build_deps/accesskit"; do
             if [ -d "$d/include" ]; then
               if command -v cygpath > /dev/null; then sdk=$(cygpath -am "$d"); else sdk=$(cd "$d" && pwd); fi
+              # The engine drops AccessKit on a version mismatch with only a warning;
+              # catch it here, in seconds, instead of after the compile.
+              want=$(sed -n 's/^def check_accesskit_version(path, req_ver="\([^"]*\)".*/\1/p' platform_methods.py)
+              have=$(tr -d '[:space:]' < "$d/version" 2>/dev/null || true)
+              if [ -z "$want" ] || [ -z "$have" ]; then
+                echo "::warning::AccessKit version not checked (required '$want', found '$have'); the post-compile check still runs"
+              elif [ "$want" != "$have" ]; then
+                echo "::error::AccessKit SDK $have, the engine requires $want"
+                exit 1
+              else
+                echo "AccessKit SDK $have, as the engine requires"
+              fi
               echo "ACCESSKIT_SDK=$sdk" >> "$GITHUB_ENV"
               exit 0
             fi
@@ -406,7 +446,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          command -v zstd
           cd bin
           shopt -s nullglob
           n=0
