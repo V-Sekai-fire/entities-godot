@@ -75,3 +75,14 @@ inline float oit_splat_extinction(float p_alpha) {
 	float a = p_alpha < 0.0f ? 0.0f : (p_alpha > 0.999f ? 0.999f : p_alpha);
 	return -std::log(1.0f - a);
 }
+
+// Channel packing: p_spt slices share one RGBA texel (1, 2 or 4), so the atlas holds ceil(slices / p_spt) tiles.
+// The splat's colour is its extinction in channel z % p_spt and zero elsewhere, so additive blending still sums per froxel.
+inline uint32_t oit_packed_tile_count(uint32_t p_slices, uint32_t p_spt) {
+	return (p_slices + p_spt - 1) / p_spt;
+}
+
+inline void oit_atlas_texel_packed(const OITAtlasLayout &p_l, uint32_t p_spt, uint32_t p_view, uint32_t p_x, uint32_t p_y, uint32_t p_z, uint32_t &r_tx, uint32_t &r_ty, uint32_t &r_channel) {
+	oit_atlas_texel(p_l, p_view, p_x, p_y, p_z / p_spt, r_tx, r_ty);
+	r_channel = p_z % p_spt;
+}
