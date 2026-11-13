@@ -1,0 +1,50 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite it as below and cite the references it builds on."
+type: software
+title: "OIT on the Compatibility renderer (entities-godot, dev/oit-compat)"
+authors:
+  - name: "weft"
+license: MIT
+abstract: >-
+  Fragment-only order-independent transparency for Godot's Compatibility
+  (GLES3 / WebGL2) renderer: the froxel design of the RenderingDevice renderers
+  rebuilt without compute shaders, storage buffers or atomics, with CPU models
+  and a frontier harness that compare it against a depth-peeled sorted list.
+references:
+  - type: software
+    title: "VRChat Gaussian Splatting"
+    authors:
+      - family-names: "Moroz"
+        given-names: "Mykhailo"
+    url: "https://github.com/MichaelMoroz/VRChatGaussianSplatting"
+    repository-code: "https://github.com/MichaelMoroz/VRChatGaussianSplatting"
+    commit: "b9e3db370ce017460eeb96e70ddc6a7c3eeb48c1"
+    date-released: "2026-08-31"
+    license: MIT
+    notes: >-
+      Read for its technique, not copied: a radix sort and prefix sums built
+      from mipmaps with only ordinary rasterization (RadixSort/RadixSort.shader,
+      RadixSort/Utils.cginc), the same limits as a WebGL2 fragment pipeline.
+      No code from it is in this repository.
+  - type: software
+    title: "CompactSparseTextureDemo"
+    authors:
+      - name: "d4rkc0d3r"
+    url: "https://github.com/d4rkc0d3r/CompactSparseTextureDemo"
+    license: MIT
+    notes: "The mipmap prefix-sum trick that the Gaussian splatting radix sort credits."
+  - type: conference-paper
+    title: "Adaptive Volumetric Boundary Order-Independent Transparency"
+    authors:
+      - family-names: "Drobot"
+        given-names: "Michał"
+    conference:
+      name: "SIGGRAPH 2025, Advances in Real-Time Rendering in Games"
+    url: "https://advances.realtimerendering.com/s2025/content/AVBOIT_SIG2025_MDROBOT-final.pdf"
+    year: 2025
+  - type: software
+    title: "entities-godot"
+    authors:
+      - name: "weft"
+    url: "https://github.com/V-Sekai-fire/entities-godot"
+    license: MIT
