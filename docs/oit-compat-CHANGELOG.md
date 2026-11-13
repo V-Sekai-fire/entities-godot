@@ -87,13 +87,13 @@ local (in-texel prefix over the four channels), tiles (Hillis-Steele over the ti
 `drivers/gles3/shaders/effects/oit_scan.glsl` has three modes (`mode_local`, `mode_tiles`, `mode_carry`), one per pass of `oit_scan_packed_*`. Tiles of a column sit side by side in x, `grid_width` apart.
 
 - `glslangValidator -S frag` accepts all three modes as GLSL ES 3.00; a copy with a planted type error (`v.w += v.zz`) is rejected.
-- `misc/scripts/oit_scan_gl/index.html` runs the passes in headed Firefox 160, WebGL2 over ANGLE Metal on an Apple M1: 11 cases (4 to 200 slices, odd and even tile counts, grids up to 7 wide), worst error 0 against the CPU prefix sum, no GL error. Pass counts equal the model's (128 slices: 7). The error is exactly 0 because the inputs are multiples of 1/65536 whose sums stay under 2^24.
+- `misc/scripts/oit_scan_gl/index.html` runs the passes in headed Firefox 160, WebGL2 over ANGLE Metal on an Apple M2 Pro: 11 cases (4 to 200 slices, odd and even tile counts, grids up to 7 wide), worst error 0 against the CPU prefix sum, no GL error. Pass counts equal the model's (128 slices: 7). The error is exactly 0 because the inputs are multiples of 1/65536 whose sums stay under 2^24.
 - Control: the carry reading its own tile (`p.x` instead of `p.x - grid_width`) is off by 2.3 to 3.1 in all three trials, so the harness can fail.
 - Not done: the shader is not in `drivers/gles3/shaders/effects/SCsub`, nothing in `drivers/gles3` calls it, and it has not run inside the engine.
 
 ## Iteration 9: the splat step, two designs in WebGL2
 
-`misc/scripts/oit_splat_gl/index.html` runs both designs of open problem 2 in Firefox 160 (WebGL2 over ANGLE Metal, Apple M1; 8 draw buffers, RGBA32F blend works) against a CPU answer: 2251 fragments over 2168 froxels.
+`misc/scripts/oit_splat_gl/index.html` runs both designs of open problem 2 in Firefox 160 (WebGL2 over ANGLE Metal, Apple M2 Pro; 8 draw buffers, RGBA32F blend works) against a CPU answer: 2251 fragments over 2168 froxels.
 
 - A, slice groups at froxel resolution: matches. 32 froxels differ from the reference, all within 0.01 slice of a boundary where a GPU's float depth can round across it. 160 draws (40 quads x 4 passes of 8 attachments).
 - B, point sprites: matches with worst error 9.5e-08, 1 draw of 2251 points.
@@ -106,7 +106,7 @@ What this does not decide. B's samples come from the CPU reference, so B cannot 
 
 ## Iteration 10: double-single slice maths for the splat
 
-The 32 froxels that differed in iteration 9 were fragments within 0.01 slice of a boundary. WebGL2 has no float64, so the slice maths now carries each value as a hi + lo float32 pair (about 48 bits, "2x f32 is an f64"): the 127 slice boundaries are stored as pairs and compared lexicographically, and the quad's depth is computed in the fragment shader from `gl_FragCoord.x` as a + b x with a Dekker split (GLSL ES 3.00 has no fma). Quad inputs are rounded to float32 so the GPU and the double-precision reference start from the same numbers. Firefox 160, ANGLE Metal, M1:
+The 32 froxels that differed in iteration 9 were fragments within 0.01 slice of a boundary. WebGL2 has no float64, so the slice maths now carries each value as a hi + lo float32 pair (about 48 bits, "2x f32 is an f64"): the 127 slice boundaries are stored as pairs and compared lexicographically, and the quad's depth is computed in the fragment shader from `gl_FragCoord.x` as a + b x with a Dekker split (GLSL ES 3.00 has no fma). Quad inputs are rounded to float32 so the GPU and the double-precision reference start from the same numbers. Firefox 160, ANGLE Metal, M2 Pro:
 
 | scene | edge | `log` | float32 table | double-single | double-single, lo zeroed |
 | --- | --- | --- | --- | --- | --- |
@@ -123,7 +123,7 @@ Differing froxels in variant A; variant B (point sprites, depth passed as a hi/l
 
 ## Iteration 11: what the double-single maths costs at headset size
 
-`misc/scripts/oit_splat_gl/time.html` renders variant A only (no reference, no readback) at the headset froxel grid 280 x 294, 128 slices, 4 passes of 8 attachments, 200 translucent quads covering 3.3 million fragments per pass. Firefox 160, ANGLE Metal, Apple M1, wall time per frame after a one-pixel readback, 40 repeats, medians. Firefox here has no `EXT_disjoint_timer_query_webgl2`, so these are wall times, not GPU times.
+`misc/scripts/oit_splat_gl/time.html` renders variant A only (no reference, no readback) at the headset froxel grid 280 x 294, 128 slices, 4 passes of 8 attachments, 200 translucent quads covering 3.3 million fragments per pass. Firefox 160, ANGLE Metal, Apple M2 Pro, wall time per frame after a one-pixel readback, 40 repeats, medians. Firefox here has no `EXT_disjoint_timer_query_webgl2`, so these are wall times, not GPU times.
 
 | slice maths | run 1 | run 2 | run 3 |
 | --- | --- | --- | --- |
@@ -138,11 +138,11 @@ Differing froxels in variant A; variant B (point sprites, depth passed as a hi/l
 
 ## Iteration 12: both device classes, and a correction to iteration 11
 
-Mobile class is the Steam Frame (Adreno 750, freedreno/turnip, headed Firefox 159 on its Xwayland display, pages served from the Mac over the LAN); desktop class is the Mac (Apple M1, Firefox 160). The Windows desk with the RTX 4090 no longer exists, so there is no discrete desktop card in this set. Neither browser exposes `EXT_disjoint_timer_query_webgl2`, so all times are wall clock.
+Mobile class is the Steam Frame (Adreno 750, freedreno/turnip, headed Firefox 159 on its Xwayland display, pages served from the Mac over the LAN); desktop class is the Mac (Apple M2 Pro, Firefox 160). The Windows desk with the RTX 4090 no longer exists, so there is no discrete desktop card in this set. Neither browser exposes `EXT_disjoint_timer_query_webgl2`, so all times are wall clock.
 
 Correctness on the Frame (`index.html`, 40 flat quads on float32-rounded slice boundaries, edge 1e-9), differing froxels:
 
-| slice maths | Frame (Adreno 750) | Mac (M1), iteration 10 |
+| slice maths | Frame (Adreno 750) | Mac (M2 Pro), iteration 10 |
 | --- | --- | --- |
 | double-single | 0 | 0 |
 | double-single, lo zeroed | 336 | 336 |
@@ -151,16 +151,16 @@ Correctness on the Frame (`index.html`, 40 flat quads on float32-rounded slice b
 
 The same scene gives the same answer on both GPUs for everything except `log()`, whose error is each GPU's own (360 against 552). The random scene on the Frame, default mode: 0 differing froxels in both variants, the shifted-output control fails, no GL error.
 
-Correction. Iteration 11 timed one frame per block with a one-pixel readback after each, and reported about 5 ms on the M1. That figure carried the readback's synchronisation. `time.html` now times a block of 25 frames and divides (`batch=25`), which also lets a clock rounded to 1 ms resolve the result (Firefox rounds `performance.now()`; a single-frame run on the Frame returned whole milliseconds only). Variant A at the headset grid 280 x 294, 128 slices, 200 quads, 3.3 million fragments per pass, wall median per frame:
+Correction. Iteration 11 timed one frame per block with a one-pixel readback after each, and reported about 5 ms on the M2 Pro. That figure carried the readback's synchronisation. `time.html` now times a block of 25 frames and divides (`batch=25`), which also lets a clock rounded to 1 ms resolve the result (Firefox rounds `performance.now()`; a single-frame run on the Frame returned whole milliseconds only). Variant A at the headset grid 280 x 294, 128 slices, 200 quads, 3.3 million fragments per pass, wall median per frame:
 
-| slice maths | Frame (Adreno 750) | Mac (M1) |
+| slice maths | Frame (Adreno 750) | Mac (M2 Pro) |
 | --- | --- | --- |
 | float32 table | 4.4 to 5.1 ms | 1.8 to 2.2 ms |
 | double-single | 4.5 to 5.0 ms | 2.2 ms |
 | `log` | 4.4 ms | 1.4 ms |
 
-- Double-single is within the run-to-run spread of the float32 table on the Frame (4.5 to 5.0 against 4.4 to 5.1). On the M1 it is about 0.3 ms slower in the best pairing and equal in another. The 1 ms extra cost I reported in iteration 11 was mostly the per-frame sync, not the arithmetic.
-- The Frame spends about 2.3 times the M1's time on the same work.
+- Double-single is within the run-to-run spread of the float32 table on the Frame (4.5 to 5.0 against 4.4 to 5.1). On the M2 Pro it is about 0.3 ms slower in the best pairing and equal in another. The 1 ms extra cost I reported in iteration 11 was mostly the per-frame sync, not the arithmetic.
+- The Frame spends about 2.3 times the M2 Pro's time on the same work.
 - Not measured: two views per eye, MSAA, a real scene's geometry (these are 200 rectangles), power and thermals on the Frame, any discrete desktop GPU.
 
 ## Iteration 13: the desktop class is fedora's RTX 4090
@@ -169,7 +169,7 @@ Correction to iteration 12: the Windows desk is gone but fedora, with an RTX 409
 
 Differing froxels, stress scene (edge 1e-9), all three GPUs:
 
-| slice maths | Frame (Adreno 750) | Mac (M1) | fedora (RTX 4090) |
+| slice maths | Frame (Adreno 750) | Mac (M2 Pro) | fedora (RTX 4090) |
 | --- | --- | --- | --- |
 | double-single | 0 | 0 | 0 |
 | double-single, lo zeroed | 336 | 336 | 336 |
@@ -180,7 +180,7 @@ The random scene, default mode, on fedora: 0 differing froxels in both variants,
 
 Variant A at the headset grid 280 x 294, 128 slices, wall median per frame over blocks of 25:
 
-| fragments per pass | Mac (M1) | fedora (RTX 4090) |
+| fragments per pass | Mac (M2 Pro) | fedora (RTX 4090) |
 | --- | --- | --- |
 | 16 thousand (1 quad) | 0.45 ms | 0.28 ms |
 | 0.8 million (50) | 0.63 ms | 0.80 ms |
@@ -188,5 +188,29 @@ Variant A at the headset grid 280 x 294, 128 slices, wall median per frame over 
 | 12.9 million (800) | 9.39 ms | 11.28 ms |
 
 - At 200 quads the three slice maths are within the spread of each other on fedora (2.84 to 3.08 ms).
-- Time grows in proportion to fragments on both machines, and the 4090 is not faster than the M1 here (it is slower from 50 quads up). So this workload is bound by fragment output, not by the slice arithmetic. A cause is not established. One candidate: every surviving fragment writes all 8 RGBA32F attachments (zeros in 7), because GLSL ES 3.00 leaves an unwritten output undefined, so a fragment costs 128 bytes of blended writes; and the fragments that do not belong to the pass still run the shader before the discard. Neither was tested.
+- Time grows in proportion to fragments on both machines, and the 4090 is not faster than the M2 Pro here (it is slower from 50 quads up). So this workload is bound by fragment output, not by the slice arithmetic. A cause is not established. One candidate: every surviving fragment writes all 8 RGBA32F attachments (zeros in 7), because GLSL ES 3.00 leaves an unwritten output undefined, so a fragment costs 128 bytes of blended writes; and the fragments that do not belong to the pass still run the shader before the discard. Neither was tested.
 - Wall times, since neither browser has a GPU timer extension.
+
+## Iteration 14: a GPU profiler on the Mac, and the Mac is an M2 Pro
+
+Correction. Every "M1" in iterations 8 to 13 is wrong: `sysctl machdep.cpu.brand_string` says Apple M2 Pro and the Metal trace names the device "M2 Pro". Firefox masks the renderer as "Apple M1" (as it masks the 4090 as a GTX 980). Those lines now say M2 Pro; the numbers are unchanged.
+
+Instruments' Metal System Trace with the Metal GPU Counters instrument (`xctrace record`, 8 s, all processes) while headed Firefox ran variant A in a loop at the headset grid (280 x 294, 128 slices, 200 quads, double-single maths, 25 frames per block, 1500 blocks). The first two recordings had no counter data: the template alone does not enable the counters, `--instrument 'Metal GPU Counters'` does.
+
+Mean of each counter over the recording (14.05 million samples; the counters cover the whole GPU, not only Firefox):
+
+| counter | mean | max |
+| --- | --- | --- |
+| ALU Limiter | 70.5 % | 98.0 % |
+| Fragment Occupancy | 56.0 % | 96.4 % |
+| ALU Utilization | 47.7 % | 64.4 % |
+| Buffer Write Limiter | 11.8 % | 25.0 % |
+| Texture Write Limiter | 3.0 % | 76.0 % |
+| Vertex Occupancy | 0.01 % | 0.9 % |
+
+- On the M2 Pro the splat step is limited by shader arithmetic, not by the attachment writes. The guess in iteration 13 (128 bytes of blended writes per fragment) is not supported here: the texture write limiter averages 3 %. The ALU limiter is at or above 90 % in 8.6 % of samples.
+- Per-interval view: Firefox's GPU helper runs fragment work at depth 0 and depth 1 for about 7 s of each 9 s span (two nesting levels of the same work, so the two are not additive).
+- Not yet known: whether the 4090 and the Adreno 750 are limited the same way. Fedora offers `nvidia-smi dmon`; the Frame has `fdperf` and `renderdoccmd`. Neither has been run.
+- Not tested: a variant that does less arithmetic per fragment, which is what this result points at (the 128-slice binary search, the double-single depth, the eight `v` selects).
+
+The trace and its tables are kept as zstd Parquet in `~/.hermes/cache/scratch/oit-profile/mac-m2pro-ds/` (counter definitions, 14.05 million samples, 60,479 GPU intervals, a provenance row per XML export with its sha256). They are not committed: the sample table is 55 MB.
