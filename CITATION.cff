@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this work, please cite it as below and cite the references it builds on."
 type: software
-title: "OIT on the Compatibility renderer: CPU models and comparison harnesses (entities-godot, archived/oit-compat)"
+title: "OIT on the Compatibility renderer: CPU models and comparison harnesses (entities-godot, dev/oit-compat)"
 authors:
   - name: "weftspun"
     alias: "fire"
