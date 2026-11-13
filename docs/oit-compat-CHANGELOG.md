@@ -162,3 +162,31 @@ Correction. Iteration 11 timed one frame per block with a one-pixel readback aft
 - Double-single is within the run-to-run spread of the float32 table on the Frame (4.5 to 5.0 against 4.4 to 5.1). On the M1 it is about 0.3 ms slower in the best pairing and equal in another. The 1 ms extra cost I reported in iteration 11 was mostly the per-frame sync, not the arithmetic.
 - The Frame spends about 2.3 times the M1's time on the same work.
 - Not measured: two views per eye, MSAA, a real scene's geometry (these are 200 rectangles), power and thermals on the Frame, any discrete desktop GPU.
+
+## Iteration 13: the desktop class is fedora's RTX 4090
+
+Correction to iteration 12: the Windows desk is gone but fedora, with an RTX 4090 (power limit 275 W), replaces it, so there is a discrete desktop card in the set. Firefox 150, headed, on fedora's GNOME Wayland session (`wayland-0`); pages served from the Mac over the LAN. Firefox reports the renderer as "NVIDIA GeForce GTX 980, or similar", which is its masking of the real name; `nvidia-smi` lists the card as an RTX 4090 and shows firefox as a graphics client on it.
+
+Differing froxels, stress scene (edge 1e-9), all three GPUs:
+
+| slice maths | Frame (Adreno 750) | Mac (M1) | fedora (RTX 4090) |
+| --- | --- | --- | --- |
+| double-single | 0 | 0 | 0 |
+| double-single, lo zeroed | 336 | 336 | 336 |
+| float32 table | 336 | 336 | 336 |
+| `log` | 360 | 552 | 264 |
+
+The random scene, default mode, on fedora: 0 differing froxels in both variants, control fails, no GL error. Double-single is exact on three different GPUs and drivers; `log()` makes a different error on each.
+
+Variant A at the headset grid 280 x 294, 128 slices, wall median per frame over blocks of 25:
+
+| fragments per pass | Mac (M1) | fedora (RTX 4090) |
+| --- | --- | --- |
+| 16 thousand (1 quad) | 0.45 ms | 0.28 ms |
+| 0.8 million (50) | 0.63 ms | 0.80 ms |
+| 3.3 million (200) | 2.16 ms | 2.88 ms |
+| 12.9 million (800) | 9.39 ms | 11.28 ms |
+
+- At 200 quads the three slice maths are within the spread of each other on fedora (2.84 to 3.08 ms).
+- Time grows in proportion to fragments on both machines, and the 4090 is not faster than the M1 here (it is slower from 50 quads up). So this workload is bound by fragment output, not by the slice arithmetic. A cause is not established. One candidate: every surviving fragment writes all 8 RGBA32F attachments (zeros in 7), because GLSL ES 3.00 leaves an unwritten output undefined, so a fragment costs 128 bytes of blended writes; and the fragments that do not belong to the pass still run the shader before the discard. Neither was tested.
+- Wall times, since neither browser has a GPU timer extension.
