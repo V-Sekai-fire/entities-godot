@@ -20,3 +20,17 @@ Harness: `misc/scripts/oit_frontier.cpp`. A change stays only when total frontie
 - Scan: log2(slices) ping-pong passes match a sequential prefix sum (worst error 4.6e-05, 750 columns). Planted stride and short-pass faults caught 40 of 40.
 - Splat: atlas placement is a bijection for five shapes; float accumulation sits inside the 1/65536 quantisation bound (0.265 of it). Planted placement and linear-depth faults caught.
 - Not yet checked: float blending and render-target formats on a real WebGL2 context.
+
+## Iteration 3: froxel against a per-pixel sorted list (`misc/scripts/oit_compare.cpp`)
+
+Answer key: every fragment sorted far to near and composited with "over". A problem is one pixel; solved when |error| <= 0.01.
+4500 pixels (5 fragment counts, 3 alpha profiles, 3 depth spreads, 100 seeds). CPU model, not GPU time.
+
+- froxel (engine design, 128 slices on the fixed 0.1-60 curve): 2694/4500, mean error 0.038.
+- sorted by depth peeling, K=4 / 8 / 16 layers: 2950 / 3895 / 4269 of 4500, mean error 0.028 / 0.010 / 0.0018.
+- Controls fail as required: froxel with no transmittance lookup 944/4500; peel with K=1 384/4500.
+- Froxel loses most when fragments share a slice: "tight" spread (0.2 deep at depth 10) solves 318 of 1500, "wide" 1419 of 1500.
+- Memory at 1680x1760 x2 eyes, model: froxel 249 MiB (atlas 90 MiB, doubled by the scan, plus 68 MiB accumulate targets), peel K=8 361 MiB, K=16 722 MiB.
+- Passes over the transparent list: froxel 2, peel K.
+- Not modelled: the engine's auto-range (`oit_auto_range`), which puts slices where the geometry is. The fixed curve probably understates the froxel on tight scenes. Peeling cost is an upper bound (early-z may cut shaded fragments).
+- Decision: none yet. Next, model auto-range and rerun, so the froxel gets its real slice placement.
