@@ -1,15 +1,17 @@
 cff-version: 1.2.0
 message: "If you use this work, please cite it as below and cite the references it builds on."
 type: software
-title: "OIT on the Compatibility renderer (entities-godot, dev/oit-compat)"
+title: "OIT on the Compatibility renderer: CPU models and comparison harnesses (entities-godot, archived/oit-compat)"
 authors:
   - name: "weft"
 license: MIT
 abstract: >-
-  Fragment-only order-independent transparency for Godot's Compatibility
-  (GLES3 / WebGL2) renderer: the froxel design of the RenderingDevice renderers
-  rebuilt without compute shaders, storage buffers or atomics, with CPU models
-  and a frontier harness that compare it against a depth-peeled sorted list.
+  CPU models and harnesses for fragment-only order-independent transparency on
+  Godot's Compatibility (GLES3 / WebGL2) renderer: the froxel design of the
+  RenderingDevice renderers without compute shaders, storage buffers or atomics
+  (a packed four-slices-a-texel scan, the engine's auto-range and depth intervals),
+  compared against depth-peeled sorting and weighted blended OIT on an exact
+  back-to-front composite. The GL passes themselves are not written yet.
 references:
   - type: software
     title: "VRChat Gaussian Splatting"
