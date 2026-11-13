@@ -4,6 +4,8 @@ type: software
 title: "OIT on the Compatibility renderer: CPU models and comparison harnesses (entities-godot, archived/oit-compat)"
 authors:
   - name: "weftspun"
+    alias: "fire"
+    website: "https://github.com/fire"
 license: MIT
 abstract: >-
   CPU models and harnesses for fragment-only order-independent transparency on
@@ -48,5 +50,7 @@ references:
     title: "entities-godot"
     authors:
       - name: "weftspun"
+        alias: "fire"
+        website: "https://github.com/fire"
     url: "https://github.com/V-Sekai-fire/entities-godot"
     license: MIT
