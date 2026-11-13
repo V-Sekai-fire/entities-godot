@@ -47,3 +47,15 @@ and the log curve from the translucent geometry's depth extent. The harness uses
   exact 4226, +-25% +-0.1 m 4026, +-50% +-1 m 3571, +-100% +-2 m 3270 (tight spread 1386 / 1264 / 912 / 713). The real score lies on that line.
 - The engine has `oit_interval_ranges`, which splits the slices over several depth intervals when the geometry is in separate bands. It is not modelled here.
 - Decision: the froxel is the sort-free method to build. Not tested on a GPU.
+
+## Iteration 5: the engine's depth intervals (`misc/scripts/oit_compare_intervals.cpp`)
+
+Scenes of 1 to 9 translucent instances, each a depth band with an AABB looser than its fragments. 9000 pixels, 128 slices both ways.
+Single = one `oit_auto_range` over the union; intervals = `OITIntervalSet` and `oit_interval_ranges` as `render_forward_mobile.cpp:3911-3935` builds them.
+
+- Total solved: single 5938, intervals 6706 of 9000. No-lookup controls score 1544 for both, and with one interval the two paths are identical on every pixel.
+- Intervals win when the AABBs are close to the fragments: 3 bands exact 390 -> 560, 5 bands exact 366 -> 529, 9 bands exact 336 -> 467.
+- They lose when padding is large: at +-100% +-2 m, 3 bands 332 -> 316, 5 bands 295 -> 255, 9 bands 231 -> 163.
+- Cause, from `misc/scripts/oit_intervals_why.cpp`: the padded boxes merge to 4 intervals and the first runs 0.01-6.62 m with linearization k = 661, so the log curve packs the slices near the near plane. Fragments at 1.60 m and 4.15 m land on slices 25.0 and 29.7, five slices apart across 2.5 m. The rule that gives every interval an equal share of the slices does not weigh how much geometry each holds.
+- So the froxel's real score depends on how tight the instance AABBs are. Measure that on the real scenes (stack, hair) before trusting either number.
+- Decision: build the froxel with the engine's interval path. Not tested on a GPU.
