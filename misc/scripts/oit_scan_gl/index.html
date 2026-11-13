@@ -1,0 +1,64 @@
+<!doctype html><meta charset=utf-8><body><pre id=o>running</pre><script>
+const log = (s) => fetch('/log', {method: 'POST', body: s});
+(async () => {
+  const out = {};
+  const src = await (await fetch('/drivers/gles3/shaders/effects/oit_scan.glsl')).text();
+  const frag = src.split('#[fragment]')[1].split('\n').filter(l => !l.includes('clang-format')).join('\n');
+  const gl = document.createElement('canvas').getContext('webgl2');
+  out.renderer = gl.getParameter(gl.RENDERER); out.float_fbo = !!gl.getExtension('EXT_color_buffer_float');
+  const vs = '#version 300 es\nlayout(location=0) in vec2 v;void main(){gl_Position=vec4(v,1.0,1.0);}';
+  const mk = (mode, patch) => {
+    const f = '#version 300 es\nprecision highp float;\nprecision highp int;\n#define ' + mode + '\n' + (patch ? patch(frag) : frag);
+    const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+    const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, f)); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    return p;
+  };
+  const quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const mkTex = (w, h, data) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, w, h);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    if (data) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, data); return t; };
+  const progs = {local: mk('MODE_LOCAL'), tiles: mk('MODE_TILES'), carry: mk('MODE_CARRY'),
+    carry_own: mk('MODE_CARRY', f => f.replace('p.x - grid_width, p.y), 0).w', 'p.x, p.y), 0).w'))};
+  out.carry_own_patched = progs.carry_own !== undefined;
+  let seed = 20261113; const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return (seed >>> 8) / 16777216; };
+  const fb = gl.createFramebuffer();
+  const pass = (prog, srcTex, dstTex, w, h, grid, stride) => {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, dstTex, 0);
+    gl.viewport(0, 0, w, h); gl.useProgram(prog); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, srcTex);
+    gl.uniform1i(gl.getUniformLocation(prog, 'source'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'grid_width'), grid);
+    const s = gl.getUniformLocation(prog, 'stride'); if (s) gl.uniform1i(s, stride || 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  };
+  const run = (carryProg, slices, grid, rows) => {
+    const tiles = Math.ceil(slices / 4), w = tiles * grid, h = rows, n = w * h * 4;
+    const data = new Float32Array(n); const cols = [];
+    for (let y = 0; y < rows; y++) for (let x = 0; x < grid; x++) { const col = new Float32Array(slices);
+      for (let z = 0; z < slices; z++) { col[z] = rnd() < 0.5 ? Math.round(rnd() * 65535) / 65536 : 0; data[(((y * w) + (Math.floor(z / 4) * grid + x)) * 4) + (z % 4)] = col[z]; } cols.push([x, y, col]); }
+    let a = mkTex(w, h, data), b = mkTex(w, h, null);
+    pass(progs.local, a, b, w, h, grid); [a, b] = [b, a];
+    let passes = 0; for (let st = 1; st < tiles; st <<= 1) { pass(progs.tiles, a, b, w, h, grid, st); [a, b] = [b, a]; passes++; }
+    pass(carryProg, a, b, w, h, grid); [a, b] = [b, a];
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, a, 0);
+    const px = new Float32Array(n); gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
+    let worst = 0; for (const [x, y, col] of cols) { let run = 0; for (let z = 0; z < slices; z++) { run += col[z];
+      const got = px[(((y * w) + (Math.floor(z / 4) * grid + x)) * 4) + (z % 4)]; worst = Math.max(worst, Math.abs(got - run)); } }
+    gl.deleteTexture(a); gl.deleteTexture(b);
+    return {worst, passes: passes + 2, gl_error: gl.getError()};
+  };
+  out.cases = []; let ok = true;
+  for (const [slices, grid, rows] of [[4,3,2],[5,3,2],[8,5,3],[12,4,4],[32,6,5],[33,6,5],[64,7,4],[100,5,5],[128,6,6],[129,3,3],[200,4,4]]) {
+    const r = run(progs.carry, slices, grid, rows); out.cases.push({slices, grid, rows, ...r}); if (!(r.worst < 1e-3) || r.gl_error) ok = false;
+  }
+  out.control = []; let controlOk = true;
+  for (const [slices, grid, rows] of [[12,4,4],[64,7,4],[128,6,6]]) {
+    const r = run(progs.carry_own, slices, grid, rows); out.control.push({slices, ...r}); if (!(r.worst > 1.0)) controlOk = false;
+  }
+  out.all_match = ok; out.control_fails_as_required = controlOk;
+  document.getElementById('o').textContent = 'SCAN_RESULT\n' + JSON.stringify(out, null, 1);
+  await log('SCAN_RESULT ' + JSON.stringify(out));
+  document.title = 'done';
+})().catch(e => { document.getElementById('o').textContent = 'ERR ' + e; log('ERR ' + e + ' ' + (e.stack || '')); });
+</script>

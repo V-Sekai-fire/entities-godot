@@ -81,3 +81,12 @@ local (in-texel prefix over the four channels), tiles (Hillis-Steele over the ti
 - Planted fault in `oit_scan_math.h` (the carry reads the tile's own total, not its left neighbour's), rebuilt, reran: the `[OIT] scan:` cases fail. The header was restored from a saved copy and checked against the commit (empty diff), then a clean rebuild passed all 38.
 - First compile failed: the engine's `LocalVector` copy constructor is explicit, so `LocalVector<float> got = col;` does not compile; written `got(col)`.
 - Before this, `oit_tests.sh` had never run against this branch: the editor in `zone-web` was built with `tests=no`, so the engine test suite had no coverage of the scan models.
+
+## Iteration 8: the packed scan as GLSL, run on a GPU
+
+`drivers/gles3/shaders/effects/oit_scan.glsl` has three modes (`mode_local`, `mode_tiles`, `mode_carry`), one per pass of `oit_scan_packed_*`. Tiles of a column sit side by side in x, `grid_width` apart.
+
+- `glslangValidator -S frag` accepts all three modes as GLSL ES 3.00; a copy with a planted type error (`v.w += v.zz`) is rejected.
+- `misc/scripts/oit_scan_gl/index.html` runs the passes in headed Firefox 160, WebGL2 over ANGLE Metal on an Apple M1: 11 cases (4 to 200 slices, odd and even tile counts, grids up to 7 wide), worst error 0 against the CPU prefix sum, no GL error. Pass counts equal the model's (128 slices: 7). The error is exactly 0 because the inputs are multiples of 1/65536 whose sums stay under 2^24.
+- Control: the carry reading its own tile (`p.x` instead of `p.x - grid_width`) is off by 2.3 to 3.1 in all three trials, so the harness can fail.
+- Not done: the shader is not in `drivers/gles3/shaders/effects/SCsub`, nothing in `drivers/gles3` calls it, and it has not run inside the engine.
