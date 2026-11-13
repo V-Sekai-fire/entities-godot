@@ -90,3 +90,16 @@ local (in-texel prefix over the four channels), tiles (Hillis-Steele over the ti
 - `misc/scripts/oit_scan_gl/index.html` runs the passes in headed Firefox 160, WebGL2 over ANGLE Metal on an Apple M1: 11 cases (4 to 200 slices, odd and even tile counts, grids up to 7 wide), worst error 0 against the CPU prefix sum, no GL error. Pass counts equal the model's (128 slices: 7). The error is exactly 0 because the inputs are multiples of 1/65536 whose sums stay under 2^24.
 - Control: the carry reading its own tile (`p.x` instead of `p.x - grid_width`) is off by 2.3 to 3.1 in all three trials, so the harness can fail.
 - Not done: the shader is not in `drivers/gles3/shaders/effects/SCsub`, nothing in `drivers/gles3` calls it, and it has not run inside the engine.
+
+## Iteration 9: the splat step, two designs in WebGL2
+
+`misc/scripts/oit_splat_gl/index.html` runs both designs of open problem 2 in Firefox 160 (WebGL2 over ANGLE Metal, Apple M1; 8 draw buffers, RGBA32F blend works) against a CPU answer: 2251 fragments over 2168 froxels.
+
+- A, slice groups at froxel resolution: matches. 32 froxels differ from the reference, all within 0.01 slice of a boundary where a GPU's float depth can round across it. 160 draws (40 quads x 4 passes of 8 attachments).
+- B, point sprites: matches with worst error 9.5e-08, 1 draw of 2251 points.
+- Control: B shifted three slices fails, 4192 unexplained froxels (worst 0.96).
+- No GL error.
+- A first run of A had 4230 wrong froxels. The cause was my harness: the depth uniform was uploaded as (z0, z0 + dz) where the shader expects (z0, dz). A second cause of doubt, the 32 boundary froxels, was measured and is rounding (farthest from an edge: 1.2e-3 slice), so the tolerance is written into the page and applied to both designs.
+
+What this does not decide. B's samples come from the CPU reference, so B cannot yet take a real mesh: GLES3 has no way to read an arbitrary Godot surface as a point list in the vertex stage without a sample-generation pass that does not exist. A takes the surface's own fragments, which is what the transparent pass already draws, so A is the design the engine can use without new geometry plumbing. The timings (A 2.9 ms, B 0.9 ms) are for 40 quads at 40x24 and say nothing about headset size.
+- Next: wire A into `mode_oit_splat` in `scene.glsl`, or measure A at headset froxel size first.

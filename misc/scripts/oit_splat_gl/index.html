@@ -1,0 +1,114 @@
+<!doctype html><meta charset=utf-8><body><pre id=o>running</pre><script>
+// Two WebGL2 designs for the splat step, against one CPU answer. Scene: translucent quads at known depths, drawn at froxel
+// resolution (dim_x x dim_y), as RD Raster mode does. A fragment's froxel is its pixel plus the slice of its own depth.
+//   A "groups": 4 slices a texel, 8 slice groups per pass -> 8 MRT draws; each draw writes channel z % 4 of tile z / 4 and discards other slices.
+//   B "sprites": the quads become point samples (u, v, depth, alpha) on a regular grid; one GL point per sample lands on its atlas texel.
+const log = (s) => fetch('/log', {method: 'POST', body: s}).catch(() => {});
+(async () => {
+  const out = {}; const gl = document.createElement('canvas').getContext('webgl2');
+  out.renderer = gl.getParameter(gl.RENDERER); out.float_fbo = !!gl.getExtension('EXT_color_buffer_float'); out.float_blend = !!gl.getExtension('EXT_float_blend');
+  out.max_draw_buffers = gl.getParameter(gl.MAX_DRAW_BUFFERS); out.max_texture = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  const DX = 40, DY = 24, S = 128, NEAR = 0.1, FAR = 60, K = 8, TILES = S / 4;
+  // atlas: TILES tiles of DX x DY, tiles_x wide
+  let tilesX = 1; while (tilesX * tilesX < TILES && tilesX < Math.floor(out.max_texture / DX)) tilesX++;
+  const tilesY = Math.ceil(TILES / tilesX), AW = tilesX * DX, AH = tilesY * DY;
+  out.atlas = [AW, AH, tilesX, tilesY];
+  const sliceOf = (z) => { const lin = Math.min(Math.max((z - NEAR) / (FAR - NEAR), 0), 1); const t = Math.log(1 + K * lin) / Math.log(1 + K);
+    return Math.min(Math.max(Math.floor(t * S), 0), S - 1); };
+  const ext = (a) => -Math.log(1 - Math.min(Math.max(a, 0), 0.999));
+  let seed = 20261113; const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return (seed >>> 8) / 16777216; };
+  // 40 quads: screen rect in froxel units, a depth that varies across the quad (a tilted plane), an alpha.
+  const quads = []; for (let i = 0; i < 40; i++) { const x0 = rnd() * DX * 0.7, y0 = rnd() * DY * 0.7, w = 3 + rnd() * DX * 0.3, h = 3 + rnd() * DY * 0.3;
+    const z0 = 0.2 + rnd() * 50, dz = (rnd() - 0.5) * 20, alpha = 0.05 + rnd() * 0.5; quads.push({x0, y0, x1: Math.min(x0 + w, DX), y1: Math.min(y0 + h, DY), z0, dz, alpha}); }
+  const zAt = (q, px, py) => Math.max(0.05, q.z0 + q.dz * ((px - q.x0) / (q.x1 - q.x0)));
+  // CPU answer: every pixel centre inside a quad adds ext(alpha) to (px, py, slice(z)).
+  const ref = new Float64Array(DX * DY * S); let frags = 0;
+  for (const q of quads) for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) { const cx = px + 0.5, cy = py + 0.5;
+    if (cx >= q.x0 && cx < q.x1 && cy >= q.y0 && cy < q.y1) { ref[(py * DX + px) * S + sliceOf(zAt(q, cx, cy))] += ext(q.alpha); frags++; } }
+  out.fragments = frags; out.occupied_froxels = ref.reduce((n, v) => n + (v > 0 ? 1 : 0), 0);
+  const cmp = (atlas) => { let worst = 0, sum = 0, refSum = 0;
+    for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) for (let z = 0; z < S; z++) { const t = Math.floor(z / 4);
+      const tx = (t % tilesX) * DX + px, ty = Math.floor(t / tilesX) * DY + py; const got = atlas[(ty * AW + tx) * 4 + (z % 4)]; const want = ref[(py * DX + px) * S + z];
+      worst = Math.max(worst, Math.abs(got - want)); sum += got; refSum += want; } return {worst, sum, ref_sum: refSum}; };
+
+  const EDGE = 0.01; // slices; a GPU's float depth cannot be bit-exact with the double-precision reference.
+  const sliceF = (z) => { const lin = Math.min(Math.max((z - NEAR) / (FAR - NEAR), 0), 1); return Math.log(1 + K * lin) / Math.log(1 + K) * S; };
+  const edgeCells = new Set(); // froxels a fragment within EDGE of a slice boundary may have gone to, either side
+  for (const q of quads) for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) { const cx = px + 0.5, cy = py + 0.5;
+    if (cx >= q.x0 && cx < q.x1 && cy >= q.y0 && cy < q.y1) { const sf = sliceF(zAt(q, cx, cy)), z = Math.floor(sf), fr = sf - z;
+      if (fr < EDGE && z > 0) { edgeCells.add((py * DX + px) * S + z); edgeCells.add((py * DX + px) * S + z - 1); }
+      if (fr > 1 - EDGE && z < S - 1) { edgeCells.add((py * DX + px) * S + z); edgeCells.add((py * DX + px) * S + z + 1); } } }
+  out.edge_froxels = edgeCells.size;
+  const verdict = (atlas) => { let unexplained = 0, worst = 0, explained = 0;
+    for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) for (let z = 0; z < S; z++) { const t = Math.floor(z / 4);
+      const tx = (t % tilesX) * DX + px, ty = Math.floor(t / tilesX) * DY + py; const d = Math.abs(atlas[(ty * AW + tx) * 4 + (z % 4)] - ref[(py * DX + px) * S + z]);
+      if (d > 1e-3) { if (edgeCells.has((py * DX + px) * S + z)) explained++; else { unexplained++; worst = Math.max(worst, d); } } }
+    return {unexplained, explained_by_edge: explained, worst_unexplained: worst}; };
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o) + s); return o; };
+  const prog = (v, f) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, v)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, f)); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; };
+  const HEAD = '#version 300 es\nprecision highp float;\nprecision highp int;\n';
+  const SLICE = `const float NEAR=${NEAR}, FAR=${FAR.toFixed(1)}, K=${K.toFixed(1)}; const int S=${S};
+    int slice_of(float z){ float lin=clamp((z-NEAR)/(FAR-NEAR),0.0,1.0); float t=log(1.0+K*lin)/log(1.0+K); return clamp(int(floor(t*float(S))),0,S-1); }`;
+  const mkAtlas = () => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, AW, AH);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); return t; };
+  const readAtlas = (tex) => { const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const px = new Float32Array(AW * AH * 4); gl.readPixels(0, 0, AW, AH, gl.RGBA, gl.FLOAT, px); return px; };
+  // --- Variant A: quads rasterised at froxel resolution, one pass per slice group ---
+  // Each pass renders into DX x DY x (up to 8 MRT) targets, then 8 tile-sized viewports of the atlas are filled by copying the MRT. Here the MRT are the atlas tiles
+  // directly: group g writes tiles 8g..8g+7 as 8 attachments, so tile t's own texture is a DX x DY layer.
+  const layers = []; for (let t = 0; t < TILES; t++) { const tx = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tx); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, DX, DY); layers.push(tx); }
+  const drawQuad = (p) => gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  const progA = prog(HEAD + `uniform vec4 rect; uniform vec2 zdz; uniform vec2 dims; out float depth;
+    void main(){ vec2 c=vec2(float(gl_VertexID&1), float((gl_VertexID>>1)&1)); vec2 px=mix(rect.xy, rect.zw, c); depth=zdz.x+zdz.y*c.x;
+      gl_Position=vec4(px/dims*2.0-1.0, 0.0, 1.0); }`,
+    HEAD + SLICE + `in float depth; uniform float alpha; uniform int base_tile; uniform vec4 rect; out vec4 o[8];
+    void main(){ int z=slice_of(max(0.05,depth)); int tile=z/4; int local=tile-base_tile; float e=-log(1.0-clamp(alpha,0.0,0.999));
+      vec4 v=vec4(0.0); v[z%4]=e;
+      if(local<0||local>=8) discard;
+      o[0]=local==0?v:vec4(0.0); o[1]=local==1?v:vec4(0.0); o[2]=local==2?v:vec4(0.0); o[3]=local==3?v:vec4(0.0);
+      o[4]=local==4?v:vec4(0.0); o[5]=local==5?v:vec4(0.0); o[6]=local==6?v:vec4(0.0); o[7]=local==7?v:vec4(0.0); }`);
+  gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+  const fbA = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbA);
+  for (const t of layers) { gl.bindFramebuffer(gl.FRAMEBUFFER, fbA); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0); gl.clearBufferfv(gl.COLOR, 0, [0,0,0,0]); }
+  const t0 = performance.now(); let drawsA = 0;
+  for (let g = 0; g < TILES / 8; g++) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbA); const bufs = [];
+    for (let i = 0; i < 8; i++) { gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, layers[g * 8 + i], 0); bufs.push(gl.COLOR_ATTACHMENT0 + i); }
+    gl.drawBuffers(bufs); gl.viewport(0, 0, DX, DY); gl.useProgram(progA);
+    gl.uniform1i(gl.getUniformLocation(progA, 'base_tile'), g * 8); gl.uniform2f(gl.getUniformLocation(progA, 'dims'), DX, DY);
+    for (const q of quads) { gl.uniform4f(gl.getUniformLocation(progA, 'rect'), q.x0, q.y0, q.x1, q.y1);
+      gl.uniform2f(gl.getUniformLocation(progA, 'zdz'), q.z0, q.dz); gl.uniform1f(gl.getUniformLocation(progA, 'alpha'), q.alpha); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); drawsA++; }
+  }
+  gl.finish(); out.A_ms = performance.now() - t0; out.A_draws = drawsA;
+  // assemble A's tiles into the atlas for comparison (read each layer)
+  const atlasA = new Float32Array(AW * AH * 4);
+  for (let t = 0; t < TILES; t++) { const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, layers[t], 0);
+    const px = new Float32Array(DX * DY * 4); gl.readPixels(0, 0, DX, DY, gl.RGBA, gl.FLOAT, px);
+    for (let py = 0; py < DY; py++) for (let x = 0; x < DX; x++) { const tx = (t % tilesX) * DX + x, ty = Math.floor(t / tilesX) * DY + py;
+      for (let c = 0; c < 4; c++) atlasA[(ty * AW + tx) * 4 + c] = px[(py * DX + x) * 4 + c]; } }
+  out.A = cmp(atlasA); out.A_verdict = verdict(atlasA);
+  // --- Variant B: point sprites. One sample per pixel centre inside each quad, uploaded as (px, py, depth, alpha). ---
+  const samples = []; for (const q of quads) for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) { const cx = px + 0.5, cy = py + 0.5;
+    if (cx >= q.x0 && cx < q.x1 && cy >= q.y0 && cy < q.y1) samples.push(cx, cy, zAt(q, cx, cy), q.alpha); }
+  const sbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, sbuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(samples), gl.STATIC_DRAW);
+  const progB = prog(HEAD + SLICE + `layout(location=0) in vec4 s; flat out vec4 v;
+    void main(){ int z=slice_of(max(0.05,s.z)); int tile=z/4; int tx=(tile%${tilesX})*${DX}+int(s.x); int ty=(tile/${tilesX})*${DY}+int(s.y);
+      float e=-log(1.0-clamp(s.w,0.0,0.999)); vec4 c=vec4(0.0); c[z%4]=e; v=c;
+      gl_Position=vec4((float(tx)+0.5)/${AW}.0*2.0-1.0,(float(ty)+0.5)/${AH}.0*2.0-1.0,0.0,1.0); gl_PointSize=1.0; }`,
+    HEAD + `flat in vec4 v; out vec4 o; void main(){ o=v; }`);
+  const atlasB = mkAtlas(); const fbB = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbB); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, atlasB, 0);
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0]); gl.clearBufferfv(gl.COLOR, 0, [0,0,0,0]); gl.viewport(0, 0, AW, AH); gl.useProgram(progB);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0);
+  const t1 = performance.now(); gl.drawArrays(gl.POINTS, 0, samples.length / 4); gl.finish(); out.B_ms = performance.now() - t1; out.B_draws = 1; out.B_points = samples.length / 4;
+  const px_B = readAtlas(atlasB); out.B = cmp(px_B); out.B_verdict = verdict(px_B);
+  // control: B with every sample's depth pushed 3 slices deeper must fail the verdict
+  const shifted = new Float32Array(px_B.length); for (let i = 0; i < px_B.length; i++) shifted[i] = px_B[i];
+  for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) for (let z = S - 1; z >= 3; z--) { const t = Math.floor(z / 4), t3 = Math.floor((z - 3) / 4);
+    const a = ((Math.floor(t / tilesX) * DY + py) * AW + (t % tilesX) * DX + px) * 4 + (z % 4), b = ((Math.floor(t3 / tilesX) * DY + py) * AW + (t3 % tilesX) * DX + px) * 4 + ((z - 3) % 4); shifted[a] = px_B[b]; }
+  out.control_shifted = verdict(shifted);
+  out.gl_error = gl.getError();
+  out.A_matches = out.A_verdict.unexplained === 0; out.B_matches = out.B_verdict.unexplained === 0; out.control_fails_as_required = out.control_shifted.unexplained > 0;
+  document.getElementById('o').textContent = 'SPLAT_RESULT\n' + JSON.stringify(out, null, 1); await log('SPLAT_RESULT ' + JSON.stringify(out)); document.title = 'done';
+})().catch(e => { document.getElementById('o').textContent = 'ERR ' + e; log('ERR ' + e); });
+</script>
