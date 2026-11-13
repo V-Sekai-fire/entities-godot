@@ -1,0 +1,61 @@
+diff --git a/drivers/png/SCsub b/drivers/png/SCsub
+index 137f06e7a9..04a96b8d35 100644
+--- a/drivers/png/SCsub
++++ b/drivers/png/SCsub
+@@ -40,7 +40,7 @@ if env["builtin_libpng"]:
+     # Configure setjmp/longjmp for web platform compatibility
+     if env["platform"] == "web":
+         # Enable emscripten setjmp/longjmp support instead of disabling it
+-        env_thirdparty.Append(CCFLAGS=["-sSUPPORT_LONGJMP='emscripten'"])
++        env_thirdparty.Append(CCFLAGS=["-sSUPPORT_LONGJMP='wasm'"])
+ 
+     env_thirdparty.add_source_files(thirdparty_obj, thirdparty_sources)
+ 
+diff --git a/modules/freetype/SCsub b/modules/freetype/SCsub
+index 2b87ff13c7..01092c1630 100644
+--- a/modules/freetype/SCsub
++++ b/modules/freetype/SCsub
+@@ -73,7 +73,7 @@ if env["builtin_freetype"]:
+     if env["platform"] == "web":
+         env_freetype.Append(CPPDEFINES=["FT_CONFIG_OPTION_ERROR_STRINGS"])
+         # Enable emscripten setjmp/longjmp support
+-        env_freetype.Append(CCFLAGS=["-sSUPPORT_LONGJMP='emscripten'"])
++        env_freetype.Append(CCFLAGS=["-sSUPPORT_LONGJMP='wasm'"])
+ 
+     # Also requires libpng headers
+     if env["builtin_libpng"]:
+diff --git a/modules/jpg/SCsub b/modules/jpg/SCsub
+index b4d1af2688..1b38a9206a 100644
+--- a/modules/jpg/SCsub
++++ b/modules/jpg/SCsub
+@@ -94,7 +94,7 @@ if env["builtin_libjpeg_turbo"]:
+         if env["platform"] == "web":
+             env_bit_depth.Append(CPPDEFINES=["NO_GETENV"])
+             # Enable emscripten setjmp/longjmp support
+-            env_bit_depth.Append(CCFLAGS=["-sSUPPORT_LONGJMP='emscripten'"])
++            env_bit_depth.Append(CCFLAGS=["-sSUPPORT_LONGJMP='wasm'"])
+ 
+         env_bit_depth.add_source_files(thirdparty_obj, source_paths(thirdparty_sources_by_bits[bit_depth]))
+ 
+@@ -108,7 +108,7 @@ if env["builtin_libjpeg_turbo"]:
+     if env["platform"] == "web":
+         env_thirdparty.Append(CPPDEFINES=["NO_GETENV"])
+         # Enable emscripten setjmp/longjmp support
+-        env_thirdparty.Append(CCFLAGS=["-sSUPPORT_LONGJMP='emscripten'"])
++        env_thirdparty.Append(CCFLAGS=["-sSUPPORT_LONGJMP='wasm'"])
+ 
+     env_thirdparty.add_source_files(thirdparty_obj, source_paths(thirdparty_sources_common))
+     env.modules_sources += thirdparty_obj
+diff --git a/platform/web/detect.py b/platform/web/detect.py
+index bd17911b52..d8d057f6d3 100644
+--- a/platform/web/detect.py
++++ b/platform/web/detect.py
+@@ -331,8 +331,6 @@ def configure(env: "SConsEnvironment"):
+     env.Append(LINKFLAGS=["-sSUPPORT_LONGJMP='wasm'"])
+ 
+     # Enable exception handling for web platform to support C++ modules like sandbox
+-    env.Append(LINKFLAGS=["-sDISABLE_EXCEPTION_CATCHING=0"])
+-    env.Append(LINKFLAGS=["-sDISABLE_EXCEPTION_THROWING=0"])
+ 
+     # Explicitly disable the disable_exceptions flag to allow sandbox module to build
+     env["disable_exceptions"] = False
