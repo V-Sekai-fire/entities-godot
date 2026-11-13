@@ -6,6 +6,10 @@ authors:
   - name: "weftspun"
     alias: "fire"
     website: "https://github.com/fire"
+  - family-names: "Lee"
+    given-names: "K. S. Ernest (iFire)"
+    alias: "fire"
+    website: "https://github.com/fire"
 license: MIT
 abstract: >-
   CPU models and harnesses for fragment-only order-independent transparency on
