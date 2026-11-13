@@ -1,0 +1,12 @@
+<!doctype html><meta charset=utf-8><body><pre id=o>running</pre><script>
+// Which GPU does this browser's WebGL2 run on? Prints the unmasked renderer and vendor when the browser allows it.
+const log = (s) => fetch('/log', {method: 'POST', body: s}).catch(() => {});
+const gl = document.createElement('canvas').getContext('webgl2'); const r = {};
+const d = gl.getExtension('WEBGL_debug_renderer_info');
+r.renderer = gl.getParameter(gl.RENDERER); r.vendor = gl.getParameter(gl.VENDOR); r.version = gl.getParameter(gl.VERSION); r.shading = gl.getParameter(gl.SHADING_LANGUAGE_VERSION);
+r.unmasked_renderer = d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL) : null; r.unmasked_vendor = d ? gl.getParameter(d.UNMASKED_VENDOR_WEBGL) : null;
+r.ua = navigator.userAgent; r.timer_query = !!gl.getExtension('EXT_disjoint_timer_query_webgl2');
+r.max_texture = gl.getParameter(gl.MAX_TEXTURE_SIZE); r.max_draw_buffers = gl.getParameter(gl.MAX_DRAW_BUFFERS); r.max_frag_uniform_vectors = gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS);
+r.highp_float = JSON.stringify(gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT));
+document.getElementById('o').textContent = JSON.stringify(r, null, 1); log('GPU_RESULT ' + JSON.stringify(r)); document.title = 'done';
+</script>

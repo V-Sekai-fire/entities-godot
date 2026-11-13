@@ -60,13 +60,14 @@ const log = (s) => fetch('/log', {method: 'POST', body: s}).catch(() => {});
         gl.uniform4fv(U('zc'), zc[k]); gl.uniform1f(U('alpha'), q.alpha); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); } } };
   const probe = new Float32Array(4); const sync = () => { gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, layers[0], 0); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, probe); };
   for (let i = 0; i < 3; i++) { frame(); sync(); } // warm up
+  const BATCH = +(P.get('batch') || 1); // frames per timed block: a browser clock rounded to 1 ms still resolves the difference when the block is long
   const wall = [], gpu = [];
   for (let r = 0; r < REPS; r++) { let q = null; if (timer) { q = gl.createQuery(); gl.beginQuery(timer.TIME_ELAPSED_EXT, q); }
-    const t0 = performance.now(); frame(); if (q) gl.endQuery(timer.TIME_ELAPSED_EXT); sync(); wall.push(performance.now() - t0);
+    const t0 = performance.now(); for (let b = 0; b < BATCH; b++) frame(); if (q) gl.endQuery(timer.TIME_ELAPSED_EXT); sync(); wall.push((performance.now() - t0) / BATCH);
     if (q) { for (let w = 0; w < 50 && !gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE); w++) await new Promise((r2) => setTimeout(r2, 2));
       if (!gl.getParameter(timer.GPU_DISJOINT_EXT) && gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) gpu.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6); } }
   const med = (a) => a.length ? a.slice().sort((x, y) => x - y)[a.length >> 1] : null;
-  out.wall_ms_median = med(wall); out.wall_ms_min = Math.min(...wall); out.gpu_ms_median = med(gpu); out.gpu_samples = gpu.length; out.gl_error = gl.getError();
+  out.batch = BATCH; out.wall_ms_median = med(wall); out.wall_ms_min = Math.min(...wall); out.gpu_ms_median = med(gpu); out.gpu_samples = gpu.length; out.gl_error = gl.getError();
   document.getElementById('o').textContent = 'TIME_RESULT\n' + JSON.stringify(out, null, 1); await log('TIME_RESULT ' + JSON.stringify(out)); document.title = 'done';
 })().catch(e => { document.getElementById('o').textContent = 'ERR ' + e; log('ERR ' + e); });
 </script>

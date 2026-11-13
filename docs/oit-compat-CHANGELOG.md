@@ -135,3 +135,30 @@ Differing froxels in variant A; variant B (point sprites, depth passed as a hi/l
 - At the small grid (40 x 24, 40 quads) the two are 1.58 and 1.66 ms.
 - All of this is 4 geometry passes of the whole stack, which is the headset cost of design A; the slice maths is not the main term.
 - Not measured: a real headset frame, two views drawn per eye, MSAA, or a Mobile-class GPU.
+
+## Iteration 12: both device classes, and a correction to iteration 11
+
+Mobile class is the Steam Frame (Adreno 750, freedreno/turnip, headed Firefox 159 on its Xwayland display, pages served from the Mac over the LAN); desktop class is the Mac (Apple M1, Firefox 160). The Windows desk with the RTX 4090 no longer exists, so there is no discrete desktop card in this set. Neither browser exposes `EXT_disjoint_timer_query_webgl2`, so all times are wall clock.
+
+Correctness on the Frame (`index.html`, 40 flat quads on float32-rounded slice boundaries, edge 1e-9), differing froxels:
+
+| slice maths | Frame (Adreno 750) | Mac (M1), iteration 10 |
+| --- | --- | --- |
+| double-single | 0 | 0 |
+| double-single, lo zeroed | 336 | 336 |
+| float32 table | 336 | 336 |
+| `log` | 360 | 552 |
+
+The same scene gives the same answer on both GPUs for everything except `log()`, whose error is each GPU's own (360 against 552). The random scene on the Frame, default mode: 0 differing froxels in both variants, the shifted-output control fails, no GL error.
+
+Correction. Iteration 11 timed one frame per block with a one-pixel readback after each, and reported about 5 ms on the M1. That figure carried the readback's synchronisation. `time.html` now times a block of 25 frames and divides (`batch=25`), which also lets a clock rounded to 1 ms resolve the result (Firefox rounds `performance.now()`; a single-frame run on the Frame returned whole milliseconds only). Variant A at the headset grid 280 x 294, 128 slices, 200 quads, 3.3 million fragments per pass, wall median per frame:
+
+| slice maths | Frame (Adreno 750) | Mac (M1) |
+| --- | --- | --- |
+| float32 table | 4.4 to 5.1 ms | 1.8 to 2.2 ms |
+| double-single | 4.5 to 5.0 ms | 2.2 ms |
+| `log` | 4.4 ms | 1.4 ms |
+
+- Double-single is within the run-to-run spread of the float32 table on the Frame (4.5 to 5.0 against 4.4 to 5.1). On the M1 it is about 0.3 ms slower in the best pairing and equal in another. The 1 ms extra cost I reported in iteration 11 was mostly the per-frame sync, not the arithmetic.
+- The Frame spends about 2.3 times the M1's time on the same work.
+- Not measured: two views per eye, MSAA, a real scene's geometry (these are 200 rectangles), power and thermals on the Frame, any discrete desktop GPU.
