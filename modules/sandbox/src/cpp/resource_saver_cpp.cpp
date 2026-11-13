@@ -76,7 +76,12 @@ add_sandbox_program_at(example.elf ../src
 )";
 
 void ResourceFormatSaverCPP::init() {
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
 	thread_pool = std::make_unique<riscv::ThreadPool>(1); // Maximum 1 compiler job at a time
+#else
+	// A web build without threads cannot start a worker: std::thread throws at startup, before the first frame.
+	// With no pool, saving a CPPScript runs its build inline.
+#endif
 	cpp_saver.instantiate();
 	// Register the CPPScript resource saver
 	ResourceSaver::get_singleton()->add_resource_format_saver(cpp_saver);
@@ -418,7 +423,7 @@ Error ResourceFormatSaverCPP::_save(const Ref<Resource> &p_resource, const Strin
 			};
 
 			// If async compilation is enabled, enqueue the builder to the thread pool
-			if (SandboxProjectSettings::async_compilation())
+			if (SandboxProjectSettings::async_compilation() && thread_pool)
 				thread_pool->enqueue(builder);
 			else {
 				builder();
