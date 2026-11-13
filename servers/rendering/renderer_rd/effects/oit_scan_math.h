@@ -32,6 +32,8 @@
 
 #include <cmath>
 #include <cstdint>
+#include <utility>
+#include <vector>
 
 // Models the fragment-only froxel integrate for the Compatibility (GLES3 / WebGL2) renderer.
 // WebGL2 has no compute, storage buffers or atomics, so the compute prefix sum in
@@ -80,4 +82,70 @@ inline void oit_scan_column(float *p_column, float *p_scratch, uint32_t p_slice_
 // Transmittance stored for slice z: exp(-inclusive extinction up to z). Matches the imageStore in oit_integrate.glsl.
 inline float oit_scan_transmittance(float p_inclusive_extinction) {
 	return std::exp(-p_inclusive_extinction);
+}
+
+// Packed layout: four slices share one RGBA texel (tile z / 4, channel z % 4), as oit_atlas_texel_packed stores them.
+// The scan runs on the tiles. Every pass reads only the previous buffer and writes only its own texel, so each is a legal fragment shader.
+//   local: each texel becomes the inclusive prefix of its own four channels, so channel 3 holds the tile total.
+//   tiles: Hillis-Steele over the tiles on channel 3 only; channels 0-2 are copied. Afterwards channel 3 of tile t is the inclusive sum of tile totals 0..t.
+//   carry: tile t adds channel 3 of tile t - 1 to channels 0-2. Channel 3 already includes the carry.
+// For 128 slices that is 1 + 5 + 1 = 7 passes, the same as the unpacked scan.
+struct OITScanTexel {
+	float v[4];
+};
+
+inline void oit_scan_packed_pass_local(const OITScanTexel *p_in, OITScanTexel *p_out, uint32_t p_tiles) {
+	for (uint32_t t = 0; t < p_tiles; t++) {
+		float run = 0.0f;
+		for (uint32_t c = 0; c < 4; c++) {
+			run += p_in[t].v[c];
+			p_out[t].v[c] = run;
+		}
+	}
+}
+
+inline void oit_scan_packed_pass_tiles(const OITScanTexel *p_in, OITScanTexel *p_out, uint32_t p_tiles, uint32_t p_stride) {
+	for (uint32_t t = 0; t < p_tiles; t++) {
+		p_out[t] = p_in[t];
+		if (t >= p_stride) {
+			p_out[t].v[3] += p_in[t - p_stride].v[3];
+		}
+	}
+}
+
+inline void oit_scan_packed_pass_carry(const OITScanTexel *p_in, OITScanTexel *p_out, uint32_t p_tiles) {
+	for (uint32_t t = 0; t < p_tiles; t++) {
+		float carry = t > 0 ? p_in[t - 1].v[3] : 0.0f;
+		p_out[t].v[0] = p_in[t].v[0] + carry;
+		p_out[t].v[1] = p_in[t].v[1] + carry;
+		p_out[t].v[2] = p_in[t].v[2] + carry;
+		p_out[t].v[3] = p_in[t].v[3];
+	}
+}
+
+inline uint32_t oit_scan_packed_pass_count(uint32_t p_slice_count) {
+	return 2 + oit_scan_pass_count((p_slice_count + 3) / 4);
+}
+
+// Inclusive prefix sum of one column of p_slice_count slices through the packed pass sequence. The result is left in p_column.
+inline void oit_scan_packed_column(float *p_column, uint32_t p_slice_count) {
+	uint32_t tiles = (p_slice_count + 3) / 4;
+	std::vector<OITScanTexel> a(tiles), b(tiles);
+	for (uint32_t t = 0; t < tiles; t++) {
+		a[t] = OITScanTexel{ { 0.0f, 0.0f, 0.0f, 0.0f } };
+	}
+	for (uint32_t z = 0; z < p_slice_count; z++) {
+		a[z / 4].v[z % 4] = p_column[z];
+	}
+	oit_scan_packed_pass_local(a.data(), b.data(), tiles);
+	std::swap(a, b);
+	for (uint32_t stride = 1; stride < tiles; stride <<= 1) {
+		oit_scan_packed_pass_tiles(a.data(), b.data(), tiles, stride);
+		std::swap(a, b);
+	}
+	oit_scan_packed_pass_carry(a.data(), b.data(), tiles);
+	std::swap(a, b);
+	for (uint32_t z = 0; z < p_slice_count; z++) {
+		p_column[z] = a[z / 4].v[z % 4];
+	}
 }

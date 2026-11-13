@@ -59,3 +59,16 @@ Single = one `oit_auto_range` over the union; intervals = `OITIntervalSet` and `
 - Cause, from `misc/scripts/oit_intervals_why.cpp`: the padded boxes merge to 4 intervals and the first runs 0.01-6.62 m with linearization k = 661, so the log curve packs the slices near the near plane. Fragments at 1.60 m and 4.15 m land on slices 25.0 and 29.7, five slices apart across 2.5 m. The rule that gives every interval an equal share of the slices does not weigh how much geometry each holds.
 - So the froxel's real score depends on how tight the instance AABBs are. Measure that on the real scenes (stack, hair) before trusting either number.
 - Decision: build the froxel with the engine's interval path. Not tested on a GPU.
+
+## Iteration 6: the packed scan (`oit_scan_packed_column`, `misc/scripts/oit_scan_packed_check.cpp`)
+
+The kept atlas packs four slices into one RGBA texel (tile z / 4, channel z % 4), so the one-value-per-texel scan of iteration 1 does not apply.
+The packed scan is three kinds of fragment pass, each reading only the previous buffer and writing only its own texel:
+local (in-texel prefix over the four channels), tiles (Hillis-Steele over the tile totals in channel 3), carry (add the left neighbour's channel 3).
+
+- Matches the sequential prefix sum on 1575 cases (21 slice counts from 1 to 256, three densities), worst error 3.05e-05 against 1e-03.
+- Pass count equals the unpacked scan from 4 slices up: 128 slices take 7 passes both ways (1 local + 5 tiles + 1 carry); 1 slice takes 2 against 0.
+- Planted faults, each caught on every trial: carry skipped 210/210, carry reads the tile's own total 210/210, tile scan one pass short 210/210.
+- The fault harness with no fault equals the real function, so the faults are injected into the same sequence.
+- A first fault set scored 150/210 on the short tile scan. The misses were slice counts 33 and 129, where the last tile holds one slice: channel 3 of the last tile is only read as the carry of a next tile that does not exist, so that fault cannot change an output. Those counts were replaced by 36 and 132 and the reason is written in the check.
+- Nothing here runs on a GPU. The frontier numbers of iteration 2 are unchanged.
