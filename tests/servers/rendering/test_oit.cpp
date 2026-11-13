@@ -36,9 +36,11 @@ TEST_FORCE_LINK(test_oit)
 #include "core/templates/local_vector.h"
 #include "core/variant/variant.h"
 #include "servers/rendering/renderer_rd/effects/oit_math.h"
+#include "servers/rendering/renderer_rd/effects/oit_scan_math.h"
 
 #include <thirdparty/witness-cpp/include/witness/ladder.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace TestOIT {
@@ -734,6 +736,125 @@ TEST_CASE("[OIT] depth intervals: a far window does not coarsen the hair layers"
 	count = oit_interval_ranges(solar, slices, 0.0f, r);
 	CHECK(count == 2);
 	CHECK(Math::floor(oit_interval_slice(r, count, slices, 1.00e9f)) != Math::floor(oit_interval_slice(r, count, slices, 1.01e9f)));
+}
+
+// The scan models in oit_scan_math.h, against the sequential prefix sum. Inputs are rounded through oit_pack_extinction like the RD shaders do.
+static LocalVector<float> scan_column(uint32_t p_n, uint32_t p_seed, float p_density) {
+	LocalVector<float> c;
+	c.resize(p_n);
+	uint32_t state = p_seed;
+	for (uint32_t z = 0; z < p_n; z++) {
+		state = state * 1664525u + 1013904223u;
+		float pick = float(state >> 8) / float(1u << 24);
+		state = state * 1664525u + 1013904223u;
+		float amount = float(state >> 8) / float(1u << 24);
+		c[z] = pick < p_density ? float(oit_pack_extinction(amount)) / 65536.0f : 0.0f;
+	}
+	return c;
+}
+
+static double scan_worst_error(const LocalVector<float> &p_model, const LocalVector<float> &p_column) {
+	double run = 0.0;
+	double worst = 0.0;
+	for (uint32_t z = 0; z < p_column.size(); z++) {
+		run += double(p_column[z]);
+		worst = std::max(worst, Math::abs(double(p_model[z]) - run));
+	}
+	return worst;
+}
+
+TEST_CASE("[OIT] scan: the unpacked pass sequence matches the sequential sum") {
+	const uint32_t counts[] = { 1, 2, 3, 4, 5, 8, 31, 32, 33, 64, 100, 128, 129, 256 };
+	for (uint32_t n : counts) {
+		for (uint32_t seed = 1; seed <= 8; seed++) {
+			LocalVector<float> col = scan_column(n, seed * 7919u + n, 0.5f);
+			LocalVector<float> got(col);
+			LocalVector<float> scratch;
+			scratch.resize(n);
+			oit_scan_column(got.ptr(), scratch.ptr(), n);
+			CHECK_MESSAGE(scan_worst_error(got, col) < 1e-3, "n = ", n, ", seed = ", seed);
+		}
+	}
+}
+
+TEST_CASE("[OIT] scan: the packed pass sequence matches the sequential sum, with a partial last tile too") {
+	const uint32_t counts[] = { 1, 2, 3, 4, 5, 7, 8, 9, 12, 31, 32, 33, 63, 64, 100, 127, 128, 129, 200, 256 };
+	for (uint32_t n : counts) {
+		for (uint32_t seed = 1; seed <= 8; seed++) {
+			LocalVector<float> col = scan_column(n, seed * 104729u + n, seed % 2 ? 1.0f : 0.3f);
+			LocalVector<float> got(col);
+			oit_scan_packed_column(got.ptr(), n);
+			CHECK_MESSAGE(scan_worst_error(got, col) < 1e-3, "n = ", n, ", seed = ", seed);
+		}
+	}
+}
+
+TEST_CASE("[OIT] scan: 128 slices take seven passes packed and unpacked") {
+	CHECK(oit_scan_pass_count(128) == 7);
+	CHECK(oit_scan_packed_pass_count(128) == 7);
+	CHECK(oit_scan_packed_pass_count(32) == 5);
+	CHECK(oit_scan_packed_pass_count(4) == 2);
+}
+
+TEST_CASE("[OIT] scan: control, a packed scan without its carry pass fails") {
+	// 128 slices, all filled: skipping the carry leaves every tile after the first short by the tiles before it.
+	LocalVector<float> col = scan_column(128, 20261113, 1.0f);
+	uint32_t tiles = 32;
+	LocalVector<OITScanTexel> a, b;
+	a.resize(tiles);
+	b.resize(tiles);
+	for (uint32_t t = 0; t < tiles; t++) {
+		for (int c = 0; c < 4; c++) {
+			a[t].v[c] = 0.0f;
+		}
+	}
+	for (uint32_t z = 0; z < 128; z++) {
+		a[z / 4].v[z % 4] = col[z];
+	}
+	oit_scan_packed_pass_local(a.ptr(), b.ptr(), tiles);
+	SWAP(a, b);
+	for (uint32_t stride = 1; stride < tiles; stride <<= 1) {
+		oit_scan_packed_pass_tiles(a.ptr(), b.ptr(), tiles, stride);
+		SWAP(a, b);
+	}
+	LocalVector<float> got;
+	got.resize(128);
+	for (uint32_t z = 0; z < 128; z++) {
+		got[z] = a[z / 4].v[z % 4]; // the carry pass never ran
+	}
+	CHECK(scan_worst_error(got, col) > 1.0);
+}
+
+TEST_CASE("[OIT] scan: control, a tile scan one pass short fails on a full last tile") {
+	LocalVector<float> col = scan_column(128, 20261114, 1.0f);
+	uint32_t tiles = 32;
+	LocalVector<OITScanTexel> a, b;
+	a.resize(tiles);
+	b.resize(tiles);
+	for (uint32_t t = 0; t < tiles; t++) {
+		for (int c = 0; c < 4; c++) {
+			a[t].v[c] = 0.0f;
+		}
+	}
+	for (uint32_t z = 0; z < 128; z++) {
+		a[z / 4].v[z % 4] = col[z];
+	}
+	oit_scan_packed_pass_local(a.ptr(), b.ptr(), tiles);
+	SWAP(a, b);
+	uint32_t passes = oit_scan_pass_count(tiles) - 1;
+	uint32_t stride = 1;
+	for (uint32_t p = 0; p < passes; p++, stride <<= 1) {
+		oit_scan_packed_pass_tiles(a.ptr(), b.ptr(), tiles, stride);
+		SWAP(a, b);
+	}
+	oit_scan_packed_pass_carry(a.ptr(), b.ptr(), tiles);
+	SWAP(a, b);
+	LocalVector<float> got;
+	got.resize(128);
+	for (uint32_t z = 0; z < 128; z++) {
+		got[z] = a[z / 4].v[z % 4];
+	}
+	CHECK(scan_worst_error(got, col) > 1.0);
 }
 
 } // namespace TestOIT

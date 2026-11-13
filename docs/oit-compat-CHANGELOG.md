@@ -72,3 +72,12 @@ local (in-texel prefix over the four channels), tiles (Hillis-Steele over the ti
 - The fault harness with no fault equals the real function, so the faults are injected into the same sequence.
 - A first fault set scored 150/210 on the short tile scan. The misses were slice counts 33 and 129, where the last tile holds one slice: channel 3 of the last tile is only read as the carry of a next tile that does not exist, so that fault cannot change an output. Those counts were replaced by 36 and 132 and the reason is written in the check.
 - Nothing here runs on a GPU. The frontier numbers of iteration 2 are unchanged.
+
+## Iteration 7: the scan models in the engine's test runner
+
+`tests/servers/rendering/test_oit.cpp` gains five `[OIT] scan:` cases: the unpacked pass sequence against the sequential sum (14 slice counts), the packed sequence the same (20 counts, partial last tiles included), the pass counts (128 slices take 7 both ways), and two controls that must fail (packed scan without its carry pass; tile scan one pass short on a full last tile).
+
+- Built the macOS editor with `tests=yes` (333 s). `misc/scripts/oit_tests.sh`: 38 OIT cases matched, 38 passed, 5928 assertions. The five scan cases alone: 278 assertions.
+- Planted fault in `oit_scan_math.h` (the carry reads the tile's own total, not its left neighbour's), rebuilt, reran: the `[OIT] scan:` cases fail. The header was restored from a saved copy and checked against the commit (empty diff), then a clean rebuild passed all 38.
+- First compile failed: the engine's `LocalVector` copy constructor is explicit, so `LocalVector<float> got = col;` does not compile; written `got(col)`.
+- Before this, `oit_tests.sh` had never run against this branch: the editor in `zone-web` was built with `tests=no`, so the engine test suite had no coverage of the scan models.
