@@ -6,3 +6,5 @@ Two WebGL2 designs for the splat step, against one CPU answer (40 translucent qu
 - **B, point sprites:** one GL point per sample lands on its atlas texel. The samples here come from the CPU reference, so B shows the placement and blending only, not how a real mesh would produce them.
 
 Serve the repository root and open `misc/scripts/oit_splat_gl/index.html` in a headed browser (see `../oit_scan_gl/README.md`). The page prints `SPLAT_RESULT`. A froxel counts as wrong only when it differs from the reference and no fragment lies within 0.01 slice of its boundary. The control shifts B's output by three slices and must fail.
+
+Slice maths, chosen by the query string: default is double-single (every boundary and the quad's depth carried as a hi + lo float32 pair, compared lexicographically); `?table` is a float32 boundary table; `?log` is the shader's `log()`. `?nolo` zeroes the lo parts, as a control. `?stress` swaps in 40 flat quads whose depth is a float32-rounded slice boundary. `?edge=1e-9` sets the tolerance in slices.

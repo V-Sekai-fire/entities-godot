@@ -103,3 +103,20 @@ local (in-texel prefix over the four channels), tiles (Hillis-Steele over the ti
 
 What this does not decide. B's samples come from the CPU reference, so B cannot yet take a real mesh: GLES3 has no way to read an arbitrary Godot surface as a point list in the vertex stage without a sample-generation pass that does not exist. A takes the surface's own fragments, which is what the transparent pass already draws, so A is the design the engine can use without new geometry plumbing. The timings (A 2.9 ms, B 0.9 ms) are for 40 quads at 40x24 and say nothing about headset size.
 - Next: wire A into `mode_oit_splat` in `scene.glsl`, or measure A at headset froxel size first.
+
+## Iteration 10: double-single slice maths for the splat
+
+The 32 froxels that differed in iteration 9 were fragments within 0.01 slice of a boundary. WebGL2 has no float64, so the slice maths now carries each value as a hi + lo float32 pair (about 48 bits, "2x f32 is an f64"): the 127 slice boundaries are stored as pairs and compared lexicographically, and the quad's depth is computed in the fragment shader from `gl_FragCoord.x` as a + b x with a Dekker split (GLSL ES 3.00 has no fma). Quad inputs are rounded to float32 so the GPU and the double-precision reference start from the same numbers. Firefox 160, ANGLE Metal, M1:
+
+| scene | edge | `log` | float32 table | double-single | double-single, lo zeroed |
+| --- | --- | --- | --- | --- | --- |
+| 40 random quads | 0.01 | 32 | 32 | 0 | 0 |
+| 40 flat quads on rounded boundaries | 1e-9 | 552 | 336 | 0 | 336 |
+
+Differing froxels in variant A; variant B (point sprites, depth passed as a hi/lo vertex attribute pair) gives the same numbers except 0 on the random scene in all modes. The shifted-output control fails in every run. No GL error.
+
+- The random scene alone could not show the lo part earning its place: with the lo parts zeroed it also scored 0, because almost no froxel there sits within 1e-6 slice of a boundary. The stress scene is what separates them (0 against 336).
+- The earlier 32 are not a `log` against table effect: both give 32. They disappear with the exact depth and the paired boundaries together.
+- Two harness defects on the way: the tolerance read a variable before it was declared, so the first batch of runs threw at startup and measured nothing; and `slice_of_ds` was missing from the `log` shader, so that run failed to compile until a stub was added.
+- Cost not measured. The double-single depth is about 30 extra ALU ops per fragment and 14 more compares per fragment in the search; both are small next to the 4 passes of 8 attachments, but I have not timed them.
+- Variant B still takes its samples from the reference, as before.

@@ -5,6 +5,7 @@
 //   B "sprites": the quads become point samples (u, v, depth, alpha) on a regular grid; one GL point per sample lands on its atlas texel.
 const log = (s) => fetch('/log', {method: 'POST', body: s}).catch(() => {});
 (async () => {
+  const P = new URLSearchParams(location.search);
   const out = {}; const gl = document.createElement('canvas').getContext('webgl2');
   out.renderer = gl.getParameter(gl.RENDERER); out.float_fbo = !!gl.getExtension('EXT_color_buffer_float'); out.float_blend = !!gl.getExtension('EXT_float_blend');
   out.max_draw_buffers = gl.getParameter(gl.MAX_DRAW_BUFFERS); out.max_texture = gl.getParameter(gl.MAX_TEXTURE_SIZE);
@@ -19,19 +20,23 @@ const log = (s) => fetch('/log', {method: 'POST', body: s}).catch(() => {});
   let seed = 20261113; const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return (seed >>> 8) / 16777216; };
   // 40 quads: screen rect in froxel units, a depth that varies across the quad (a tilted plane), an alpha.
   const quads = []; for (let i = 0; i < 40; i++) { const x0 = rnd() * DX * 0.7, y0 = rnd() * DY * 0.7, w = 3 + rnd() * DX * 0.3, h = 3 + rnd() * DY * 0.3;
-    const z0 = 0.2 + rnd() * 50, dz = (rnd() - 0.5) * 20, alpha = 0.05 + rnd() * 0.5; quads.push({x0, y0, x1: Math.min(x0 + w, DX), y1: Math.min(y0 + h, DY), z0, dz, alpha}); }
+    const z0 = 0.2 + rnd() * 50, dz = (rnd() - 0.5) * 20, alpha = 0.05 + rnd() * 0.5; const F = Math.fround;
+    quads.push({x0: F(x0), y0: F(y0), x1: F(Math.min(x0 + w, DX)), y1: F(Math.min(y0 + h, DY)), z0: F(z0), dz: F(dz), alpha: F(alpha)}); }
+  if (P.has('stress')) { // flat quads whose depth is the float32 rounding of a slice boundary: the double reference puts each on one side by the rounding residual, about 1e-7 of a slice
+    const zb = (k) => NEAR + (Math.exp(k / S * Math.log(1 + K)) - 1) / K * (FAR - NEAR); quads.length = 0;
+    for (let i = 0; i < 40; i++) { const k = 5 + 3 * i, x0 = (i % 8) * 5, y0 = Math.floor(i / 8) * 4; quads.push({x0, y0, x1: x0 + 4, y1: y0 + 3, z0: Math.fround(zb(k)), dz: 0, alpha: 0.3}); } }
   const zAt = (q, px, py) => Math.max(0.05, q.z0 + q.dz * ((px - q.x0) / (q.x1 - q.x0)));
   // CPU answer: every pixel centre inside a quad adds ext(alpha) to (px, py, slice(z)).
   const ref = new Float64Array(DX * DY * S); let frags = 0;
   for (const q of quads) for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) { const cx = px + 0.5, cy = py + 0.5;
     if (cx >= q.x0 && cx < q.x1 && cy >= q.y0 && cy < q.y1) { ref[(py * DX + px) * S + sliceOf(zAt(q, cx, cy))] += ext(q.alpha); frags++; } }
   out.fragments = frags; out.occupied_froxels = ref.reduce((n, v) => n + (v > 0 ? 1 : 0), 0);
-  const cmp = (atlas) => { let worst = 0, sum = 0, refSum = 0;
+  const cmp = (atlas) => { let worst = 0, sum = 0, refSum = 0, diff = 0;
     for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) for (let z = 0; z < S; z++) { const t = Math.floor(z / 4);
       const tx = (t % tilesX) * DX + px, ty = Math.floor(t / tilesX) * DY + py; const got = atlas[(ty * AW + tx) * 4 + (z % 4)]; const want = ref[(py * DX + px) * S + z];
-      worst = Math.max(worst, Math.abs(got - want)); sum += got; refSum += want; } return {worst, sum, ref_sum: refSum}; };
+      const df = Math.abs(got - want); worst = Math.max(worst, df); if (df > 1e-3) diff++; sum += got; refSum += want; } return {worst, diff_froxels: diff, sum, ref_sum: refSum}; };
 
-  const EDGE = 0.01; // slices; a GPU's float depth cannot be bit-exact with the double-precision reference.
+  const EDGE = parseFloat(P.get('edge') || '0.01'); out.edge_slices = EDGE; // slices; a GPU's float depth cannot be bit-exact with the double-precision reference.
   const sliceF = (z) => { const lin = Math.min(Math.max((z - NEAR) / (FAR - NEAR), 0), 1); return Math.log(1 + K * lin) / Math.log(1 + K) * S; };
   const edgeCells = new Set(); // froxels a fragment within EDGE of a slice boundary may have gone to, either side
   for (const q of quads) for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) { const cx = px + 0.5, cy = py + 0.5;
@@ -48,8 +53,21 @@ const log = (s) => fetch('/log', {method: 'POST', body: s}).catch(() => {});
   const prog = (v, f) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, v)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, f)); gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; };
   const HEAD = '#version 300 es\nprecision highp float;\nprecision highp int;\n';
-  const SLICE = `const float NEAR=${NEAR}, FAR=${FAR.toFixed(1)}, K=${K.toFixed(1)}; const int S=${S};
-    int slice_of(float z){ float lin=clamp((z-NEAR)/(FAR-NEAR),0.0,1.0); float t=log(1.0+K*lin)/log(1.0+K); return clamp(int(floor(t*float(S))),0,S-1); }`;
+  // default: double-single
+  const MODE = P.has('log') ? 'log' : (P.has('table') ? 'table' : 'ds'); const NOLO = P.has('nolo'); out.slice_math = MODE + (NOLO ? ' (lo parts zeroed)' : '');
+  const zof = (k) => { const t = k / S; return NEAR + (Math.exp(t * Math.log(1 + K)) - 1) / K * (FAR - NEAR); };
+  const splitDS = (v) => { const hi = Math.fround(v); return [hi, NOLO ? 0 : Math.fround(v - hi)]; }; // v ~ hi + lo, about 48 bits
+  const bounds = new Float32Array(S), boundsLo = new Float32Array(S);
+  for (let k = 0; k < S; k++) { const [h, l] = splitDS(k === 0 ? NEAR : zof(k)); bounds[k] = h; boundsLo[k] = l; }
+  const SLICE = MODE === 'log'
+    ? `const float NEAR=${NEAR.toFixed(1)}, FAR=${FAR.toFixed(1)}, K=${K.toFixed(1)}; const int S=${S};
+       int slice_of(float z){ float lin=clamp((z-NEAR)/(FAR-NEAR),0.0,1.0); float t=log(1.0+K*lin)/log(1.0+K); return clamp(int(floor(t*float(S))),0,S-1); }
+       int slice_of_ds(vec2 z){ return slice_of(z.x); }`
+    : `const int S=${S}; uniform float bounds[${S}]; uniform float bounds_lo[${S}];
+       int slice_of(float z){ int lo=0, hi=S-1; for(int i=0;i<7;i++){ int mid=(lo+hi+1)>>1; if(z>=bounds[mid]) lo=mid; else hi=mid-1; } return lo; }
+       // z is a (hi, lo) pair: z >= bound when hi is larger, or when the hi parts are equal and lo is not smaller.
+       int slice_of_ds(vec2 z){ int lo=0, hi=S-1; for(int i=0;i<7;i++){ int mid=(lo+hi+1)>>1; bool ge = z.x>bounds[mid] || (z.x==bounds[mid] && z.y>=bounds_lo[mid]); if(ge) lo=mid; else hi=mid-1; } return lo; }`;
+  const setBounds = (p) => { if (MODE !== 'log') gl.uniform1fv(gl.getUniformLocation(p, 'bounds'), bounds); gl.uniform1fv(gl.getUniformLocation(p, 'bounds_lo'), boundsLo); };
   const mkAtlas = () => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, AW, AH);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); return t; };
   const readAtlas = (tex) => { const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
@@ -59,11 +77,20 @@ const log = (s) => fetch('/log', {method: 'POST', body: s}).catch(() => {});
   // directly: group g writes tiles 8g..8g+7 as 8 attachments, so tile t's own texture is a DX x DY layer.
   const layers = []; for (let t = 0; t < TILES; t++) { const tx = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tx); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, DX, DY); layers.push(tx); }
   const drawQuad = (p) => gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  const zCoef = (q) => { const b = q.dz / (q.x1 - q.x0), a = q.z0 - b * q.x0; return [...splitDS(a), ...splitDS(b)]; }; // a_hi a_lo b_hi b_lo
+  const DSD = MODE === 'ds' ? 'true' : 'false';
   const progA = prog(HEAD + `uniform vec4 rect; uniform vec2 zdz; uniform vec2 dims; out float depth;
     void main(){ vec2 c=vec2(float(gl_VertexID&1), float((gl_VertexID>>1)&1)); vec2 px=mix(rect.xy, rect.zw, c); depth=zdz.x+zdz.y*c.x;
       gl_Position=vec4(px/dims*2.0-1.0, 0.0, 1.0); }`,
-    HEAD + SLICE + `in float depth; uniform float alpha; uniform int base_tile; uniform vec4 rect; out vec4 o[8];
-    void main(){ int z=slice_of(max(0.05,depth)); int tile=z/4; int local=tile-base_tile; float e=-log(1.0-clamp(alpha,0.0,0.999));
+    HEAD + `#define DS_DEPTH ${DSD}\n` + SLICE + `in float depth; uniform float alpha; uniform int base_tile; uniform vec4 rect; uniform vec4 zc; out vec4 o[8];
+    vec2 two_sum(float a, float b){ float s=a+b; float bb=s-a; return vec2(s, (a-(s-bb))+(b-bb)); }
+    vec2 split(float a){ float t=4097.0*a; float hi=t-(t-a); return vec2(hi, a-hi); }
+    vec2 two_prod(float a, float b){ float p=a*b; vec2 sa=split(a), sb=split(b); return vec2(p, ((sa.x*sb.x-p)+sa.x*sb.y+sa.y*sb.x)+sa.y*sb.y); }
+    vec2 ds_add(vec2 a, vec2 b){ vec2 s=two_sum(a.x,b.x); float e=s.y+a.y+b.y; return two_sum(s.x,e); }
+    vec2 ds_mul_f(vec2 a, float f){ vec2 p=two_prod(a.x,f); float e=p.y+a.y*f; return two_sum(p.x,e); }
+    void main(){ int z;
+      if(DS_DEPTH){ float px=gl_FragCoord.x; vec2 d=ds_add(zc.xy, ds_mul_f(zc.zw, px)); if(d.x<0.05) d=vec2(0.05,0.0); z=slice_of_ds(d); } else { z=slice_of(max(0.05,depth)); }
+      int tile=z/4; int local=tile-base_tile; float e=-log(1.0-clamp(alpha,0.0,0.999));
       vec4 v=vec4(0.0); v[z%4]=e;
       if(local<0||local>=8) discard;
       o[0]=local==0?v:vec4(0.0); o[1]=local==1?v:vec4(0.0); o[2]=local==2?v:vec4(0.0); o[3]=local==3?v:vec4(0.0);
@@ -75,10 +102,10 @@ const log = (s) => fetch('/log', {method: 'POST', body: s}).catch(() => {});
   for (let g = 0; g < TILES / 8; g++) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbA); const bufs = [];
     for (let i = 0; i < 8; i++) { gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, layers[g * 8 + i], 0); bufs.push(gl.COLOR_ATTACHMENT0 + i); }
-    gl.drawBuffers(bufs); gl.viewport(0, 0, DX, DY); gl.useProgram(progA);
+    gl.drawBuffers(bufs); gl.viewport(0, 0, DX, DY); gl.useProgram(progA); setBounds(progA);
     gl.uniform1i(gl.getUniformLocation(progA, 'base_tile'), g * 8); gl.uniform2f(gl.getUniformLocation(progA, 'dims'), DX, DY);
     for (const q of quads) { gl.uniform4f(gl.getUniformLocation(progA, 'rect'), q.x0, q.y0, q.x1, q.y1);
-      gl.uniform2f(gl.getUniformLocation(progA, 'zdz'), q.z0, q.dz); gl.uniform1f(gl.getUniformLocation(progA, 'alpha'), q.alpha); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); drawsA++; }
+      gl.uniform2f(gl.getUniformLocation(progA, 'zdz'), q.z0, q.dz); gl.uniform4fv(gl.getUniformLocation(progA, 'zc'), zCoef(q)); gl.uniform1f(gl.getUniformLocation(progA, 'alpha'), q.alpha); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); drawsA++; }
   }
   gl.finish(); out.A_ms = performance.now() - t0; out.A_draws = drawsA;
   // assemble A's tiles into the atlas for comparison (read each layer)
@@ -89,17 +116,18 @@ const log = (s) => fetch('/log', {method: 'POST', body: s}).catch(() => {});
       for (let c = 0; c < 4; c++) atlasA[(ty * AW + tx) * 4 + c] = px[(py * DX + x) * 4 + c]; } }
   out.A = cmp(atlasA); out.A_verdict = verdict(atlasA);
   // --- Variant B: point sprites. One sample per pixel centre inside each quad, uploaded as (px, py, depth, alpha). ---
-  const samples = []; for (const q of quads) for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) { const cx = px + 0.5, cy = py + 0.5;
-    if (cx >= q.x0 && cx < q.x1 && cy >= q.y0 && cy < q.y1) samples.push(cx, cy, zAt(q, cx, cy), q.alpha); }
+  const samples = [], lows = []; for (const q of quads) for (let py = 0; py < DY; py++) for (let px = 0; px < DX; px++) { const cx = px + 0.5, cy = py + 0.5;
+    if (cx >= q.x0 && cx < q.x1 && cy >= q.y0 && cy < q.y1) { const [h, l] = splitDS(zAt(q, cx, cy)); samples.push(cx, cy, h, q.alpha); lows.push(l); } }
   const sbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, sbuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(samples), gl.STATIC_DRAW);
-  const progB = prog(HEAD + SLICE + `layout(location=0) in vec4 s; flat out vec4 v;
-    void main(){ int z=slice_of(max(0.05,s.z)); int tile=z/4; int tx=(tile%${tilesX})*${DX}+int(s.x); int ty=(tile/${tilesX})*${DY}+int(s.y);
+  const progB = prog(HEAD + `#define DS_DEPTH ${DSD}\n` + SLICE + `layout(location=0) in vec4 s; layout(location=1) in float s_lo; flat out vec4 v;
+    void main(){ int z=DS_DEPTH ? slice_of_ds(vec2(max(0.05,s.z), s.z<0.05?0.0:s_lo)) : slice_of(max(0.05,s.z)); int tile=z/4; int tx=(tile%${tilesX})*${DX}+int(s.x); int ty=(tile/${tilesX})*${DY}+int(s.y);
       float e=-log(1.0-clamp(s.w,0.0,0.999)); vec4 c=vec4(0.0); c[z%4]=e; v=c;
       gl_Position=vec4((float(tx)+0.5)/${AW}.0*2.0-1.0,(float(ty)+0.5)/${AH}.0*2.0-1.0,0.0,1.0); gl_PointSize=1.0; }`,
     HEAD + `flat in vec4 v; out vec4 o; void main(){ o=v; }`);
   const atlasB = mkAtlas(); const fbB = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbB); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, atlasB, 0);
-  gl.drawBuffers([gl.COLOR_ATTACHMENT0]); gl.clearBufferfv(gl.COLOR, 0, [0,0,0,0]); gl.viewport(0, 0, AW, AH); gl.useProgram(progB);
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0]); gl.clearBufferfv(gl.COLOR, 0, [0,0,0,0]); gl.viewport(0, 0, AW, AH); gl.useProgram(progB); setBounds(progB);
   gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0);
+  const lbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, lbuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lows), gl.STATIC_DRAW); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 0, 0);
   const t1 = performance.now(); gl.drawArrays(gl.POINTS, 0, samples.length / 4); gl.finish(); out.B_ms = performance.now() - t1; out.B_draws = 1; out.B_points = samples.length / 4;
   const px_B = readAtlas(atlasB); out.B = cmp(px_B); out.B_verdict = verdict(px_B);
   // control: B with every sample's depth pushed 3 slices deeper must fail the verdict
