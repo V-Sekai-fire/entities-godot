@@ -25,9 +25,7 @@
 #ifndef PREDICTIVE_BVH_H
 #define PREDICTIVE_BVH_H
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <math.h>
+#include <cstdint>
 #include "thirdparty/misc/r128.h"
 
 #ifdef _MSC_VER
@@ -177,7 +175,7 @@ using Aabb = AabbT<int64_t>;
 
 /* Ring-polynomial provenance export: Π (1 - sign_bit(dᵢ)) over 6 axis diffs.
    Proved equivalent to short-circuit r128_le chains below via bitDecompose;
-   see aabbOverlapsExpr in Codegen/CodeGen.lean + HilbertBroadphase.lean. */
+   see aabbOverlapsExpr in the generator and the broadphase proofs. */
 template <typename T>
 static inline T aabb_overlaps_ring(T a_min_x, T a_max_x, T a_min_y, T a_max_y, T a_min_z, T a_max_z, T b_min_x, T b_max_x, T b_min_y, T b_max_y, T b_min_z, T b_max_z, T s0, T s1, T s2, T s3, T s4, T s5) {
     T t0 = (T(-1) * s0);
@@ -212,11 +210,64 @@ extern bool aabb_contains(const Aabb *a, const Aabb *inner);
 extern bool aabb_contains_point(const Aabb *a, R128 x, R128 y, R128 z);
 extern uint32_t clz30(uint32_t x);
 extern R128 r128_half(R128 v);
-extern uint32_t hilbert3d(uint32_t x, uint32_t y, uint32_t z);
-extern void hilbert3d_inverse(uint32_t h, uint32_t *ox, uint32_t *oy, uint32_t *oz);
-extern uint32_t hilbert_of_aabb(const Aabb *b, const Aabb *scene);
-extern Aabb hilbert_cell_of(uint32_t code, uint32_t prefix_depth, const Aabb *scene);
 extern uint32_t per_entity_delta_poly(R128 v, R128 a_half);
+
+/* 30-bit Morton code of three 10-bit cells, x in the top bit of each triple.
+   Source: Shared.morton3D, gated by morton_prefix_is_the_octree_cell.
+   Defined here and nowhere else: testdata/morton_golden.tsv holds Lean's values. */
+static inline uint32_t pbvh_part1by2(uint32_t n) {
+    n &= 0x3ffu;
+    n = (n | (n << 16)) & 0x030000FFu;
+    n = (n | (n << 8)) & 0x0300F00Fu;
+    n = (n | (n << 4)) & 0x030C30C3u;
+    return (n | (n << 2)) & 0x09249249u;
+}
+static inline uint32_t pbvh_compact1by2(uint32_t n) {
+    n &= 0x09249249u;
+    n = (n | (n >> 2)) & 0x030C30C3u;
+    n = (n | (n >> 4)) & 0x0300F00Fu;
+    n = (n | (n >> 8)) & 0x030000FFu;
+    return (n | (n >> 16)) & 0x000003FFu;
+}
+static inline uint32_t morton3d(uint32_t x, uint32_t y, uint32_t z) {
+    return (pbvh_part1by2(x) << 2) | (pbvh_part1by2(y) << 1) | pbvh_part1by2(z);
+}
+static inline void morton3d_inverse(uint32_t m, uint32_t *ox, uint32_t *oy, uint32_t *oz) {
+    *ox = pbvh_compact1by2(m >> 2);
+    *oy = pbvh_compact1by2(m >> 1);
+    *oz = pbvh_compact1by2(m);
+}
+static inline uint32_t pbvh_cell_axis(int64_t c, int64_t lo, int64_t span) {
+    int64_t n = (c - lo) * 1024 / (span > 0 ? span : 1);
+    return (uint32_t)(n < 0 ? 0 : n > 1023 ? 1023 : n);
+}
+/* The code of the cell that holds the centre of b, on a 1024-cell grid over scene. */
+static inline uint32_t morton_of_aabb(const Aabb *b, const Aabb *scene) {
+    return morton3d(
+        pbvh_cell_axis((b->min_x + b->max_x) / 2, scene->min_x, scene->max_x - scene->min_x),
+        pbvh_cell_axis((b->min_y + b->max_y) / 2, scene->min_y, scene->max_y - scene->min_y),
+        pbvh_cell_axis((b->min_z + b->max_z) / 2, scene->min_z, scene->max_z - scene->min_z));
+}
+/* The octree cell named by the top 3 * prefix_depth bits of code. */
+static inline Aabb morton_cell_of(uint32_t code, uint32_t prefix_depth, const Aabb *scene) {
+    uint32_t cx, cy, cz;
+    morton3d_inverse(code, &cx, &cy, &cz);
+    int64_t sw = scene->max_x - scene->min_x, sh = scene->max_y - scene->min_y, sd = scene->max_z - scene->min_z;
+    if (sw <= 0) sw = 1;
+    if (sh <= 0) sh = 1;
+    if (sd <= 0) sd = 1;
+    uint32_t shift = prefix_depth < 10 ? 10 - prefix_depth : 0;
+    int64_t cell = (int64_t)1 << shift;
+    int64_t x0 = (cx >> shift) << shift, y0 = (cy >> shift) << shift, z0 = (cz >> shift) << shift;
+    Aabb r;
+    r.min_x = scene->min_x + x0 * sw / 1024;
+    r.max_x = scene->min_x + (x0 + cell) * sw / 1024;
+    r.min_y = scene->min_y + y0 * sh / 1024;
+    r.max_y = scene->min_y + (y0 + cell) * sh / 1024;
+    r.min_z = scene->min_z + z0 * sd / 1024;
+    r.max_z = scene->min_z + (z0 + cell) * sd / 1024;
+    return r;
+}
 
 /* ── Lean-derived tick-rate-parametric formulas ──────────────────────────
    PBVH_SIM_TICK_HZ is the DEFAULT value (what the Lean proofs were
@@ -564,7 +615,7 @@ static inline T bvh_h21(T numer, T denom) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   PBVH TREE (Hilbert-radix nested-set BVH; emitted from Spatial/Tree.lean)
+   PBVH TREE (Morton-radix nested-set BVH)
    ══════════════════════════════════════════════════════════════════════════ */
 
 typedef uint32_t pbvh_eclass_id_t;
@@ -579,11 +630,11 @@ struct pbvh_node {
 	pbvh_eclass_id_t eclass;
 	pbvh_node_id_t next_free; /* PBVH_NULL_NODE when live */
 	uint32_t is_leaf;
-	uint32_t hilbert; /* 30-bit Hilbert code; sort key */
+	uint32_t code; /* 30-bit Morton code; sort key */
 };
 using pbvh_node_t = pbvh_node<int64_t>;
 
-/* Hilbert-radix internal node over sorted[]. Stored in pre-order DFS, so the
+/* Morton-radix internal node over sorted[]. Stored in pre-order DFS, so the
  * array itself is a nested set: the subtree rooted at internals[i] occupies
  * contiguous indices [i, skip). On each node, (offset, span) is the
  * corresponding range inside t->sorted[] — the leaf-side nested set. */
@@ -600,7 +651,7 @@ using pbvh_internal_t = pbvh_internal<int64_t>;
 
 typedef struct pbvh_dirty_leaf {
 	pbvh_node_id_t leaf_id;
-	uint32_t old_hilbert;
+	uint32_t old_code;
 } pbvh_dirty_leaf_t;
 
 template <typename T>
@@ -610,18 +661,18 @@ struct pbvh_tree {
 	uint32_t count;
 	pbvh_node_id_t root;
 	pbvh_node_id_t free_head;
-	/* Sorted-by-hilbert permutation of live leaf ids. Caller-owned, size capacity. */
+	/* Sorted-by-code permutation of live leaf ids. Caller-owned, size capacity. */
 	pbvh_node_id_t *sorted;
 	uint32_t sorted_count;
 	uint32_t last_visits; /* debug: # of leaves AABB-tested in the last query */
-	/* Hilbert-radix internal tree over sorted[]. Mandatory for _n and _b
+	/* Morton-radix internal tree over sorted[]. Mandatory for _n and _b
 	 * queries. Caller-owned; size at least 2*capacity covers any split shape. */
 	pbvh_internal<T> *internals;
 	uint32_t internal_capacity;
 	uint32_t internal_count;
 	pbvh_internal_id_t internal_root;
 	/* Optional bucket directory: bucket_dir[p] is the half-open range
-	 * [lo, hi) of sorted[] indices whose Hilbert code has prefix p at
+	 * [lo, hi) of sorted[] indices whose Morton code has prefix p at
 	 * bucket_bits. Size must be 1u << bucket_bits; two uint32 per entry
 	 * laid out flat as [lo0, hi0, lo1, hi1, …]. Set bucket_bits=0 to skip. */
 	uint32_t *bucket_dir;
@@ -651,7 +702,7 @@ using pbvh_tree_t = pbvh_tree<int64_t>;
  * Target max entities per bucket. Controls the constant-time upper bound on
  * pbvh_tree_aabb_query_b's per-bucket scan: a bucket cannot exceed
  * ceil(N / (1 << bucket_bits)) entities, so bucket_bits = ceil(log2(N/K))
- * gives at most K entities per bucket under uniform Hilbert distribution.
+ * gives at most K entities per bucket under uniform code distribution.
  * Empirical max/mean on uniform random inputs is ~1.06-1.30x (sub-Poisson),
  * so a K_TARGET of 32 yields worst-case ~40-entity scans at any N.
  * ========================================================================= */

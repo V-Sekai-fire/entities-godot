@@ -49,7 +49,7 @@ namespace TestPredictiveBVHBench {
 
 // Phase 0 of the "DynamicBVH parity via Lean proofs" plan. Three questions:
 //   1. R128 aabb_overlaps vs float AABB::intersects — per-compare cost ratio.
-//   2. Hilbert prefix compare (clz30 on XOR of Hilbert codes) — does the
+//   2. Morton prefix compare (clz30 on XOR of Morton codes) — does the
 //      broadphase prune enough pairs to win the full N² workload?
 //   3. DynamicBVH insert + aabb_query per entity — the destination budget.
 //
@@ -59,7 +59,7 @@ namespace TestPredictiveBVHBench {
 
 static constexpr float BENCH_BOUND = 15.0f; // same as FabricZone::SIM_BOUND
 static constexpr float BENCH_EXTENT = 0.1f; // ~10 cm leaves, sparse at BOUND=15
-static constexpr uint32_t HILBERT_PREFIX_BITS = 6; // 2 m cells at scene size 30 m
+static constexpr uint32_t CODE_PREFIX_BITS = 6; // 2 m cells at scene size 30 m
 
 // Deterministic xorshift so the bench is reproducible across runs.
 struct XorShift {
@@ -84,7 +84,7 @@ struct FloatLeaf {
 };
 struct R128Leaf {
 	Aabb box;
-	uint32_t hilbert;
+	uint32_t code;
 };
 
 static void generate_dataset(uint32_t n, uint64_t seed,
@@ -109,7 +109,7 @@ static void generate_dataset(uint32_t n, uint64_t seed,
 				cy - BENCH_EXTENT, cy + BENCH_EXTENT,
 				cz - BENCH_EXTENT, cz + BENCH_EXTENT);
 		r_r128.write[i].box = rb;
-		r_r128.write[i].hilbert = hilbert_of_aabb(&rb, &scene);
+		r_r128.write[i].code = morton_of_aabb(&rb, &scene);
 	}
 }
 
@@ -147,23 +147,23 @@ static uint64_t bench_r128_pairs(const Vector<R128Leaf> &leaves, uint64_t &r_use
 	return matches;
 }
 
-// Path C: Hilbert prefix prune first (30-bit Hilbert code, clz of XOR).
-// Any pair whose shared prefix is shorter than HILBERT_PREFIX_BITS is in
-// non-adjacent Hilbert cells and cannot overlap under BENCH_EXTENT ≪ cell.
-// Note: Hilbert curves can still place near-spatial-neighbors in distant
+// Path C: Morton prefix prune first (30-bit Morton code, clz of XOR).
+// Any pair whose shared prefix is shorter than CODE_PREFIX_BITS is in
+// non-adjacent Morton cells and cannot overlap under BENCH_EXTENT ≪ cell.
+// Note: Morton curves can still place near-spatial-neighbors in distant
 // cells, so this is a broadphase *prune*, not an exact test — we fall
 // through to R128 aabb_overlaps to recover completeness.
 static uint64_t bench_r128_prefix(const Vector<R128Leaf> &leaves, uint64_t &r_usec) {
 	const uint64_t t0 = OS::get_singleton()->get_ticks_usec();
 	uint64_t matches = 0;
 	const uint32_t n = leaves.size();
-	const uint32_t shift = 30 - HILBERT_PREFIX_BITS;
+	const uint32_t shift = 30 - CODE_PREFIX_BITS;
 	for (uint32_t i = 0; i < n; i++) {
-		const uint32_t hi = leaves[i].hilbert;
+		const uint32_t hi = leaves[i].code;
 		const Aabb &a = leaves[i].box;
 		for (uint32_t j = i + 1; j < n; j++) {
-			// Cheap integer prune: same Hilbert cell prefix?
-			if ((hi >> shift) != (leaves[j].hilbert >> shift)) {
+			// Cheap integer prune: same Morton cell prefix?
+			if ((hi >> shift) != (leaves[j].code >> shift)) {
 				continue;
 			}
 			if (aabb_overlaps(&a, &leaves[j].box)) {
@@ -245,7 +245,7 @@ static void run_one_n(uint32_t n) {
 	print_line(vformat("[bench N=%d pairs=%d matches=%d]", n, pairs, m_float));
 	print_line(vformat("    float AABB::intersects   : %d us total  %.2f ns/pair", t_float, ns_float));
 	print_line(vformat("    R128 aabb_overlaps       : %d us total  %.2f ns/pair", t_r128, ns_r128));
-	print_line(vformat("    R128 + Hilbert prefix    : %d us total  %.2f ns/pair", t_prefix, ns_prefix));
+	print_line(vformat("    R128 + Morton prefix    : %d us total  %.2f ns/pair", t_prefix, ns_prefix));
 #ifndef DISABLE_DEPRECATED
 	const double ns_bvh = t_bvh * 1000.0 / (double)n; // per query, not per pair
 	print_line(vformat("    DynamicBVH aabb_query    : %d us total  %.2f ns/query (N queries)", t_bvh, ns_bvh));
@@ -319,7 +319,7 @@ TEST_CASE("[PredictiveBVH][Parity] pbvh_tree vs DynamicBVH aabb_query") {
 	}
 }
 
-TEST_CASE("[PredictiveBVH][Bench] R128 vs float vs Hilbert-prefix vs DynamicBVH") {
+TEST_CASE("[PredictiveBVH][Bench] R128 vs float vs Morton-prefix vs DynamicBVH") {
 	// N=1024 covers FabricZone's typical population (896 SLA minimum,
 	// 1800 default capacity). N=4096 stresses the O(N²) paths without
 	// blowing out CI time budgets.
@@ -351,7 +351,7 @@ TEST_CASE("[PredictiveBVH][Parity] pbvh_tree_aabb_query_n matches linear scan, p
 	tree.internal_root = PBVH_NULL_NODE;
 
 	for (uint32_t i = 0; i < N; i++) {
-		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].hilbert);
+		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].code);
 	}
 	pbvh_tree_build(&tree);
 
@@ -410,7 +410,7 @@ TEST_CASE("[PredictiveBVH][Parity] pbvh_tree_remove hides leaf from query_n with
 	LocalVector<pbvh_node_id_t> ids;
 	ids.resize(N);
 	for (uint32_t i = 0; i < N; i++) {
-		ids[i] = pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].hilbert);
+		ids[i] = pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].code);
 	}
 	pbvh_tree_build(&tree);
 
@@ -430,7 +430,7 @@ TEST_CASE("[PredictiveBVH][Parity] pbvh_tree_remove hides leaf from query_n with
 			vformat("query returned the removed eclass id 0 (stale sorted[] entry); hits=%d", hits.size()));
 }
 
-TEST_CASE("[PredictiveBVH][Parity] pbvh_tree_update_h moves leaf into new Hilbert window") {
+TEST_CASE("[PredictiveBVH][Parity] pbvh_tree_update_h moves leaf into new Morton window") {
 	Vector<pbvh_node_t> storage;
 	storage.resize(8);
 	Vector<pbvh_node_id_t> sorted;
@@ -451,8 +451,8 @@ TEST_CASE("[PredictiveBVH][Parity] pbvh_tree_update_h moves leaf into new Hilber
 			-BENCH_BOUND, BENCH_BOUND, -BENCH_BOUND, BENCH_BOUND);
 	Aabb box_a = aabb_from_floats(-14.0f, -13.0f, -14.0f, -13.0f, -14.0f, -13.0f);
 	Aabb box_b = aabb_from_floats(13.0f, 14.0f, 13.0f, 14.0f, 13.0f, 14.0f);
-	uint32_t h_a = hilbert_of_aabb(&box_a, &scene);
-	uint32_t h_b = hilbert_of_aabb(&box_b, &scene);
+	uint32_t h_a = morton_of_aabb(&box_a, &scene);
+	uint32_t h_b = morton_of_aabb(&box_b, &scene);
 	REQUIRE(h_a != h_b);
 
 	pbvh_node_id_t id = pbvh_tree_insert_h(&tree, 42u, box_a, h_a);
@@ -497,7 +497,7 @@ TEST_CASE("[PredictiveBVH][NestedSet] pbvh_tree_aabb_query_n matches linear scan
 	tree.internal_root = PBVH_NULL_NODE;
 
 	for (uint32_t i = 0; i < N; i++) {
-		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].hilbert);
+		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].code);
 	}
 	pbvh_tree_build(&tree);
 
@@ -562,12 +562,12 @@ TEST_CASE("[PredictiveBVH][Refit] pbvh_tree_refit agrees with full rebuild for i
 	tree.internal_root = PBVH_NULL_NODE;
 
 	for (uint32_t i = 0; i < N; i++) {
-		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].hilbert);
+		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].code);
 	}
 	pbvh_tree_build(&tree);
 
-	// Perturb bounds by less than one Hilbert cell so hilbert codes stay stable.
-	// Bucket-cell size at HILBERT_PREFIX_BITS=6 is (2*BENCH_BOUND)/2^2 = 7.5 m;
+	// Perturb bounds by less than one Morton cell so code codes stay stable.
+	// Bucket-cell size at CODE_PREFIX_BITS=6 is (2*BENCH_BOUND)/2^2 = 7.5 m;
 	// BENCH_EXTENT is 10 cm, so a 1 cm jitter keeps every leaf in-cell.
 	XorShift rng(0x1234ull);
 	for (uint32_t i = 0; i < N; i++) {
@@ -606,7 +606,7 @@ TEST_CASE("[PredictiveBVH][Refit] pbvh_tree_refit agrees with full rebuild for i
 	gold.internal_capacity = gold_internals.size();
 	gold.internal_root = PBVH_NULL_NODE;
 	for (uint32_t i = 0; i < N; i++) {
-		pbvh_tree_insert_h(&gold, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].hilbert);
+		pbvh_tree_insert_h(&gold, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].code);
 	}
 	const uint64_t t_build0 = OS::get_singleton()->get_ticks_usec();
 	pbvh_tree_build(&gold);
@@ -688,11 +688,11 @@ struct Harness {
 		tree.internal_capacity = internals.size();
 		tree.internal_root = PBVH_NULL_NODE;
 		tree.bucket_dir = bucket_dir.ptrw();
-		tree.bucket_bits = HILBERT_PREFIX_BITS;
+		tree.bucket_bits = CODE_PREFIX_BITS;
 		tick_scratch.attach(&tree, n + 16u, internal_cap);
 		for (uint32_t i = 0; i < n; i++) {
 			pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i,
-					r128s[i].box, r128s[i].hilbert);
+					r128s[i].box, r128s[i].code);
 		}
 		pbvh_tree_build(&tree);
 	}
@@ -734,14 +734,14 @@ TEST_CASE("[PredictiveBVH][Tick] insert since last build forces full rebuild") {
 
 	// Insert a brand-new leaf that overlaps a known location.
 	Aabb fresh = aabb_from_floats(0.0f, 0.1f, 0.0f, 0.1f, 0.0f, 0.1f);
-	const uint32_t fresh_h = hilbert_of_aabb(&fresh, &h.scene);
+	const uint32_t fresh_h = morton_of_aabb(&fresh, &h.scene);
 	pbvh_node_id_t fresh_id = pbvh_tree_insert_h(&h.tree,
 			(pbvh_eclass_id_t)999, fresh, fresh_h);
 	REQUIRE(h.tree.count > h.tree.sorted_count);
 
 	// Hand tick a dirty list covering ONLY an existing leaf — the new one
 	// is "hidden" from the caller's perspective.
-	pbvh_dirty_leaf_t dirty = { 0u, h.r128s[0].hilbert };
+	pbvh_dirty_leaf_t dirty = { 0u, h.r128s[0].code };
 	pbvh_tree_tick(&h.tree, &dirty, 1u);
 
 	// Post-tick: a query at the fresh leaf's position must still find it.
@@ -766,7 +766,7 @@ TEST_CASE("[PredictiveBVH][Tick] removed leaf in dirty list forces full rebuild"
 	h.init(64, 0x22222222ull);
 
 	pbvh_tree_remove(&h.tree, (pbvh_node_id_t)5);
-	pbvh_dirty_leaf_t dirty = { 5u, h.r128s[5].hilbert };
+	pbvh_dirty_leaf_t dirty = { 5u, h.r128s[5].code };
 	pbvh_tree_tick(&h.tree, &dirty, 1u);
 
 	// The removed leaf must NOT appear in queries at its old location.
@@ -779,28 +779,28 @@ TEST_CASE("[PredictiveBVH][Tick] removed leaf in dirty list forces full rebuild"
 	CHECK_MESSAGE(!c.found, "removed leaf must be invisible after tick");
 }
 
-// Case 4 — bucket-boundary crossing: a dirty leaf whose new Hilbert code
-// lands in a different bucket prefix from old_hilbert. Refit would keep
+// Case 4 — bucket-boundary crossing: a dirty leaf whose new Morton code
+// lands in a different bucket prefix from old_code. Refit would keep
 // the leaf in the WRONG sorted[] window; only a full rebuild re-sorts.
 TEST_CASE("[PredictiveBVH][Tick] bucket crossing forces full rebuild") {
 	tick_harness::Harness h;
 	h.init(64, 0x33333333ull);
 
 	// Move leaf 0 from one corner to the opposite corner: guaranteed to
-	// change its Hilbert prefix at 6-bit resolution.
-	const uint32_t old_h = h.r128s[0].hilbert;
+	// change its Morton prefix at 6-bit resolution.
+	const uint32_t old_h = h.r128s[0].code;
 	AABB far_box(Vector3(BENCH_BOUND - 1.0f, BENCH_BOUND - 1.0f, BENCH_BOUND - 1.0f),
 			Vector3(0.1f, 0.1f, 0.1f));
 	Aabb far_r = aabb_from_floats(
 			far_box.position.x, far_box.position.x + far_box.size.x,
 			far_box.position.y, far_box.position.y + far_box.size.y,
 			far_box.position.z, far_box.position.z + far_box.size.z);
-	const uint32_t new_h = hilbert_of_aabb(&far_r, &h.scene);
-	REQUIRE((old_h >> (30u - HILBERT_PREFIX_BITS)) !=
-			(new_h >> (30u - HILBERT_PREFIX_BITS)));
+	const uint32_t new_h = morton_of_aabb(&far_r, &h.scene);
+	REQUIRE((old_h >> (30u - CODE_PREFIX_BITS)) !=
+			(new_h >> (30u - CODE_PREFIX_BITS)));
 	h.floats.write[0].box = far_box;
 	h.r128s.write[0].box = far_r;
-	h.r128s.write[0].hilbert = new_h;
+	h.r128s.write[0].code = new_h;
 	pbvh_tree_update_h(&h.tree, 0u, far_r, new_h);
 
 	pbvh_dirty_leaf_t dirty = { 0u, old_h };
@@ -833,13 +833,13 @@ TEST_CASE("[PredictiveBVH][Tick] in-bucket perturbation takes refit fast path") 
 				moved.position.x, moved.position.x + moved.size.x,
 				moved.position.y, moved.position.y + moved.size.y,
 				moved.position.z, moved.position.z + moved.size.z);
-		const uint32_t old_h = h.r128s[i].hilbert;
-		const uint32_t new_h = hilbert_of_aabb(&rb, &h.scene);
+		const uint32_t old_h = h.r128s[i].code;
+		const uint32_t new_h = morton_of_aabb(&rb, &h.scene);
 		h.r128s.write[i].box = rb;
-		h.r128s.write[i].hilbert = new_h;
+		h.r128s.write[i].code = new_h;
 		pbvh_tree_update_h(&h.tree, (pbvh_node_id_t)i, rb, new_h);
 		dirty[k].leaf_id = (pbvh_node_id_t)i;
-		dirty[k].old_hilbert = old_h;
+		dirty[k].old_code = old_h;
 	}
 
 	const uint64_t t_tick0 = OS::get_singleton()->get_ticks_usec();
@@ -910,7 +910,7 @@ TEST_CASE("[PredictiveBVH][Bench] growth rate of insert+tick vs DynamicBVH") {
 		tree.internal_capacity = internals.size();
 		tree.internal_root = PBVH_NULL_NODE;
 		tree.bucket_dir = bucket_dir.ptrw();
-		tree.bucket_bits = HILBERT_PREFIX_BITS;
+		tree.bucket_bits = CODE_PREFIX_BITS;
 		// Wires parent_of_internal, leaf_to_internal, touched_bits, and
 		// touched_meta_bits with correct sizing and zero-initialised bitmaps.
 		PbvhTickScratch tick_scratch;
@@ -919,7 +919,7 @@ TEST_CASE("[PredictiveBVH][Bench] growth rate of insert+tick vs DynamicBVH") {
 		const uint64_t t_p_ins0 = OS::get_singleton()->get_ticks_usec();
 		for (uint32_t i = 0; i < N; i++) {
 			pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i,
-					r128s[i].box, r128s[i].hilbert);
+					r128s[i].box, r128s[i].code);
 		}
 		const uint64_t t_p_ins = OS::get_singleton()->get_ticks_usec() - t_p_ins0;
 
@@ -938,11 +938,11 @@ TEST_CASE("[PredictiveBVH][Bench] growth rate of insert+tick vs DynamicBVH") {
 					moved.position.x, moved.position.x + moved.size.x,
 					moved.position.y, moved.position.y + moved.size.y,
 					moved.position.z, moved.position.z + moved.size.z);
-			const uint32_t new_h = hilbert_of_aabb(&rb, &scene);
+			const uint32_t new_h = morton_of_aabb(&rb, &scene);
 			dirty[i].leaf_id = (pbvh_node_id_t)i;
-			dirty[i].old_hilbert = r128s[i].hilbert;
+			dirty[i].old_code = r128s[i].code;
 			r128s.write[i].box = rb;
-			r128s.write[i].hilbert = new_h;
+			r128s.write[i].code = new_h;
 			pbvh_tree_update_h(&tree, (pbvh_node_id_t)i, rb, new_h);
 		}
 
@@ -1062,18 +1062,18 @@ TEST_CASE("[PredictiveBVH][Bench] per-frame 1%-dirty + Q-queries steady-state") 
 		tree.internal_capacity = internals.size();
 		tree.internal_root = PBVH_NULL_NODE;
 		tree.bucket_dir = bucket_dir.ptrw();
-		tree.bucket_bits = HILBERT_PREFIX_BITS;
+		tree.bucket_bits = CODE_PREFIX_BITS;
 		// Wires parent_of_internal, leaf_to_internal, touched_bits, and
 		// touched_meta_bits with correct sizing and zero-initialised bitmaps.
 		PbvhTickScratch tick_scratch;
 		tick_scratch.attach(&tree, N + 16, internal_cap);
 
 		for (uint32_t i = 0; i < N; i++) {
-			pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].hilbert);
+			pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].code);
 		}
 		pbvh_tree_build(&tree);
 
-		// Bench gate: measure bucket occupancy under the current HILBERT_PREFIX_BITS.
+		// Bench gate: measure bucket occupancy under the current CODE_PREFIX_BITS.
 		// max/p99 drive whether Phase 2e auto-tune is sufficient or whether a
 		// leaf-split op is needed.
 		{
@@ -1134,17 +1134,17 @@ TEST_CASE("[PredictiveBVH][Bench] per-frame 1%-dirty + Q-queries steady-state") 
 						moved.position.x, moved.position.x + moved.size.x,
 						moved.position.y, moved.position.y + moved.size.y,
 						moved.position.z, moved.position.z + moved.size.z);
-				const uint32_t new_h = hilbert_of_aabb(&rb, &scene);
+				const uint32_t new_h = morton_of_aabb(&rb, &scene);
 				dirty[d].leaf_id = (pbvh_node_id_t)id;
-				dirty[d].old_hilbert = r128s[id].hilbert;
+				dirty[d].old_code = r128s[id].code;
 				r128s.write[id].box = rb;
-				r128s.write[id].hilbert = new_h;
+				r128s.write[id].code = new_h;
 			}
 
 			const uint64_t t_p0 = OS::get_singleton()->get_ticks_usec();
 			for (uint32_t d = 0; d < dirty_n; d++) {
 				pbvh_tree_update_h(&tree, dirty[d].leaf_id,
-						r128s[dirty_ids[d]].box, r128s[dirty_ids[d]].hilbert);
+						r128s[dirty_ids[d]].box, r128s[dirty_ids[d]].code);
 			}
 			pbvh_tree_tick(&tree, dirty.ptr(), dirty_n);
 			t_pbvh_frames += OS::get_singleton()->get_ticks_usec() - t_p0;
@@ -1285,14 +1285,14 @@ TEST_CASE("[PredictiveBVH][Bench] per-frame stress 20%-dirty metre-scale motion"
 		tree.internal_capacity = internals.size();
 		tree.internal_root = PBVH_NULL_NODE;
 		tree.bucket_dir = bucket_dir.ptrw();
-		tree.bucket_bits = HILBERT_PREFIX_BITS;
+		tree.bucket_bits = CODE_PREFIX_BITS;
 		// Wires parent_of_internal, leaf_to_internal, touched_bits, and
 		// touched_meta_bits with correct sizing and zero-initialised bitmaps.
 		PbvhTickScratch tick_scratch;
 		tick_scratch.attach(&tree, N + 16, internal_cap);
 
 		for (uint32_t i = 0; i < N; i++) {
-			pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].hilbert);
+			pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].code);
 		}
 		pbvh_tree_build(&tree);
 
@@ -1325,17 +1325,17 @@ TEST_CASE("[PredictiveBVH][Bench] per-frame stress 20%-dirty metre-scale motion"
 						moved.position.x, moved.position.x + moved.size.x,
 						moved.position.y, moved.position.y + moved.size.y,
 						moved.position.z, moved.position.z + moved.size.z);
-				const uint32_t new_h = hilbert_of_aabb(&rb, &scene);
+				const uint32_t new_h = morton_of_aabb(&rb, &scene);
 				dirty[d].leaf_id = (pbvh_node_id_t)id;
-				dirty[d].old_hilbert = r128s[id].hilbert;
+				dirty[d].old_code = r128s[id].code;
 				r128s.write[id].box = rb;
-				r128s.write[id].hilbert = new_h;
+				r128s.write[id].code = new_h;
 			}
 
 			const uint64_t t_p0 = OS::get_singleton()->get_ticks_usec();
 			for (uint32_t d = 0; d < dirty_n; d++) {
 				pbvh_tree_update_h(&tree, dirty[d].leaf_id,
-						r128s[dirty_ids[d]].box, r128s[dirty_ids[d]].hilbert);
+						r128s[dirty_ids[d]].box, r128s[dirty_ids[d]].code);
 			}
 			pbvh_tree_tick(&tree, dirty.ptr(), dirty_n);
 			t_pbvh_frames += OS::get_singleton()->get_ticks_usec() - t_p0;
@@ -1433,7 +1433,7 @@ TEST_CASE("[PredictiveBVH][Bench] per-frame stress 20%-dirty metre-scale motion"
 TEST_CASE("[PredictiveBVH][Tick] C6 zero dirty count leaves tree consistent") {
 	tick_harness::Harness h;
 	h.init(64, 0x66666666ull);
-	pbvh_dirty_leaf_t dummy = { 0u, h.r128s[0].hilbert };
+	pbvh_dirty_leaf_t dummy = { 0u, h.r128s[0].code };
 	pbvh_tree_tick(&h.tree, &dummy, 0u);
 	for (uint32_t i = 0; i < 64u; i++) {
 		CHECK_MESSAGE(h.query_hits(i),
@@ -1442,7 +1442,7 @@ TEST_CASE("[PredictiveBVH][Tick] C6 zero dirty count leaves tree consistent") {
 }
 
 // C7 — 100%-dirty (every leaf teleports to the far corner of the scene):
-// every leaf crosses its Hilbert bucket boundary, forcing a full rebuild.
+// every leaf crosses its Morton bucket boundary, forcing a full rebuild.
 // All leaves must be queryable at their new position after tick.
 TEST_CASE("[PredictiveBVH][Tick] C7 100pct dirty teleport forces rebuild all leaves reachable") {
 	tick_harness::Harness h;
@@ -1460,11 +1460,11 @@ TEST_CASE("[PredictiveBVH][Tick] C7 100pct dirty teleport forces rebuild all lea
 				BENCH_BOUND - off,
 				BENCH_BOUND - 2.0f * BENCH_EXTENT - off,
 				BENCH_BOUND - off);
-		const uint32_t new_h = hilbert_of_aabb(&nb, &h.scene);
+		const uint32_t new_h = morton_of_aabb(&nb, &h.scene);
 		dirty[i].leaf_id = (pbvh_node_id_t)i;
-		dirty[i].old_hilbert = h.r128s[i].hilbert;
+		dirty[i].old_code = h.r128s[i].code;
 		h.r128s.write[i].box = nb;
-		h.r128s.write[i].hilbert = new_h;
+		h.r128s.write[i].code = new_h;
 		pbvh_tree_update_h(&h.tree, (pbvh_node_id_t)i, nb, new_h);
 	}
 	pbvh_tree_tick(&h.tree, dirty.ptr(), dirty.size());
@@ -1541,7 +1541,7 @@ TEST_CASE("[PredictiveBVH][Adversarial] A2 single leaf hit and miss") {
 	tree.internal_root = PBVH_NULL_NODE;
 
 	Aabb leaf_box = aabb_from_floats(1.0f, 2.0f, 1.0f, 2.0f, 1.0f, 2.0f);
-	uint32_t lh = hilbert_of_aabb(&leaf_box, &scene);
+	uint32_t lh = morton_of_aabb(&leaf_box, &scene);
 	pbvh_tree_insert_h(&tree, 7u, leaf_box, lh);
 	pbvh_tree_build(&tree);
 
@@ -1556,7 +1556,7 @@ TEST_CASE("[PredictiveBVH][Adversarial] A2 single leaf hit and miss") {
 }
 
 // A3 — N leaves all at identical position: a query at that AABB must return
-// all N hits (Hilbert sort must handle duplicates, build must not dedup).
+// all N hits (Morton sort must handle duplicates, build must not dedup).
 TEST_CASE("[PredictiveBVH][Adversarial] A3 duplicate positions all N hits") {
 	constexpr uint32_t N = 32u;
 	const Aabb scene = aabb_from_floats(-BENCH_BOUND, BENCH_BOUND,
@@ -1578,7 +1578,7 @@ TEST_CASE("[PredictiveBVH][Adversarial] A3 duplicate positions all N hits") {
 	tree.internal_root = PBVH_NULL_NODE;
 
 	Aabb same = aabb_from_floats(0.0f, 0.2f, 0.0f, 0.2f, 0.0f, 0.2f);
-	uint32_t sh = hilbert_of_aabb(&same, &scene);
+	uint32_t sh = morton_of_aabb(&same, &scene);
 	for (uint32_t i = 0; i < N; i++) {
 		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, same, sh);
 	}
@@ -1614,7 +1614,7 @@ TEST_CASE("[PredictiveBVH][Adversarial] A4 scene-covering query returns all N le
 	tree.internal_root = PBVH_NULL_NODE;
 
 	for (uint32_t i = 0; i < N; i++) {
-		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].hilbert);
+		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].code);
 	}
 	pbvh_tree_build(&tree);
 
@@ -1650,7 +1650,7 @@ TEST_CASE("[PredictiveBVH][Adversarial] A5 query outside scene returns zero hits
 	tree.internal_root = PBVH_NULL_NODE;
 
 	for (uint32_t i = 0; i < N; i++) {
-		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].hilbert);
+		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].code);
 	}
 	pbvh_tree_build(&tree);
 
@@ -1691,7 +1691,7 @@ TEST_CASE("[PredictiveBVH][Adversarial] A6 zero-extent point leaves exact hit an
 	for (uint32_t i = 0; i < N; i++) {
 		const float p = (float)i * 2.0f - (float)N; // i=0 → -8, i=7 → +6
 		pts.write[i] = aabb_from_floats(p, p, p, p, p, p); // zero-extent
-		uint32_t h = hilbert_of_aabb(&pts[i], &scene);
+		uint32_t h = morton_of_aabb(&pts[i], &scene);
 		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, pts[i], h);
 	}
 	pbvh_tree_build(&tree);
@@ -1737,13 +1737,13 @@ TEST_CASE("[PredictiveBVH][Adversarial] A7 insert-remove-reinsert slot reuse ecl
 
 	Aabb box_a = aabb_from_floats(1.0f, 2.0f, 1.0f, 2.0f, 1.0f, 2.0f);
 	pbvh_node_id_t id_a = pbvh_tree_insert_h(&tree, 42u, box_a,
-			hilbert_of_aabb(&box_a, &scene));
+			morton_of_aabb(&box_a, &scene));
 	pbvh_tree_build(&tree);
 
 	pbvh_tree_remove(&tree, id_a);
 
 	Aabb box_b = aabb_from_floats(-5.0f, -4.0f, -5.0f, -4.0f, -5.0f, -4.0f);
-	pbvh_tree_insert_h(&tree, 99u, box_b, hilbert_of_aabb(&box_b, &scene));
+	pbvh_tree_insert_h(&tree, 99u, box_b, morton_of_aabb(&box_b, &scene));
 	pbvh_tree_build(&tree);
 
 	Vector<uint32_t> hits;
@@ -1791,10 +1791,10 @@ TEST_CASE("[PredictiveBVH][Adversarial] A8 99pct recall 1000 random queries matc
 	tree.internal_capacity = internals.size();
 	tree.internal_root = PBVH_NULL_NODE;
 	tree.bucket_dir = bucket_dir.ptrw();
-	tree.bucket_bits = HILBERT_PREFIX_BITS;
+	tree.bucket_bits = CODE_PREFIX_BITS;
 
 	for (uint32_t i = 0; i < N; i++) {
-		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].hilbert);
+		pbvh_tree_insert_h(&tree, (pbvh_eclass_id_t)i, r128s[i].box, r128s[i].code);
 	}
 	pbvh_tree_build(&tree);
 
