@@ -3,7 +3,7 @@ message: "If you use this work, please cite it as below and cite the references 
 type: software
 title: "OIT on the Compatibility renderer: CPU models and comparison harnesses (entities-godot, archived/oit-compat)"
 authors:
-  - name: "weft"
+  - name: "weftspun"
 license: MIT
 abstract: >-
   CPU models and harnesses for fragment-only order-independent transparency on
@@ -47,6 +47,6 @@ references:
   - type: software
     title: "entities-godot"
     authors:
-      - name: "weft"
+      - name: "weftspun"
     url: "https://github.com/V-Sekai-fire/entities-godot"
     license: MIT
