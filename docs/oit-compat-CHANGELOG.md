@@ -120,3 +120,18 @@ Differing froxels in variant A; variant B (point sprites, depth passed as a hi/l
 - Two harness defects on the way: the tolerance read a variable before it was declared, so the first batch of runs threw at startup and measured nothing; and `slice_of_ds` was missing from the `log` shader, so that run failed to compile until a stub was added.
 - Cost not measured. The double-single depth is about 30 extra ALU ops per fragment and 14 more compares per fragment in the search; both are small next to the 4 passes of 8 attachments, but I have not timed them.
 - Variant B still takes its samples from the reference, as before.
+
+## Iteration 11: what the double-single maths costs at headset size
+
+`misc/scripts/oit_splat_gl/time.html` renders variant A only (no reference, no readback) at the headset froxel grid 280 x 294, 128 slices, 4 passes of 8 attachments, 200 translucent quads covering 3.3 million fragments per pass. Firefox 160, ANGLE Metal, Apple M1, wall time per frame after a one-pixel readback, 40 repeats, medians. Firefox here has no `EXT_disjoint_timer_query_webgl2`, so these are wall times, not GPU times.
+
+| slice maths | run 1 | run 2 | run 3 |
+| --- | --- | --- | --- |
+| `log` | 6.52 (first batch, 20 reps) | 4.50 | |
+| float32 table | 5.28 (20 reps) | 4.88 | 5.58 |
+| double-single | 6.02 (20 reps) | 6.46 | 6.44 |
+
+- Double-single costs about 0.9 to 1.6 ms a frame over the float32 table at this size (medians 6.0 to 6.5 against 4.9 to 5.6). The runs of one mode differ by about 1 ms among themselves, so the difference is real but not far outside the noise.
+- At the small grid (40 x 24, 40 quads) the two are 1.58 and 1.66 ms.
+- All of this is 4 geometry passes of the whole stack, which is the headset cost of design A; the slice maths is not the main term.
+- Not measured: a real headset frame, two views drawn per eye, MSAA, or a Mobile-class GPU.

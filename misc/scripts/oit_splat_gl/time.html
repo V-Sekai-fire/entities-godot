@@ -1,0 +1,72 @@
+<!doctype html><meta charset=utf-8><body><pre id=o>running</pre><script>
+// Times variant A of the splat step at a given froxel grid: quads at froxel resolution, 8 colour attachments, 4 passes for 128 slices.
+// ?w=280&h=294&quads=200&mode=ds|table|log. No reference and no readback of the whole atlas: this page measures cost only.
+// GPU time comes from EXT_disjoint_timer_query_webgl2 when the browser has it; wall time after gl.finish() is always reported.
+const log = (s) => fetch('/log', {method: 'POST', body: s}).catch(() => {});
+(async () => {
+  const P = new URLSearchParams(location.search);
+  const DX = +(P.get('w') || 280), DY = +(P.get('h') || 294), NQ = +(P.get('quads') || 200), MODE = P.get('mode') || 'ds', REPS = +(P.get('reps') || 20);
+  const S = 128, NEAR = 0.1, FAR = 60, K = 8, TILES = S / 4, GROUPS = TILES / 8;
+  const out = {w: DX, h: DY, quads: NQ, mode: MODE};
+  const gl = document.createElement('canvas').getContext('webgl2');
+  out.renderer = gl.getParameter(gl.RENDERER); gl.getExtension('EXT_color_buffer_float'); gl.getExtension('EXT_float_blend');
+  const timer = gl.getExtension('EXT_disjoint_timer_query_webgl2'); out.gpu_timer = !!timer;
+  let seed = 20261113; const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return (seed >>> 8) / 16777216; };
+  const F = Math.fround, quads = [];
+  for (let i = 0; i < NQ; i++) { const w = DX * (0.2 + rnd() * 0.5), h = DY * (0.2 + rnd() * 0.5), x0 = rnd() * (DX - w), y0 = rnd() * (DY - h);
+    quads.push({x0: F(x0), y0: F(y0), x1: F(x0 + w), y1: F(y0 + h), z0: F(0.2 + rnd() * 50), dz: F((rnd() - 0.5) * 20), alpha: F(0.05 + rnd() * 0.5)}); }
+  out.frag_per_pass = Math.round(quads.reduce((n, q) => n + (q.x1 - q.x0) * (q.y1 - q.y0), 0));
+  const zof = (k) => NEAR + (Math.exp(k / S * Math.log(1 + K)) - 1) / K * (FAR - NEAR);
+  const splitDS = (v) => { const hi = Math.fround(v); return [hi, Math.fround(v - hi)]; };
+  const bounds = new Float32Array(S), boundsLo = new Float32Array(S); for (let k = 0; k < S; k++) { const [h, l] = splitDS(k === 0 ? NEAR : zof(k)); bounds[k] = h; boundsLo[k] = l; }
+  const SLICE = MODE === 'log'
+    ? `const float NEAR=${NEAR.toFixed(1)}, FAR=${FAR.toFixed(1)}, K=${K.toFixed(1)}; const int S=${S};
+       int slice_of(float z){ float lin=clamp((z-NEAR)/(FAR-NEAR),0.0,1.0); float t=log(1.0+K*lin)/log(1.0+K); return clamp(int(floor(t*float(S))),0,S-1); }
+       int slice_of_ds(vec2 z){ return slice_of(z.x); }`
+    : `const int S=${S}; uniform float bounds[${S}]; uniform float bounds_lo[${S}];
+       int slice_of(float z){ int lo=0, hi=S-1; for(int i=0;i<7;i++){ int mid=(lo+hi+1)>>1; if(z>=bounds[mid]) lo=mid; else hi=mid-1; } return lo; }
+       int slice_of_ds(vec2 z){ int lo=0, hi=S-1; for(int i=0;i<7;i++){ int mid=(lo+hi+1)>>1; bool ge = z.x>bounds[mid] || (z.x==bounds[mid] && z.y>=bounds_lo[mid]); if(ge) lo=mid; else hi=mid-1; } return lo; }`;
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const HEAD = '#version 300 es\nprecision highp float;\nprecision highp int;\n';
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, HEAD + `uniform vec4 rect; uniform vec2 zdz; uniform vec2 dims; out float depth;
+    void main(){ vec2 c=vec2(float(gl_VertexID&1), float((gl_VertexID>>1)&1)); vec2 px=mix(rect.xy, rect.zw, c); depth=zdz.x+zdz.y*c.x; gl_Position=vec4(px/dims*2.0-1.0, 0.0, 1.0); }`));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, HEAD + `#define DS_DEPTH ${MODE === 'ds' ? 'true' : 'false'}\n` + SLICE + `in float depth; uniform float alpha; uniform int base_tile; uniform vec4 zc; out vec4 o[8];
+    vec2 two_sum(float a, float b){ float s=a+b; float bb=s-a; return vec2(s, (a-(s-bb))+(b-bb)); }
+    vec2 split(float a){ float t=4097.0*a; float hi=t-(t-a); return vec2(hi, a-hi); }
+    vec2 two_prod(float a, float b){ float p=a*b; vec2 sa=split(a), sb=split(b); return vec2(p, ((sa.x*sb.x-p)+sa.x*sb.y+sa.y*sb.x)+sa.y*sb.y); }
+    vec2 ds_add(vec2 a, vec2 b){ vec2 s=two_sum(a.x,b.x); float e=s.y+a.y+b.y; return two_sum(s.x,e); }
+    vec2 ds_mul_f(vec2 a, float f){ vec2 p=two_prod(a.x,f); float e=p.y+a.y*f; return two_sum(p.x,e); }
+    void main(){ int z;
+      if(DS_DEPTH){ float px=gl_FragCoord.x; vec2 d=ds_add(zc.xy, ds_mul_f(zc.zw, px)); if(d.x<0.05) d=vec2(0.05,0.0); z=slice_of_ds(d); } else { z=slice_of(max(0.05,depth)); }
+      int tile=z/4; int local=tile-base_tile; float e=-log(1.0-clamp(alpha,0.0,0.999)); vec4 v=vec4(0.0); v[z%4]=e;
+      if(local<0||local>=8) discard;
+      o[0]=local==0?v:vec4(0.0); o[1]=local==1?v:vec4(0.0); o[2]=local==2?v:vec4(0.0); o[3]=local==3?v:vec4(0.0);
+      o[4]=local==4?v:vec4(0.0); o[5]=local==5?v:vec4(0.0); o[6]=local==6?v:vec4(0.0); o[7]=local==7?v:vec4(0.0); }`));
+  gl.linkProgram(prog); if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  const U = (n) => gl.getUniformLocation(prog, n);
+  const layers = []; for (let t = 0; t < TILES; t++) { const tx = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tx); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, DX, DY); layers.push(tx); }
+  const fb = gl.createFramebuffer();
+  gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.useProgram(prog); gl.viewport(0, 0, DX, DY);
+  if (MODE !== 'log') { gl.uniform1fv(U('bounds'), bounds); gl.uniform1fv(U('bounds_lo'), boundsLo); }
+  gl.uniform2f(U('dims'), DX, DY);
+  const zc = quads.map((q) => { const b = q.dz / (q.x1 - q.x0), a = q.z0 - b * q.x0; return [...splitDS(a), ...splitDS(b)]; });
+  const frame = () => { gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    for (let g = 0; g < GROUPS; g++) { const bufs = [];
+      for (let i = 0; i < 8; i++) { gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, layers[g * 8 + i], 0); bufs.push(gl.COLOR_ATTACHMENT0 + i); }
+      gl.drawBuffers(bufs); gl.clearBufferfv(gl.COLOR, 0, [0,0,0,0]); for (let i = 1; i < 8; i++) gl.clearBufferfv(gl.COLOR, i, [0,0,0,0]);
+      gl.uniform1i(U('base_tile'), g * 8);
+      for (let k = 0; k < quads.length; k++) { const q = quads[k]; gl.uniform4f(U('rect'), q.x0, q.y0, q.x1, q.y1); gl.uniform2f(U('zdz'), q.z0, q.dz);
+        gl.uniform4fv(U('zc'), zc[k]); gl.uniform1f(U('alpha'), q.alpha); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); } } };
+  const probe = new Float32Array(4); const sync = () => { gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, layers[0], 0); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, probe); };
+  for (let i = 0; i < 3; i++) { frame(); sync(); } // warm up
+  const wall = [], gpu = [];
+  for (let r = 0; r < REPS; r++) { let q = null; if (timer) { q = gl.createQuery(); gl.beginQuery(timer.TIME_ELAPSED_EXT, q); }
+    const t0 = performance.now(); frame(); if (q) gl.endQuery(timer.TIME_ELAPSED_EXT); sync(); wall.push(performance.now() - t0);
+    if (q) { for (let w = 0; w < 50 && !gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE); w++) await new Promise((r2) => setTimeout(r2, 2));
+      if (!gl.getParameter(timer.GPU_DISJOINT_EXT) && gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) gpu.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6); } }
+  const med = (a) => a.length ? a.slice().sort((x, y) => x - y)[a.length >> 1] : null;
+  out.wall_ms_median = med(wall); out.wall_ms_min = Math.min(...wall); out.gpu_ms_median = med(gpu); out.gpu_samples = gpu.length; out.gl_error = gl.getError();
+  document.getElementById('o').textContent = 'TIME_RESULT\n' + JSON.stringify(out, null, 1); await log('TIME_RESULT ' + JSON.stringify(out)); document.title = 'done';
+})().catch(e => { document.getElementById('o').textContent = 'ERR ' + e; log('ERR ' + e); });
+</script>
