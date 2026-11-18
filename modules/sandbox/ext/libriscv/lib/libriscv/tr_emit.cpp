@@ -249,7 +249,14 @@ struct Emitter
 		}
 		return "(addr_t)0";
 	}
+	// With register caching, an FP register is a C local too (fp64reg freg<N>): a double that goes through
+	// cpu->fr[] costs a store and a reload on every use, and a store-to-load stall in a tight loop. Written
+	// back wherever STORE_REGS runs, reloaded wherever LOAD_REGS runs. Every FP access goes through here.
 	std::string from_fpreg(int reg) {
+		if (uses_register_caching()) {
+			this->fpr_exists[reg] = true;
+			return "freg" + std::to_string(reg);
+		}
 		return "cpu->fr[" + std::to_string(reg) + "]";
 	}
 #ifdef RISCV_EXT_VECTOR
@@ -1207,6 +1214,7 @@ struct Emitter
 	bool emit_function_call(address_t target, address_t dest_pc);
 
 	bool gpr_exists_at(int reg) const { return this->gpr_exists.at(reg); }
+	bool fpr_exists_at(int reg) const { return this->fpr_exists.at(reg); }
 	bool gpr_written_at(int reg) const { return this->gpr_written.at(reg); }
 	auto& get_gpr_exists() const noexcept { return this->gpr_exists; }
 	bool gpr_needs_store(size_t reg) const {
@@ -1622,6 +1630,7 @@ private:
 
 	std::array<bool, 32> gpr_exists {};
 	std::array<bool, 32> gpr_written {};
+	std::array<bool, 32> fpr_exists {};
 	std::vector<uint32_t> m_dirty_at;  // dirty when the instruction executes (what a sync here stores)
 	std::vector<uint32_t> m_dirty_out; // dirty after it, for the flow
 	std::set<uint32_t> m_store_masks;
@@ -3632,9 +3641,17 @@ CPU<W>::emit(std::string& code, const TransInfo<W>& tinfo)
 					code += "  cpu->r[" + std::to_string(reg) + "] = " + e.loaded_regname(reg) + "; \\\n";
 				}
 			}
+			for (int reg = 0; reg < 32; reg++) {
+				if (e.fpr_exists_at(reg))
+					code += "  cpu->fr[" + std::to_string(reg) + "] = freg" + std::to_string(reg) + "; \\\n";
+			}
 			code += "  ;\n";
 		}
 		code += "#define LOAD_REGS_" + e.get_func() + "() \\\n";
+		for (int reg = 0; reg < 32; reg++) {
+			if (e.fpr_exists_at(reg))
+				code += "  freg" + std::to_string(reg) + " = cpu->fr[" + std::to_string(reg) + "]; \\\n";
+		}
 		for (int reg = 1; reg < e.CACHED_REGISTERS; reg++) {
 			if (e.gpr_exists_at(reg)) {
 				code += "  " + e.loaded_regname(reg) + " = cpu->r[" + std::to_string(reg) + "]; \\\n";
@@ -3665,6 +3682,10 @@ CPU<W>::emit(std::string& code, const TransInfo<W>& tinfo)
 
 	// Function GPRs
 	if (tinfo.use_register_caching) {
+		for (int reg = 0; reg < 32; reg++) {
+			if (e.fpr_exists_at(reg))
+				code += "fp64reg freg" + std::to_string(reg) + " = cpu->fr[" + std::to_string(reg) + "];\n";
+		}
 		for (int reg = 1; reg < e.CACHED_REGISTERS; reg++) {
 			if (e.gpr_exists_at(reg)) {
 				code += "addr_t " + e.loaded_regname(reg) + " = cpu->r[" + std::to_string(reg) + "];\n";
@@ -3699,6 +3720,12 @@ CPU<W>::emit(std::string& code, const TransInfo<W>& tinfo)
 		code += "default:;\n}\n";
 	}
 	code += "exception_is_handled:\n"; // Re-using exit point for exceptions
+	if (tinfo.use_register_caching) {
+		for (int reg = 0; reg < 32; reg++) {
+			if (e.fpr_exists_at(reg))
+				code += "  cpu->fr[" + std::to_string(reg) + "] = freg" + std::to_string(reg) + ";\n";
+		}
+	}
 	for (int reg = 1; reg < e.CACHED_REGISTERS; reg++) {
 		if (e.gpr_needs_store(reg)) {
 			code += "  cpu->r[" + std::to_string(reg) + "] = " + e.loaded_regname(reg) + ";\n";
