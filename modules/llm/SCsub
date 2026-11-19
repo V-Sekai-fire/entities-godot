@@ -109,6 +109,7 @@ mtmd_sources = [
     tp + "tools/mtmd/mtmd.cpp",
     tp + "tools/mtmd/mtmd-helper.cpp",
     tp + "vendor/hash/hash.cpp",  # hash_sha256_hex, which mtmd-helper.cpp names a bitmap with
+    tp + "vendor/hash/sha256/sha256.c",
     tp + "tools/mtmd/mtmd-image.cpp",
     tp + "tools/mtmd/mtmd-audio.cpp",
     # models/ holds one translation unit per vision or audio tower, and clip.cpp
