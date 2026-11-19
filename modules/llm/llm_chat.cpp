@@ -375,8 +375,9 @@ void LLMChat::_run_inference(const Array &p_messages) {
 		int32_t rc = -1;
 		llama_pos new_n_past = 0;
 		if (decoded_all) {
-			mtmd_input_text txt;
+			mtmd_input_text txt = {};
 			txt.text = prompt_std.c_str();
+			txt.text_len = prompt_std.size();
 			txt.add_special = true;
 			txt.parse_special = true;
 
