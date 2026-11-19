@@ -327,6 +327,12 @@ String LLMChat::_apply_chat_template(const Array &p_messages, Vector<PackedByteA
 		prompt += "<|im_start|>" + roles[i] + "\n" + texts[i] + "<|im_end|>\n";
 	}
 	prompt += "<|im_start|>assistant\n";
+	// Qwen's template closes an empty reasoning block when thinking is off; without it the
+	// model reasons anyway and enable_thinking has no effect on this path. Only for a
+	// template that knows the block, so a plain ChatML model is not handed unknown text.
+	if (!enable_thinking && tmpl != nullptr && strstr(tmpl, "<think>") != nullptr) {
+		prompt += "<think>\n\n</think>\n\n";
+	}
 	return prompt;
 }
 
