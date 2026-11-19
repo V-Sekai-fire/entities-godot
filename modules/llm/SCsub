@@ -227,6 +227,9 @@ env_tp.Append(
         # even when all compute runs on WebGPU.
         "GGML_USE_CPU",
         *(["LLM_HAS_MTMD"] if _has_mtmd else []),
+        # mtmd-helper.cpp carries its own stb_image. Kept internal to that file, so it cannot
+        # collide with another module that also embeds stb_image.
+        *(["STB_IMAGE_STATIC"] if _has_mtmd else []),
         # On wasm32, no x86/arm SIMD — select scalar fallbacks via arch-fallback.h
         # (mirrors what upstream CMakeLists does for generic/non-SIMD platforms).
         *(["GGML_CPU_GENERIC"] if env["platform"] == "web" else []),
