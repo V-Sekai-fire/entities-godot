@@ -192,7 +192,8 @@ if platform in ("linuxbsd", "windows", "android"):
         _os.environ["VULKAN_SDK"] = _scons_sdk
 
     # Generate shaders at SCons reading phase so hpp exists before compilation.
-    generate_vulkan_shaders(_vk_abs, _vk_spv_dir, _vk_hpp)
+    # The backend must be compiled with the defines the shaders were generated with.
+    backend_defines += generate_vulkan_shaders(_vk_abs, _vk_spv_dir, _vk_hpp)
 
     backend_sources += [_vk_src + "ggml-vulkan.cpp", _vk_src + "ggml-vulkan-buffers.cpp", _vk_src + "ggml-vulkan-debug.cpp"]
     backend_defines += ["GGML_USE_VULKAN"]

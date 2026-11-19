@@ -41,7 +41,37 @@ def _host_cxx():
     raise RuntimeError("No host C++ compiler found for vulkan-shaders-gen")
 
 
-def _build_shaders_gen(shaders_dir: str, out_binary: str) -> None:
+# The shader variants that glslc can compile, as upstream's CMakeLists.txt tests them:
+# (feature test shader, GLSL extension, define). The generator and ggml-vulkan.cpp must
+# both see the same defines, or the backend looks for shaders that were never generated.
+_GLSLC_FEATURES = (
+    ("coopmat", "GL_KHR_cooperative_matrix", "GGML_VULKAN_COOPMAT_GLSLC_SUPPORT"),
+    ("coopmat2", "GL_NV_cooperative_matrix2", "GGML_VULKAN_COOPMAT2_GLSLC_SUPPORT"),
+    ("coopmat2_decode_vector", "GL_NV_cooperative_matrix_decode_vector", "GGML_VULKAN_COOPMAT2_DECODE_VECTOR_GLSLC_SUPPORT"),
+    ("integer_dot", "GL_EXT_integer_dot_product", "GGML_VULKAN_INTEGER_DOT_GLSLC_SUPPORT"),
+    ("bfloat16", "GL_EXT_bfloat16", "GGML_VULKAN_BFLOAT16_GLSLC_SUPPORT"),
+    ("float_e2m1", "GL_EXT_float_e2m1", "GGML_VULKAN_FLOAT_E2M1_GLSLC_SUPPORT"),
+    ("float_e4m3", "GL_EXT_float_e4m3", "GGML_VULKAN_FLOAT_E4M3_GLSLC_SUPPORT"),
+)
+
+
+def _glslc_feature_defines(shaders_dir: str, glslc: str) -> list[str]:
+    """Return the GGML_VULKAN_*_GLSLC_SUPPORT defines for the extensions this glslc accepts."""
+    defines = []
+    for test, extension, define in _GLSLC_FEATURES:
+        shader = os.path.join(shaders_dir, "feature-tests", test + ".comp")
+        if not os.path.exists(shader):
+            continue
+        result = subprocess.run(
+            [glslc, "-o", "-", "-fshader-stage=compute", "--target-env=vulkan1.3", shader],
+            capture_output=True,
+        )
+        if ("extension not supported: " + extension).encode() not in result.stderr:
+            defines.append(define)
+    return defines
+
+
+def _build_shaders_gen(shaders_dir: str, out_binary: str, defines: list[str]) -> None:
     """Compile vulkan-shaders-gen from source if missing or stale."""
     src = os.path.join(shaders_dir, "vulkan-shaders-gen.cpp")
     if os.path.exists(out_binary):
@@ -49,7 +79,9 @@ def _build_shaders_gen(shaders_dir: str, out_binary: str) -> None:
             return  # up to date
     os.makedirs(os.path.dirname(out_binary), exist_ok=True)
     cxx = _host_cxx()
-    cmd = [cxx, "-std=c++17", "-O2", src, "-o", out_binary]
+    cmd = [cxx, "-std=c++17", "-O2"] + ["-D" + d for d in defines] + [src, "-o", out_binary]
+    if os.path.basename(cxx) not in ("cl", "cl.exe"):
+        cmd.insert(1, "-pthread")  # the generator compiles shader variants on threads
     if "mingw32" in cxx and os.name == "nt":
         cmd.insert(1, "-static")  # the generator runs during the build, with no toolchain DLLs beside it
     subprocess.check_call(cmd)
@@ -83,14 +115,35 @@ def _glslc_path(env_glslc: str = "") -> str:
     )
 
 
-def generate_vulkan_shaders(vk_src_dir: str, out_dir: str, hpp_path: str) -> None:
+def generate_vulkan_shaders(vk_src_dir: str, out_dir: str, hpp_path: str) -> list[str]:
     """Compile all Vulkan .comp shaders and write ggml-vulkan-shaders.hpp.
 
     Called directly from SCsub during the SCons reading phase so the header
     exists before any C++ compilation starts. Uses mtime to skip if current.
+
+    Returns the GGML_VULKAN_*_GLSLC_SUPPORT defines the shaders were generated with.
+    The caller must compile ggml-vulkan.cpp with the same defines.
     """
     shaders_dir = os.path.join(vk_src_dir, "vulkan-shaders")
     comp_files = sorted(glob.glob(os.path.join(shaders_dir, "*.comp")))
+
+    glslc = _glslc_path(os.environ.get("GLSLC", ""))
+    defines = _glslc_feature_defines(shaders_dir, glslc)
+
+    # Shaders generated with another set of defines are stale, whatever their age.
+    gen_binary = os.path.join(out_dir, "vulkan-shaders-gen")
+    stamp_path = os.path.join(out_dir, "glslc-features.txt")
+    stamp = "\n".join(defines) + "\n"
+    previous = None
+    if os.path.exists(stamp_path):
+        with open(stamp_path, encoding="utf-8") as f:
+            previous = f.read()
+    if previous != stamp:
+        for stale in (gen_binary, gen_binary + ".exe", hpp_path):
+            if os.path.exists(stale):
+                os.remove(stale)
+        for stale in glob.glob(os.path.join(out_dir, "*.comp.cpp")):
+            os.remove(stale)
 
     # Skip if hpp is newer than all .comp sources AND all output .comp.cpp exist.
     if os.path.exists(hpp_path):
@@ -100,16 +153,13 @@ def generate_vulkan_shaders(vk_src_dir: str, out_dir: str, hpp_path: str) -> Non
             gen_src = os.path.join(shaders_dir, "vulkan-shaders-gen.cpp")
             newest_src = max(os.path.getmtime(f) for f in comp_files + [gen_src])
             if hpp_mtime > newest_src:
-                return
+                return defines
 
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(os.path.dirname(hpp_path), exist_ok=True)
 
     # 1. Build vulkan-shaders-gen host binary
-    gen_binary = os.path.join(out_dir, "vulkan-shaders-gen")
-    _build_shaders_gen(shaders_dir, gen_binary)
-
-    glslc = _glslc_path(os.environ.get("GLSLC", ""))
+    _build_shaders_gen(shaders_dir, gen_binary, defines)
 
     # 2. Generate the HPP header skeleton first
     subprocess.check_call([
@@ -138,7 +188,12 @@ def generate_vulkan_shaders(vk_src_dir: str, out_dir: str, hpp_path: str) -> Non
             target_cpp,
         ])
 
+    with open(stamp_path, "w", encoding="utf-8") as f:
+        f.write(stamp)
+
     print(f"llm_vulkan_builders: compiled {len(comp_files)} shaders -> {hpp_path}")
+    print("llm_vulkan_builders: glslc features: " + (", ".join(defines) or "none"))
+    return defines
 
 
 def get_generated_shader_cpps(spv_dir: str) -> list[str]:
