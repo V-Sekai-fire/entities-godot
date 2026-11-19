@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import glob
 import os
+import shutil
 import subprocess
 
 
@@ -29,8 +30,14 @@ def _host_cxx():
     # The MinGW-targeted clang first: a bare clang++ on a Windows runner is the system LLVM,
     # which targets the MSVC STL and stops when that STL wants a newer clang than is installed.
     for cxx in ("x86_64-w64-mingw32-clang++", "clang++", "g++", "c++", "cl"):
-        if subprocess.run([which_cmd, cxx], capture_output=True).returncode == 0:
-            return cxx
+        found = shutil.which(cxx)
+        if found is None:
+            continue
+        # A cross build from Linux has the MinGW compilers on PATH; they make a Windows
+        # generator, which the build cannot run. Take the next compiler instead.
+        if os.name != "nt" and (cxx.startswith("x86_64-w64") or (prefix and os.path.realpath(found).startswith(os.path.realpath(prefix)))):
+            continue
+        return cxx
     raise RuntimeError("No host C++ compiler found for vulkan-shaders-gen")
 
 
