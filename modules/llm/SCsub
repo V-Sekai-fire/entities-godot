@@ -316,6 +316,11 @@ if platform in ("macos", "ios"):
 env_llm = env_modules.Clone()
 env_llm.Prepend(CPPPATH=all_inc)
 env_llm.Append(CPPDEFINES=backend_defines)
+if _has_mtmd:
+    # llm_model.cpp and llm_chat.cpp guard the projector load and the media path with this
+    # define. env_tp is a separate clone, so the define set there never reached them and
+    # vision compiled out of the module while mtmd itself was built.
+    env_llm.Append(CPPDEFINES=["LLM_HAS_MTMD"])
 if not env.msvc:
     env_llm.Append(CCFLAGS=["-Wno-shadow"])  # ggml-backend.h: function name same as struct triggers -Wshadow
 env_llm.add_source_files(env.modules_sources, "*.cpp")
