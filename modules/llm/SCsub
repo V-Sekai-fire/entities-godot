@@ -16,7 +16,7 @@ ggml_inc = [
 ]  # amx/ subdir needs ggml-cpu-impl.h
 llama_inc = [tp_abs + "include", tp_abs + "src", tp_abs + "common", tp_abs + "vendor"]  # nlohmann/json lives here
 all_inc = (
-    ggml_inc + llama_inc + [tp_abs + "tools/mtmd", "#modules/llm/compat"]
+    ggml_inc + llama_inc + [tp_abs + "tools/mtmd", tp_abs + "vendor/hash", "#modules/llm/compat"]
 )  # spirv-headers/ shim for Windows SDK layout
 
 # ── Collision map ─────────────────────────────────────────────────────────────
