@@ -21,7 +21,7 @@ def _host_cxx():
     """Return a usable host C++ compiler."""
     # A MinGW build names its toolchain in MINGW_PREFIX; that compiler is not always on PATH.
     prefix = os.environ.get("MINGW_PREFIX", "")
-    if prefix:
+    if prefix and os.name == "nt":  # a cross build from Linux needs a Linux generator
         named = os.path.join(prefix, "bin", "x86_64-w64-mingw32-clang++" + (".exe" if os.name == "nt" else ""))
         if os.path.exists(named):
             return named
