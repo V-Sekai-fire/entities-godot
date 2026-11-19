@@ -362,7 +362,9 @@ void LLMChat::_run_inference(const Array &p_messages) {
 		bool decoded_all = true;
 		for (int i = 0; i < media.size(); i++) {
 			const PackedByteArray &b = media[i];
-			mtmd_bitmap *bm = mtmd_helper_bitmap_init_from_buf(mctx, b.ptr(), (size_t)b.size());
+			// The vendored helper returns the bitmap with an optional video context; an image or
+			// an audio clip has none, so only the bitmap is kept.
+			mtmd_bitmap *bm = mtmd_helper_bitmap_init_from_buf(mctx, b.ptr(), (size_t)b.size(), false, mtmd_helper_init_opt_default()).bitmap;
 			if (bm == nullptr) {
 				decoded_all = false;
 				break;
