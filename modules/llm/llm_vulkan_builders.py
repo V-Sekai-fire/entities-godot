@@ -19,6 +19,12 @@ import subprocess
 
 def _host_cxx():
     """Return a usable host C++ compiler."""
+    # A MinGW build names its toolchain in MINGW_PREFIX; that compiler is not always on PATH.
+    prefix = os.environ.get("MINGW_PREFIX", "")
+    if prefix:
+        named = os.path.join(prefix, "bin", "x86_64-w64-mingw32-clang++" + (".exe" if os.name == "nt" else ""))
+        if os.path.exists(named):
+            return named
     which_cmd = "where" if os.name == "nt" else "which"
     # The MinGW-targeted clang first: a bare clang++ on a Windows runner is the system LLVM,
     # which targets the MSVC STL and stops when that STL wants a newer clang than is installed.
@@ -37,6 +43,8 @@ def _build_shaders_gen(shaders_dir: str, out_binary: str) -> None:
     os.makedirs(os.path.dirname(out_binary), exist_ok=True)
     cxx = _host_cxx()
     cmd = [cxx, "-std=c++17", "-O2", src, "-o", out_binary]
+    if "mingw32" in cxx and os.name == "nt":
+        cmd.insert(1, "-static")  # the generator runs during the build, with no toolchain DLLs beside it
     subprocess.check_call(cmd)
 
 
