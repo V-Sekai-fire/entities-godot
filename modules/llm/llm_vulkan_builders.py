@@ -20,7 +20,9 @@ import subprocess
 def _host_cxx():
     """Return a usable host C++ compiler."""
     which_cmd = "where" if os.name == "nt" else "which"
-    for cxx in ("clang++", "g++", "c++", "cl"):
+    # The MinGW-targeted clang first: a bare clang++ on a Windows runner is the system LLVM,
+    # which targets the MSVC STL and stops when that STL wants a newer clang than is installed.
+    for cxx in ("x86_64-w64-mingw32-clang++", "clang++", "g++", "c++", "cl"):
         if subprocess.run([which_cmd, cxx], capture_output=True).returncode == 0:
             return cxx
     raise RuntimeError("No host C++ compiler found for vulkan-shaders-gen")
