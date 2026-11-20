@@ -4525,7 +4525,7 @@ vk_device ggml_vk_get_device(size_t idx) {
             device_extensions.push_back("VK_EXT_device_fault");
         }
 
-        vkGetPhysicalDeviceFeatures2(device->physical_device, &device_features2);
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(device->physical_device, &device_features2);
 
         device->device_fault = device->device_fault && fault_features.deviceFault;
 
@@ -4823,7 +4823,7 @@ vk_device ggml_vk_get_device(size_t idx) {
 
         if (device->device_fault) {
             device->pfn_vkGetDeviceFaultInfoEXT = (PFN_vkGetDeviceFaultInfoEXT)
-                vkGetDeviceProcAddr(device->device, "vkGetDeviceFaultInfoEXT");
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr(device->device, "vkGetDeviceFaultInfoEXT");
         }
 
         // Queues
@@ -5162,7 +5162,7 @@ static void ggml_vk_print_gpu_info(size_t idx) {
     }
 #endif
 
-    vkGetPhysicalDeviceFeatures2(physical_device, &device_features2);
+    VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(physical_device, &device_features2);
 
     fp16 = fp16 && vk12_features.shaderFloat16;
 
@@ -5338,6 +5338,9 @@ void ggml_vk_instance_init() {
 
     // See https://github.com/KhronosGroup/Vulkan-Hpp?tab=readme-ov-file#extensions--per-device-function-pointers-
     VULKAN_HPP_DEFAULT_DISPATCHER.init(vk_instance.instance);
+    // Godot fork: every instance and device function below goes through this dispatcher. volk's global pointers for
+    // them (vkGetPhysicalDeviceFeatures2, vkGetDeviceProcAddr) are set only when Godot's Vulkan renderer has loaded
+    // its own instance; with --headless or the OpenGL renderer they are null.
 
     std::vector<vk::PhysicalDevice> devices = vk_instance.instance.enumeratePhysicalDevices();
 
@@ -16579,7 +16582,7 @@ bool ggml_vk_device_is_supported(const vk::PhysicalDevice & vkdev) {
     vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
     device_features2.pNext = &vk11_features;
 
-    vkGetPhysicalDeviceFeatures2(vkdev, &device_features2);
+    VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(vkdev, &device_features2);
 
     return vk11_features.storageBuffer16BitAccess;
 }
