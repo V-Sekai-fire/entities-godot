@@ -456,8 +456,15 @@ void LLMChat::_run_inference(const Array &p_messages) {
 
 	// Trim KV cache entries beyond the common prefix if the prompt diverged.
 	if (n_match < n_cached) {
-		llama_memory_seq_rm(llama_get_memory(lctx), 0, n_match, -1);
-		cached_tokens.resize(n_match);
+		if (llama_memory_seq_rm(llama_get_memory(lctx), 0, n_match, -1)) {
+			cached_tokens.resize(n_match);
+		} else {
+			// A model with recurrent state cannot drop the end of a sequence: the state
+			// after the common prefix is gone. Start again from an empty cache.
+			llama_memory_clear(llama_get_memory(lctx), true);
+			cached_tokens.clear();
+			n_match = 0;
+		}
 	}
 
 	// Prefill only the new tokens.
