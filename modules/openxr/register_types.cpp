@@ -58,6 +58,7 @@
 #include "extensions/openxr_debug_utils_extension.h"
 #include "extensions/openxr_dpad_binding_extension.h"
 #include "extensions/openxr_eye_gaze_interaction.h"
+#include "extensions/openxr_fb_face_tracking2_extension.h"
 #include "extensions/openxr_fb_display_refresh_rate_extension.h"
 #include "extensions/openxr_foveated_inset_extension.h"
 #include "extensions/openxr_frame_synthesis_extension.h"
@@ -231,6 +232,7 @@ void initialize_openxr_module(ModuleInitializationLevel p_level) {
 			// register gated extensions
 			_register_extension(memnew(OpenXRDebugUtilsExtension), int(GLOBAL_GET("xr/openxr/extensions/debug_utils")) > 0);
 			_register_extension(memnew(OpenXRHandTrackingExtension), GLOBAL_GET("xr/openxr/extensions/hand_tracking"));
+			_register_extension(memnew(OpenXRFBFaceTracking2Extension), GLOBAL_GET("xr/openxr/extensions/face_tracking"), true);
 
 			// Spatial container extensions
 			bool spatial_container_enabled = GLOBAL_GET("xr/openxr/extensions/spatial_container/enabled");

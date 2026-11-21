@@ -3653,6 +3653,9 @@
 			If [code]true[/code] the Y value of the motion vectors submitted to the frame synthesis extension will be flipped.
 			[b]Note:[/b] Since this is only needed on some platforms, it should usually be set using a feature tag, for example, to target Android XR: [code]xr/openxr/extensions/frame_synthesis/flip_y.androidxr[/code]
 		</member>
+		<member name="xr/openxr/extensions/face_tracking" type="bool" setter="" getter="" default="false">
+			If [code]true[/code], the [code]XR_FB_face_tracking2[/code] extension is enabled if available, and the runtime's face expression weights are written to the [XRFaceTracker] named [code]/user/face_tracker[/code] as Unified Expressions blend shapes. Expressions without a Unified Expressions equivalent, such as the articulatory tongue positions, are not copied.
+		</member>
 		<member name="xr/openxr/extensions/hand_interaction_profile" type="bool" setter="" getter="" default="false">
 			If [code]true[/code] the hand interaction profile extension will be activated if supported by the platform.
 		</member>
