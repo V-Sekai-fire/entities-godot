@@ -5,7 +5,6 @@ optimize = "size_extra"
 lto = "full"
 debug_symbols = False
 deprecated = False
-threads = False
 tests = False
 minizip = False
 brotli = False
