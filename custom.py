@@ -1,4 +1,4 @@
-# Smallest build for the OpenXR face tracking feature: scons profile=misc/build/openxr_face_minimal.py
+# Smallest build for the OpenXR face tracking feature. SCons loads this file with no arguments.
 target = "template_release"
 production = True
 optimize = "size_extra"
