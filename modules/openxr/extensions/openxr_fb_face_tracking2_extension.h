@@ -31,6 +31,7 @@
 
 #pragma once
 
+#include "../util.h"
 #include "openxr_extension_wrapper.h"
 
 #include "servers/xr/xr_face_tracker.h"
@@ -70,7 +71,7 @@ private:
 	XrFaceTracker2FB face_tracker = XR_NULL_HANDLE;
 	Ref<XRFaceTracker> tracker;
 
-	EXT_PROTO_XRRESULT_FUNC3(xrCreateFaceTracker2FB, (XrSession), p_session, (const XrFaceTrackerCreateInfo2FB *), p_create_info, (XrFaceTracker2FB *), p_face_tracker)
-	EXT_PROTO_XRRESULT_FUNC1(xrDestroyFaceTracker2FB, (XrFaceTracker2FB), p_face_tracker)
-	EXT_PROTO_XRRESULT_FUNC3(xrGetFaceExpressionWeights2FB, (XrFaceTracker2FB), p_face_tracker, (const XrFaceExpressionInfo2FB *), p_expression_info, (XrFaceExpressionWeights2FB *), p_expression_weights)
+	EXT_PROTO_XRRESULT_FUNC3(xrCreateFaceTracker2FB, (XrSession), session, (const XrFaceTrackerCreateInfo2FB *), create_info, (XrFaceTracker2FB *), face_tracker)
+	EXT_PROTO_XRRESULT_FUNC1(xrDestroyFaceTracker2FB, (XrFaceTracker2FB), face_tracker)
+	EXT_PROTO_XRRESULT_FUNC3(xrGetFaceExpressionWeights2FB, (XrFaceTracker2FB), face_tracker, (const XrFaceExpressionInfo2FB *), expression_info, (XrFaceExpressionWeights2FB *), expression_weights)
 };
