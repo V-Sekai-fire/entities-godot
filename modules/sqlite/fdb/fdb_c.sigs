@@ -1,0 +1,26 @@
+# The FoundationDB client entry points modules/sqlite uses (the weft_fdb VFS). Fed to
+# thirdparty/generate_stubs/generate_stubs.py, which emits a dlsym dispatch table: no -lfdb_c at
+# link time and no foundationdb-clients headers at build time. The client library is opened
+# at run time by fdb_client.cpp. API version 730.
+#
+# One C declaration per line; # starts a comment. Types are in fdb_c.h (this module's own).
+fdb_error_t fdb_select_api_version_impl(int runtime_version, int header_version);
+const char* fdb_get_error(fdb_error_t code);
+fdb_error_t fdb_setup_network(void);
+fdb_error_t fdb_run_network(void);
+fdb_error_t fdb_stop_network(void);
+fdb_error_t fdb_create_database(const char* cluster_file_path, FDBDatabase** out_database);
+void fdb_database_destroy(FDBDatabase* d);
+fdb_error_t fdb_database_create_transaction(FDBDatabase* d, FDBTransaction** out_transaction);
+void fdb_transaction_destroy(FDBTransaction* tr);
+FDBFuture* fdb_transaction_get(FDBTransaction* tr, const uint8_t* key_name, int key_name_length, fdb_bool_t snapshot);
+FDBFuture* fdb_transaction_get_range(FDBTransaction* tr, const uint8_t* begin_key_name, int begin_key_name_length, fdb_bool_t begin_or_equal, int begin_offset, const uint8_t* end_key_name, int end_key_name_length, fdb_bool_t end_or_equal, int end_offset, int limit, int target_bytes, FDBStreamingMode mode, int iteration, fdb_bool_t snapshot, fdb_bool_t reverse);
+void fdb_transaction_set(FDBTransaction* tr, const uint8_t* key_name, int key_name_length, const uint8_t* value, int value_length);
+void fdb_transaction_clear_range(FDBTransaction* tr, const uint8_t* begin_key_name, int begin_key_name_length, const uint8_t* end_key_name, int end_key_name_length);
+FDBFuture* fdb_transaction_commit(FDBTransaction* tr);
+FDBFuture* fdb_transaction_on_error(FDBTransaction* tr, fdb_error_t error);
+fdb_error_t fdb_future_block_until_ready(FDBFuture* f);
+fdb_error_t fdb_future_get_error(FDBFuture* f);
+fdb_error_t fdb_future_get_value(FDBFuture* f, fdb_bool_t* out_present, const uint8_t** out_value, int* out_value_length);
+fdb_error_t fdb_future_get_keyvalue_array(FDBFuture* f, const FDBKeyValue** out_kv, int* out_count, fdb_bool_t* out_more);
+void fdb_future_destroy(FDBFuture* f);

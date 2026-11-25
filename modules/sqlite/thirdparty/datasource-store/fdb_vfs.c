@@ -232,6 +232,11 @@ int weft_fdb_start(const char *cluster_file) {
 	const char *at = getenv("WEFT_CRASH_AT_COMMIT");
 	g_crash_at = at ? atol(at) : 0;
 
+#ifdef WEFT_FDB_DLOPEN
+	// The client is opened at run time, not linked (modules/sqlite/fdb/fdb_c.sigs). Without it
+	// the VFS is unavailable and the caller gets an error, never a crash.
+	if (weft_fdb_client_load()) return -1;
+#endif
 	fdb_error_t err = fdb_select_api_version(FDB_API_VERSION);
 	if (err) return err;
 	if ((err = fdb_setup_network())) return err;
