@@ -14,7 +14,9 @@ static inline void *dlsym(void *handle, const char *name) {
 static inline int dlclose(void *handle) {
 	return FreeLibrary((HMODULE)handle) ? 0 : 1;
 }
-static inline const char *dlerror(void) {
-	return "LoadLibrary/GetProcAddress failed";
+// POSIX declares char *dlerror(void), and the generated stubs bind its result to a char *.
+static inline char *dlerror(void) {
+	static char message[] = "LoadLibrary/GetProcAddress failed";
+	return message;
 }
 #endif
