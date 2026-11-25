@@ -31,6 +31,7 @@ platform/android/java/lib/.cxx/*
 *.ax
 *.d
 *.so
+!Implib.so
 *.os
 *.Plo
 *.lo
