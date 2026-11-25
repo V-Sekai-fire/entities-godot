@@ -12,7 +12,7 @@ static void syscall_eventfd2(Machine<W>& machine)
 	if (machine.has_file_descriptors()) {
 		real_fd = eventfd(initval, flags);
 		if (real_fd > 0) {
-			const int vfd = machine.fds().assign_file(real_fd);
+			const int vfd = machine.fds().assign_writable(real_fd);
 			machine.set_result(vfd);
 		} else {
 			machine.set_result_or_error(real_fd);

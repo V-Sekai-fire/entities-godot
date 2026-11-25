@@ -21,6 +21,8 @@ struct FileDescriptors
 	// Insert and manage real FDs, return virtual FD
 	int assign_file(real_fd_type fd) { return assign(fd, false); }
 	int assign_socket(real_fd_type fd) { return assign(fd, true); }
+	// An eventfd or a pipe the guest made itself is written like a socket.
+	int assign_writable(real_fd_type fd) { return assign(fd, true); }
 	int assign(real_fd_type fd, bool socket);
 	// Get real FD from virtual FD
     real_fd_type get(int vfd);

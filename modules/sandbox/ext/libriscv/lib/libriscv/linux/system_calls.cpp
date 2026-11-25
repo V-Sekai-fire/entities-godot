@@ -716,7 +716,7 @@ static void syscall_pipe2(Machine<W>& machine)
 		if (res == 0) {
 			int vpipes[2];
 			vpipes[0] = machine.fds().assign_file(pipes[0]);
-			vpipes[1] = machine.fds().assign_file(pipes[1]);
+			vpipes[1] = machine.fds().assign_writable(pipes[1]);
 			machine.copy_to_guest(vfd_array, vpipes, sizeof(vpipes));
 			machine.set_result(0);
 		} else {
