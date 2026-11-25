@@ -11,7 +11,7 @@
 # redistributable, so it is never put in an image on the runners. The osxcross
 # SDK files on the desk (MacOSX26.5.sdk.tar.xz, Xcode_26.6.xip) are for local
 # builds with build-containers' build.sh only. The servers' Linux build stays the
-# `linux-x86_64` job of double.yml (RFD66606-2388); this workflow adds the other variants.
+# `linux-x86_64` job of runner.yml (RFD66606-2388); this workflow adds the other variants.
 #
 # The sqlite module is on everywhere: it reaches the FoundationDB client through
 # modules/sqlite/fdb/fdb_c.sigs (generate_stubs, dlopen at run time), so no client
