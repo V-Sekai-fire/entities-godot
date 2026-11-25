@@ -56,7 +56,7 @@ bindings/go/godoc
 bindings/java/.classstamp*
 bindings/java/classes*/
 bindings/java/javadoc*/
-packaging/docker/website
+# packaging/docker/website is tracked in this tree, so it is not ignored here
 
 # Testing and logging
 packaging/msi/*.log
