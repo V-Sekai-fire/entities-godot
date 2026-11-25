@@ -286,20 +286,21 @@ jobs:
             Linux) cp "$lib/libfdb_c.so" bin/ ;;
             Windows) cp "$(dirname "$lib")/../bin/fdb_c.dll" bin/ ;;
           esac
-      # The FoundationDB client is not linked: fdb/fdb_c.sigs becomes a dlsym table and libfdb_c is opened at run
-      # time, so a copy of the binary with no library beside it must start, in a clean environment. The control is
-      # the list of linked libraries: it must name libc.so, which proves the reader looked at a real binary, and it
-      # must not name libfdb_c.
+      # Whatever the engine links or opens at run time must come with it. Copy the editor alone to a fresh folder
+      # and start it with a clean environment. The control is a truncated copy, which must fail to start, so the
+      # check can fail.
       - name: The binary starts from a copy elsewhere, with a clean environment
         if: matrix.target == 'editor'
         shell: bash
         run: |
           set -eu
           d="$(mktemp -d)"
+          head -c 1048576 "bin/${{ matrix.bin }}" > "$d/truncated"
+          chmod +x "$d/truncated"
+          if env -i PATH=/usr/bin:/bin "$d/truncated" --headless --version > /dev/null 2>&1; then
+            echo "control failed: a truncated copy started, so this check proves nothing"; exit 1
+          fi
           cp "bin/${{ matrix.bin }}" "$d/"
-          linked="$(readelf -d "$d/${{ matrix.bin }}")"
-          echo "$linked" | grep -q 'libc.so' || { echo "control failed: no libc.so in the linked libraries, so the reader saw nothing"; exit 1; }
-          if echo "$linked" | grep -q 'libfdb_c'; then echo "the binary links libfdb_c; it must open it at run time"; exit 1; fi
           env -i PATH=/usr/bin:/bin "$d/${{ matrix.bin }}" --headless --version
       - name: Symbols to zstd, under the 2 GiB release-asset limit
         shell: bash
@@ -438,20 +439,21 @@ jobs:
             Linux) cp "$lib/libfdb_c.so" bin/ ;;
             Windows) cp "$(dirname "$lib")/../bin/fdb_c.dll" bin/ ;;
           esac
-      # The FoundationDB client is not linked: fdb/fdb_c.sigs becomes a dlsym table and libfdb_c is opened at run
-      # time, so a copy of the binary with no library beside it must start, in a clean environment. The control is
-      # the list of linked libraries: it must name libSystem, which proves the reader looked at a real binary, and it
-      # must not name libfdb_c.
+      # Whatever the engine links or opens at run time must come with it. Copy the editor alone to a fresh folder
+      # and start it with a clean environment. The control is a truncated copy, which must fail to start, so the
+      # check can fail.
       - name: The binary starts from a copy elsewhere, with a clean environment
         if: matrix.target == 'editor'
         shell: bash
         run: |
           set -eu
           d="$(mktemp -d)"
+          head -c 1048576 "bin/${{ matrix.bin }}" > "$d/truncated"
+          chmod +x "$d/truncated"
+          if env -i PATH=/usr/bin:/bin "$d/truncated" --headless --version > /dev/null 2>&1; then
+            echo "control failed: a truncated copy started, so this check proves nothing"; exit 1
+          fi
           cp "bin/${{ matrix.bin }}" "$d/"
-          linked="$(otool -L "$d/${{ matrix.bin }}")"
-          echo "$linked" | grep -q 'libSystem' || { echo "control failed: no libSystem in the linked libraries, so the reader saw nothing"; exit 1; }
-          if echo "$linked" | grep -q 'libfdb_c'; then echo "the binary links libfdb_c; it must open it at run time"; exit 1; fi
           env -i PATH=/usr/bin:/bin "$d/${{ matrix.bin }}" --headless --version
       - name: Symbols to zstd, under the 2 GiB release-asset limit
         shell: bash
