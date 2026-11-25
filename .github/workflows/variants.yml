@@ -1,0 +1,184 @@
+# Every variant the official Godot release builds, each at single and double
+# precision, built from this tree (RFD66606-2387: the workflow changes only through
+# dev/double-release and the assembler). The matrix is data (.github/variants/variants.json),
+# expanded by .github/variants/expand_variants.sh, and mirrors godotengine/godot-build-scripts
+# (pinned below): platform x arch x target x extra axis (steamapi, web threads and
+# dlink, android perfetto, simulators) x precision.
+#
+# Linux, Windows, Web and Android build inside the godotengine/build-containers
+# images, built here from a pinned commit. Apple platforms (macOS, iOS, visionOS)
+# build on macos-26 runners with the real Xcode: the Apple SDK is not
+# redistributable, so it is never put in an image on the runners. The osxcross
+# SDK files on the desk (MacOSX26.5.sdk.tar.xz, Xcode_26.6.xip) are for local
+# builds with build-containers' build.sh only. The servers' Linux build stays the
+# `linux-x86_64` job of double.yml (RFD66606-2388); this workflow adds the other variants.
+#
+# The sqlite module is on everywhere: it reaches the FoundationDB client through
+# modules/sqlite/fdb/fdb_c.sigs (generate_stubs, dlopen at run time), so no client
+# package or fdb_c.h is installed for any variant.
+#
+# Not built: mono and dotnet (they need the glue step and a dotnet SDK), tvOS
+# (the engine ref has no platform/tvos), Android Gradle packaging (the scons
+# libraries only), the Android store_release editor flag.
+name: variants
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: release tag, the tagged commit's Go pseudo-version (v0.0.0-YYYYMMDDhhmmss-<12-hex>, RFD66606-2312)
+        required: true
+      only:
+        description: optional job-name substring to build a subset (empty builds all)
+        required: false
+
+env:
+  BUILD_CONTAINERS_REF: 9d1304ed8a3f6a82d63a8392da0d6cc9e1b24dd2
+  BUILD_SCRIPTS_REF: b7436b1fbeaccccd4de387d7bcf291d86c47d2d5
+  IMG_VERSION: 4.x-f44
+  # What godot-build-scripts passes to every official build.
+  COMMON: >-
+    production=yes debug_symbols=yes separate_debug_symbols=yes
+    debug_paths_relative=yes module_sqlite_enabled=yes
+    verbose=yes warnings=no progress=no redirect_build_objects=no
+
+permissions:
+  contents: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      container: ${{ steps.m.outputs.container }}
+      macos: ${{ steps.m.outputs.macos }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        run: |
+          only='${{ inputs.only }}'
+          pick() { .github/variants/expand_variants.sh "$1" | jq -c --arg o "$only" '{include: [.include[] | select($o == "" or (.name | contains($o)))]}'; }
+          echo "container=$(pick container)" >> "$GITHUB_OUTPUT"
+          echo "macos=$(pick macos-26)" >> "$GITHUB_OUTPUT"
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ inputs.release_tag }}" >/dev/null 2>&1 || gh release create "${{ inputs.release_tag }}" \
+            --target "$GITHUB_SHA" --title "${{ inputs.release_tag }}" \
+            --notes "${GITHUB_REPOSITORY} ${GITHUB_SHA}: every official Godot variant, single and double precision. build-containers ${BUILD_CONTAINERS_REF}, build-scripts ${BUILD_SCRIPTS_REF}. Each asset is prefixed with its job name. Symbols are zstd: zstd -d for .zst, tar --zstd -xf for .dSYM.tar.zst."
+
+  container:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.container).include[0] != null }}
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.container) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: godot
+      - uses: actions/checkout@v4
+        with:
+          repository: godotengine/build-containers
+          ref: ${{ env.BUILD_CONTAINERS_REF }}
+          path: bc
+      - name: Room for the image and a debug-symbol build
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost && df -h .
+      - uses: docker/setup-buildx-action@v3
+      - name: Base image
+        uses: docker/build-push-action@v6
+        with:
+          context: bc
+          file: bc/Dockerfile.base
+          tags: godot-fedora:${{ env.IMG_VERSION }}
+          load: true
+          cache-from: type=gha,scope=base
+          cache-to: type=gha,scope=base,mode=max
+      - name: ${{ matrix.image }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: bc
+          file: bc/Dockerfile.${{ matrix.image }}
+          build-args: img_version=${{ env.IMG_VERSION }}
+          tags: godot-${{ matrix.image }}:${{ env.IMG_VERSION }}
+          load: true
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+      - name: Compile
+        run: |
+          [ "${{ matrix.target }}" = editor ] || rm -rf godot/editor
+          docker run --rm -v "$PWD/godot:/root/godot" -w /root/godot \
+            -e SCONS_CACHE=/root/godot/.scons_cache \
+            godot-${{ matrix.image }}:${{ env.IMG_VERSION }} \
+            bash -c 'source /root/emsdk/emsdk_env.sh 2>/dev/null || true
+                     scons -j"$(nproc)" platform=${{ matrix.platform }} arch=${{ matrix.arch }} target=${{ matrix.target }} ${{ env.COMMON }} accesskit_sdk_path=/root/accesskit/accesskit-c ${{ matrix.flags }}'
+          sudo chown -R "$USER" godot
+      - name: Zstd the symbols, prefix with the job name, stay under 2 GiB
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd godot/bin
+          shopt -s nullglob
+          for f in godot.*.debugsymbols godot.*.pdb *.debug; do zstd -T0 -9 --long=27 --rm -q "$f"; done
+          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -9 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; done
+          n=0; mkdir -p ../../out
+          for f in godot.* *.a *.wasm *.zip *.js; do [ -f "$f" ] && { mv "$f" "../../out/${{ matrix.name }}__$f"; n=$((n+1)); }; done
+          [ "$n" -gt 0 ] || { echo "::error::no binaries in bin/"; ls -l; exit 1; }
+          big=$(find ../../out -type f -size +2040M); [ -z "$big" ] || { echo "::error::over 2 GiB: $big"; exit 1; }
+          ls -l ../../out
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.release_tag }}" --repo "$GITHUB_REPOSITORY" --clobber out/*
+
+  apple:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.macos).include[0] != null }}
+    name: ${{ matrix.name }}
+    runs-on: macos-26
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.macos) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/godot-deps
+      - name: Build tools from pixi (glslc)
+        uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          manifest-path: .github/double/pixi.toml
+        continue-on-error: true
+      - name: AccessKit SDK
+        if: matrix.platform == 'macos'
+        run: |
+          python3 misc/scripts/install_accesskit.py
+          echo "ACCESSKIT=accesskit_sdk_path=$PWD/bin/build_deps/accesskit" >> "$GITHUB_ENV"
+      - name: Compile
+        uses: ./.github/actions/godot-build
+        with:
+          platform: ${{ matrix.platform }}
+          target: ${{ matrix.target }}
+          scons-flags: ${{ env.COMMON }} ${{ env.ACCESSKIT }} arch=${{ matrix.arch }} ${{ matrix.flags }}
+      - name: Zstd the symbols, prefix with the job name, stay under 2 GiB
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd bin
+          shopt -s nullglob
+          for f in godot.*.debugsymbols; do zstd -T0 -9 --long=27 --rm -q "$f"; done
+          for d in godot.*.dSYM; do tar -cf - "$d" | zstd -T0 -9 --long=27 -q -o "$d.tar.zst"; rm -rf "$d"; done
+          n=0; mkdir -p ../out
+          for f in godot.* *.a; do [ -f "$f" ] && { mv "$f" "../out/${{ matrix.name }}__$f"; n=$((n+1)); }; done
+          [ "$n" -gt 0 ] || { echo "::error::no binaries in bin/"; ls -l; exit 1; }
+          big=$(find ../out -type f -size +2040M); [ -z "$big" ] || { echo "::error::over 2 GiB: $big"; exit 1; }
+          ls -l ../out
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.release_tag }}" --repo "$GITHUB_REPOSITORY" --clobber out/*

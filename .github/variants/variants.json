@@ -1,0 +1,20 @@
+[
+  {"platform":"linuxbsd","host":"container","image":"linux","arch":["x86_64","x86_32","arm64","arm32"],"targets":["editor","template_debug","template_release"]},
+
+  {"platform":"windows","host":"container","image":"windows","arch":["x86_64","x86_32"],"targets":["editor","template_debug","template_release"],"opts":"use_mingw=yes angle_libs=/root/angle mesa_libs=/root/mesa d3d12=yes"},
+  {"platform":"windows","host":"container","image":"windows","arch":["arm64"],"targets":["editor","template_debug","template_release"],"opts":"use_mingw=yes angle_libs=/root/angle mesa_libs=/root/mesa d3d12=yes use_llvm=yes mingw_prefix=/root/llvm-mingw"},
+  {"platform":"windows","host":"container","image":"windows","arch":["x86_64","x86_32"],"targets":["editor"],"opts":"use_mingw=yes angle_libs=/root/angle mesa_libs=/root/mesa d3d12=yes","extra":"steamapi=yes"},
+
+  {"platform":"web","host":"container","image":"web","arch":["wasm32"],"targets":["template_debug","template_release"],"extras":["threads=yes","threads=yes dlink_enabled=yes","threads=no","threads=no dlink_enabled=yes"]},
+  {"platform":"web","host":"container","image":"web","arch":["wasm32"],"targets":["editor"],"extras":["use_closure_compiler=yes"]},
+
+  {"platform":"android","host":"container","image":"android","arch":["arm64","arm32","x86_64","x86_32"],"targets":["editor"]},
+  {"platform":"android","host":"container","image":"android","arch":["arm64","arm32","x86_64","x86_32"],"targets":["template_debug","template_release"],"extras":["","profiler=perfetto"]},
+
+  {"platform":"macos","host":"macos-26","arch":["arm64","x86_64"],"targets":["editor","template_debug","template_release"]},
+  {"platform":"macos","host":"macos-26","arch":["arm64","x86_64"],"targets":["editor"],"extra":"steamapi=yes"},
+  {"platform":"ios","host":"macos-26","arch":["arm64"],"targets":["template_debug","template_release"]},
+  {"platform":"ios","host":"macos-26","arch":["arm64","x86_64"],"targets":["template_debug","template_release"],"extra":"ios_simulator=yes"},
+  {"platform":"visionos","host":"macos-26","arch":["arm64"],"targets":["template_debug","template_release"]},
+  {"platform":"visionos","host":"macos-26","arch":["arm64","x86_64"],"targets":["template_debug","template_release"],"extra":"visionos_simulator=yes"}
+]
