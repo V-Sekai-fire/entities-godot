@@ -3959,7 +3959,7 @@ void Main::setup_boot_logo() {
 	GodotProfileZone("setup_boot_logo");
 	MAIN_PRINT("Main: Load Boot Image");
 
-#if !defined(TOOLS_ENABLED) && defined(WEB_ENABLED)
+#if defined(NO_BOOT_LOGO) || (!defined(TOOLS_ENABLED) && defined(WEB_ENABLED))
 	bool show_logo = false;
 #else
 	bool show_logo = true;
