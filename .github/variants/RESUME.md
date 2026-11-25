@@ -6,7 +6,7 @@ Written 2026-11-25 so another person or computer can pick this work up. Nothing 
 
 - **sqlite on every variant, client by stubs.** `entities-godot` `dev/sqlite` at `1a606f8f`: `modules/sqlite/fdb/fdb_c.sigs` lists the FoundationDB client entry points the VFS calls, `SCsub` generates a dlsym table from it with `thirdparty/generate_stubs` (the `native_media` pattern), and `fdb/fdb_client.cpp` opens `libfdb_c` at run time, beside the binary first. No client package, `fdb_c.h` or `libfdb_c` is needed to build. `fdb/win_compat/dlfcn.h` maps `dlopen` onto `LoadLibrary` for MinGW.
 - **Variants workflow.** `.github/workflows/variants.yml` and this directory (`variants.json`, `expand_variants.sh`): 144 jobs, every official Godot variant at single and double precision. Linux, Windows, Web and Android build in godotengine/build-containers images (pinned commit `9d1304ed`, scripts `b7436b1f`); macOS, iOS and visionOS build on macos-26. Not built: mono, dotnet, tvOS, Android Gradle packaging.
-- **Inventory.** One `guest-builds` entry for the Linux binary: chibifire-smoke-water/datasource-inventory PR #9, stacked on PR #8 (retarget to main after #8 merges). A private static browser: Hugging Face Space `chibifire/inventory` (its own git repo; the data is a snapshot).
+- **Inventory.** One `guest-builds` entry for the Linux binary: chibifire-smoke-water/datasource-inventory PR #9, merged to main with PR #8. A private static browser: Hugging Face Space `chibifire/inventory` (its own git repo; the data is a snapshot).
 
 ## Verified, and not
 
@@ -20,7 +20,7 @@ Written 2026-11-25 so another person or computer can pick this work up. Nothing 
 1. Read the Windows result of the run above; fix the shim as new commits on `dev/sqlite`.
 2. Run the FDB-backed `SQLite.open` with a real `libfdb_c` beside the binary on Linux and Windows.
 3. NixOS: a flake must put `libfdb_c` beside the binary or on the loader path (`LD_LIBRARY_PATH`).
-4. Delete the test branch `test/sqlite-sigs-win` on entities-godot. No test release exists.
+4. Done: the test branch `test/sqlite-sigs-win` is deleted. No test release existed.
 5. Dispatch `variants.yml` on entities-zone with `only=<job name substring>` (it is not registered on entities-godot, where Actions for forks are off, RFD66606-2387).
 6. Waits (not on the beta path): the variants rows beyond the beta targets, the vendoring changes below, the inventory Space.
 
@@ -51,6 +51,6 @@ Written 2026-11-25 so another person or computer can pick this work up. Nothing 
 
 ## Branches
 
-- `entities-godot`: `dev/sqlite` (`1a606f8f`), `dev/double-release` (`05ba06d`), this note on `dev/variants-resume`, test branch `test/sqlite-sigs-win` (delete).
-- `datasource-inventory`: `dev/variants-sqlite-sigs-builds` (PR #9).
+- `entities-godot`: `dev/sqlite` (`1a606f8f`), `dev/double-release` (`05ba06d`), this note on `dev/variants-resume`, (the test branch is deleted).
+- `datasource-inventory`: entry merged to main (PR #9).
 - Hugging Face: Space `chibifire/inventory`.
