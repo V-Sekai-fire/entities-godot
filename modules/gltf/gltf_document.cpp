@@ -48,6 +48,7 @@
 #include "core/io/stream_peer.h"
 #include "core/object/class_db.h"
 #include "core/object/object_id.h"
+#include "core/object/worker_thread_pool.h"
 #include "core/version.h"
 #include "scene/3d/bone_attachment_3d.h"
 #include "scene/3d/camera_3d.h"
@@ -2173,19 +2174,9 @@ Dictionary GLTFDocument::_serialize_image(Ref<GLTFState> p_state, Ref<Image> p_i
 	return image_dict;
 }
 
-Ref<Image> GLTFDocument::_parse_image_bytes_into_image(Ref<GLTFState> p_state, const Vector<uint8_t> &p_bytes, const String &p_mime_type, int p_index, String &r_file_extension) {
-	Ref<Image> r_image;
-	r_image.instantiate();
-	// Check if any GLTFDocumentExtensions want to import this data as an image.
-	for (Ref<GLTFDocumentExtension> ext : document_extensions) {
-		ERR_CONTINUE(ext.is_null());
-		Error err = ext->parse_image_data(p_state, p_bytes, p_mime_type, r_image);
-		ERR_CONTINUE_MSG(err != OK, "glTF: Encountered error " + itos(err) + " when parsing image " + itos(p_index) + " in file " + p_state->filename + ". Continuing.");
-		if (!r_image->is_empty()) {
-			r_file_extension = ext->get_image_file_extension();
-			return r_image;
-		}
-	}
+// Decodes with the built-in PNG and JPEG loaders only. It reads nothing but its arguments, so images can
+// be decoded at the same time on the worker threads.
+static void _decode_builtin_image(const Vector<uint8_t> &p_bytes, const String &p_mime_type, int p_index, Ref<Image> &r_image, String &r_file_extension) {
 	// If no extension wanted to import this data as an image, try to load a PNG or JPEG.
 	// First we honor the mime types if they were defined.
 	if (p_mime_type == "image/png") { // Load buffer as PNG.
@@ -2211,6 +2202,48 @@ Ref<Image> GLTFDocument::_parse_image_bytes_into_image(Ref<GLTFState> p_state, c
 	if (r_image->is_empty()) {
 		ERR_PRINT(vformat("glTF: Couldn't load image index '%d' with its given mimetype: %s.", p_index, p_mime_type));
 	}
+}
+
+// One image of the "images" array while it is parsed: its bytes are gathered first, decoded together and
+// handed to the state in the order of the file.
+struct GLTFImageEntry {
+	enum Kind {
+		SKIP, // Nothing is added to the state.
+		TEXTURE, // An external file that the resource loader already made.
+		PLACEHOLDER, // No data: an empty slot keeps the count.
+		DECODE, // Bytes to decode.
+	};
+	Kind kind = SKIP;
+	Ref<Texture2D> texture;
+	Ref<Image> source_image;
+	Vector<uint8_t> data;
+	String mime_type;
+	String name;
+	String resource_uri;
+	Ref<Image> image;
+	String file_extension;
+	bool decoded = false;
+};
+
+static void _decode_image_task(void *p_userdata, uint32_t p_index) {
+	GLTFImageEntry *entry = (*static_cast<Vector<GLTFImageEntry *> *>(p_userdata))[p_index];
+	_decode_builtin_image(entry->data, entry->mime_type, p_index, entry->image, entry->file_extension);
+}
+
+Ref<Image> GLTFDocument::_parse_image_bytes_into_image(Ref<GLTFState> p_state, const Vector<uint8_t> &p_bytes, const String &p_mime_type, int p_index, String &r_file_extension) {
+	Ref<Image> r_image;
+	r_image.instantiate();
+	// Check if any GLTFDocumentExtensions want to import this data as an image.
+	for (Ref<GLTFDocumentExtension> ext : document_extensions) {
+		ERR_CONTINUE(ext.is_null());
+		Error err = ext->parse_image_data(p_state, p_bytes, p_mime_type, r_image);
+		ERR_CONTINUE_MSG(err != OK, "glTF: Encountered error " + itos(err) + " when parsing image " + itos(p_index) + " in file " + p_state->filename + ". Continuing.");
+		if (!r_image->is_empty()) {
+			r_file_extension = ext->get_image_file_extension();
+			return r_image;
+		}
+	}
+	_decode_builtin_image(p_bytes, p_mime_type, p_index, r_image, r_file_extension);
 	return r_image;
 }
 
@@ -2335,6 +2368,8 @@ Error GLTFDocument::_parse_images(Ref<GLTFState> p_state, const String &p_base_p
 
 	const Array &images = p_state->json["images"];
 	HashSet<String> used_names;
+	LocalVector<GLTFImageEntry> entries;
+	entries.resize(images.size());
 	for (int i = 0; i < images.size(); i++) {
 		const Dictionary &dict = images[i];
 
@@ -2347,7 +2382,10 @@ Error GLTFDocument::_parse_images(Ref<GLTFState> p_state, const String &p_base_p
 
 		// We'll assume that we use either URI or bufferView, so let's warn the user
 		// if their image somehow uses both. And fail if it has neither.
-		ERR_CONTINUE_MSG(!dict.has("uri") && !dict.has("bufferView"), "Invalid image definition in glTF file, it should specify an 'uri' or 'bufferView'.");
+		if (!dict.has("uri") && !dict.has("bufferView")) {
+			ERR_PRINT("Invalid image definition in glTF file, it should specify an 'uri' or 'bufferView'.");
+			continue; // The entry stays SKIP.
+		}
 		if (dict.has("uri") && dict.has("bufferView")) {
 			WARN_PRINT("Invalid image definition in glTF file using both 'uri' and 'bufferView'. 'uri' will take precedence.");
 		}
@@ -2397,8 +2435,9 @@ Error GLTFDocument::_parse_images(Ref<GLTFState> p_state, const String &p_base_p
 				if (ResourceLoader::exists(resource_uri)) {
 					Ref<Texture2D> texture = ResourceLoader::load(resource_uri, "Texture2D");
 					if (texture.is_valid()) {
-						p_state->images.push_back(texture);
-						p_state->source_images.push_back(texture->get_image());
+						entries[i].kind = GLTFImageEntry::TEXTURE;
+						entries[i].texture = texture;
+						entries[i].source_image = texture->get_image();
 						continue;
 					}
 				}
@@ -2413,8 +2452,7 @@ Error GLTFDocument::_parse_images(Ref<GLTFState> p_state, const String &p_base_p
 				data = FileAccess::get_file_as_bytes(resource_uri);
 				if (data.is_empty()) {
 					WARN_PRINT(vformat("glTF: Image index '%d' couldn't be loaded as a buffer of MIME type '%s' from URI: %s because there was no data to load. Skipping it.", i, mime_type, resource_uri));
-					p_state->images.push_back(Ref<Texture2D>()); // Placeholder to keep count.
-					p_state->source_images.push_back(Ref<Image>());
+					entries[i].kind = GLTFImageEntry::PLACEHOLDER;
 					continue;
 				}
 			}
@@ -2434,15 +2472,68 @@ Error GLTFDocument::_parse_images(Ref<GLTFState> p_state, const String &p_base_p
 		// Note: There are paths above that return early, so this point might not be reached.
 		if (data.is_empty()) {
 			WARN_PRINT(vformat("glTF: Image index '%d' couldn't be loaded, no data found. Skipping it.", i));
-			p_state->images.push_back(Ref<Texture2D>()); // Placeholder to keep count.
-			p_state->source_images.push_back(Ref<Image>());
+			entries[i].kind = GLTFImageEntry::PLACEHOLDER;
 			continue;
 		}
-		// Parse the image data from bytes into an Image resource and save if needed.
-		String file_extension;
-		Ref<Image> img = _parse_image_bytes_into_image(p_state, data, mime_type, i, file_extension);
-		img->set_name(image_name);
-		_parse_image_save_image(p_state, data, resource_uri, file_extension, i, img);
+		entries[i].kind = GLTFImageEntry::DECODE;
+		entries[i].data = data;
+		entries[i].mime_type = mime_type;
+		entries[i].name = image_name;
+		entries[i].resource_uri = resource_uri;
+	}
+
+	// The extensions may be scripts, so they look at the images here, one after another.
+	for (uint32_t i = 0; i < entries.size(); i++) {
+		GLTFImageEntry &entry = entries[i];
+		if (entry.kind != GLTFImageEntry::DECODE) {
+			continue;
+		}
+		entry.image.instantiate();
+		for (Ref<GLTFDocumentExtension> ext : document_extensions) {
+			ERR_CONTINUE(ext.is_null());
+			Error err = ext->parse_image_data(p_state, entry.data, entry.mime_type, entry.image);
+			ERR_CONTINUE_MSG(err != OK, "glTF: Encountered error " + itos(err) + " when parsing image " + itos(i) + " in file " + p_state->filename + ". Continuing.");
+			if (!entry.image->is_empty()) {
+				entry.file_extension = ext->get_image_file_extension();
+				entry.decoded = true;
+				break;
+			}
+		}
+	}
+
+	// The built-in decoders for the rest. The images do not depend on each other, so each one is a task.
+	Vector<GLTFImageEntry *> todo;
+	for (uint32_t i = 0; i < entries.size(); i++) {
+		if (entries[i].kind == GLTFImageEntry::DECODE && !entries[i].decoded) {
+			todo.push_back(&entries[i]);
+		}
+	}
+	if (todo.size() > 1) {
+		WorkerThreadPool::GroupID group = WorkerThreadPool::get_singleton()->add_native_group_task(&_decode_image_task, &todo, todo.size(), -1, true, "glTF image decode");
+		WorkerThreadPool::get_singleton()->wait_for_group_task_completion(group);
+	} else if (todo.size() == 1) {
+		_decode_image_task(&todo, 0);
+	}
+
+	// Into the state in the order of the file, as when they were decoded one at a time.
+	for (uint32_t i = 0; i < entries.size(); i++) {
+		GLTFImageEntry &entry = entries[i];
+		switch (entry.kind) {
+			case GLTFImageEntry::SKIP:
+				break;
+			case GLTFImageEntry::TEXTURE:
+				p_state->images.push_back(entry.texture);
+				p_state->source_images.push_back(entry.source_image);
+				break;
+			case GLTFImageEntry::PLACEHOLDER:
+				p_state->images.push_back(Ref<Texture2D>()); // Placeholder to keep count.
+				p_state->source_images.push_back(Ref<Image>());
+				break;
+			case GLTFImageEntry::DECODE:
+				entry.image->set_name(entry.name);
+				_parse_image_save_image(p_state, entry.data, entry.resource_uri, entry.file_extension, i, entry.image);
+				break;
+		}
 	}
 
 	print_verbose("glTF: Total images: " + itos(p_state->images.size()));
